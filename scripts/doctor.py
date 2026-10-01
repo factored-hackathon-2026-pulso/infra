@@ -28,13 +28,36 @@ def probe(tool, timeout_seconds=5):
             "remediation": "" if passed else f"Check the local {tool} installation."}
 
 
+def probe_podman(timeout_seconds=5):
+    executable = shutil.which("podman")
+    if not executable:
+        return {"code": "podman_missing", "status": "failed",
+                "remediation": "Install Podman or expose it in this session's PATH."}
+    try:
+        result = subprocess.run([executable, "info", "--format", "json"],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                timeout=timeout_seconds, check=False)
+    except subprocess.TimeoutExpired:
+        code = "podman_backend_timeout"
+    except OSError:
+        code = "podman_backend_unavailable"
+    else:
+        code = "podman_backend_ready" if result.returncode == 0 else "podman_backend_unavailable"
+    passed = code == "podman_backend_ready"
+    return {"code": code, "status": "passed" if passed else "failed",
+            "remediation": "" if passed else "Start or repair the Podman backend; do not create a machine automatically."}
+
+
 def valid_config(config):
     if not isinstance(config, dict) or type(config.get("schema_version")) is not int:
         return False
     if config["schema_version"] != 1:
         return False
     if config.get("profile") == "stack":
-        return set(config) == {"schema_version", "profile"}
+        if not set(config) <= {"schema_version", "profile", "probe_timeout_seconds"}:
+            return False
+        deadline = config.get("probe_timeout_seconds", 5)
+        return type(deadline) is int and 1 <= deadline <= 30
     if config.get("profile") != "tools" or not {"schema_version", "profile", "checks"} <= set(config) or not set(config) <= {"schema_version", "profile", "checks", "probe_timeout_seconds"}:
         return False
     deadline = config.get("probe_timeout_seconds", 5)
@@ -73,11 +96,10 @@ def main():
         passed = all(check["status"] == "passed" for check in checks)
         print(json.dumps({"status": "passed" if passed else "failed", "scope": "tools", "checks": checks}))
         return 0 if passed else 1
-    print(json.dumps({"status": "blocked", "checks": [{
-        "code": "preflight_not_implemented", "status": "blocked",
-        "remediation": "Tool and dependency checks are pending the next U01 slice.",
-    }]}))
-    return 1
+    check = probe_podman(config.get("probe_timeout_seconds", 5))
+    passed = check["status"] == "passed"
+    print(json.dumps({"status": "passed" if passed else "failed", "scope": "stack", "checks": [check]}))
+    return 0 if passed else 1
 
 if __name__ == "__main__":
     raise SystemExit(main())

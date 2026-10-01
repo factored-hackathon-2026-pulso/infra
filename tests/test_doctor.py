@@ -11,6 +11,119 @@ DOCTOR = Path(__file__).resolve().parents[1] / "scripts" / "doctor.py"
 
 
 class DoctorContractTest(unittest.TestCase):
+    def test_stack_profile_reports_reachable_podman_backend(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.json"
+            config.write_text(json.dumps({
+                "schema_version": 1, "profile": "stack",
+            }), encoding="utf-8")
+            if os.name == "nt":
+                podman = Path(directory) / "podman.cmd"
+                podman.write_text("@echo off\r\nexit /b 0\r\n", encoding="utf-8")
+                path_extensions = ".COM;.EXE;.BAT;.CMD"
+            else:
+                podman = Path(directory) / "podman"
+                podman.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                podman.chmod(0o700)
+                path_extensions = os.environ.get("PATHEXT", "")
+            environment = dict(os.environ, PATH=directory, PATHEXT=path_extensions)
+            result = subprocess.run(
+                [sys.executable, str(DOCTOR), "--config", str(config), "--json"],
+                capture_output=True, text=True, timeout=10, check=False, env=environment,
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["status"], "passed")
+        self.assertEqual(report["checks"][0]["code"], "podman_backend_ready")
+
+    def test_stack_profile_accepts_versioned_probe_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.json"
+            config.write_text(json.dumps({
+                "schema_version": 1, "profile": "stack", "probe_timeout_seconds": 2,
+            }), encoding="utf-8")
+            environment = dict(os.environ, PATH=directory)
+            result = subprocess.run(
+                [sys.executable, str(DOCTOR), "--config", str(config), "--json"],
+                capture_output=True, text=True, timeout=10, check=False, env=environment,
+            )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(json.loads(result.stdout)["checks"][0]["code"], "podman_missing")
+
+    def test_stack_profile_times_out_without_echoing_podman_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.json"
+            config.write_text(json.dumps({
+                "schema_version": 1, "profile": "stack", "probe_timeout_seconds": 1,
+            }), encoding="utf-8")
+            if os.name == "nt":
+                podman = Path(directory) / "podman.cmd"
+                podman.write_text(
+                    "@echo sensitive_podman_output\r\n%SystemRoot%\\System32\\ping.exe -n 4 127.0.0.1 >nul\r\nexit /b 0\r\n",
+                    encoding="utf-8",
+                )
+                path_extensions = ".COM;.EXE;.BAT;.CMD"
+            else:
+                podman = Path(directory) / "podman"
+                podman.write_text("#!/bin/sh\nprintf sensitive_podman_output\nsleep 3\n", encoding="utf-8")
+                podman.chmod(0o700)
+                path_extensions = os.environ.get("PATHEXT", "")
+            environment = dict(os.environ, PATH=directory, PATHEXT=path_extensions)
+            result = subprocess.run(
+                [sys.executable, str(DOCTOR), "--config", str(config), "--json"],
+                capture_output=True, text=True, timeout=10, check=False, env=environment,
+            )
+        self.assertEqual(result.returncode, 1)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["checks"][0]["code"], "podman_backend_timeout")
+        self.assertNotIn("sensitive_podman_output", result.stdout + result.stderr)
+
+    def test_stack_profile_uses_only_the_fixed_podman_info_argv(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "config.json"
+            arguments = root / "arguments.txt"
+            config.write_text(json.dumps({"schema_version": 1, "profile": "stack"}), encoding="utf-8")
+            if os.name == "nt":
+                podman = root / "podman.cmd"
+                podman.write_text(
+                    f"@echo off\r\necho %* > \"{arguments}\"\r\nexit /b 0\r\n",
+                    encoding="utf-8",
+                )
+                path_extensions = ".COM;.EXE;.BAT;.CMD"
+            else:
+                podman = root / "podman"
+                podman.write_text(
+                    f"#!/bin/sh\nprintf '%s' \"$*\" > '{arguments}'\nexit 0\n", encoding="utf-8",
+                )
+                podman.chmod(0o700)
+                path_extensions = os.environ.get("PATHEXT", "")
+            environment = dict(os.environ, PATH=directory, PATHEXT=path_extensions)
+            result = subprocess.run(
+                [sys.executable, str(DOCTOR), "--config", str(config), "--json"],
+                capture_output=True, text=True, timeout=10, check=False, env=environment,
+            )
+            observed_arguments = arguments.read_text(encoding="utf-8").strip()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(observed_arguments, "info --format json")
+
+    def test_stack_profile_fails_when_podman_is_not_available(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.json"
+            config.write_text(json.dumps({
+                "schema_version": 1, "profile": "stack",
+            }), encoding="utf-8")
+            environment = dict(os.environ, PATH=directory)
+            result = subprocess.run(
+                [sys.executable, str(DOCTOR), "--config", str(config), "--json"],
+                capture_output=True, text=True, timeout=10, check=False, env=environment,
+            )
+        self.assertEqual(result.returncode, 1)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["scope"], "stack")
+        self.assertEqual(report["checks"][0]["code"], "podman_missing")
+
     def test_tools_profile_accepts_versioned_probe_deadline(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "config.json"
@@ -108,7 +221,7 @@ class DoctorContractTest(unittest.TestCase):
         report = json.loads(result.stdout)
         self.assertEqual(report["checks"][0]["code"], "config_invalid")
 
-    def test_existing_config_does_not_claim_unimplemented_checks_passed(self):
+    def test_stack_profile_does_not_claim_ready_when_podman_is_unusable(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "config.json"
             config.write_text('{"schema_version":1,"profile":"stack"}', encoding="utf-8")
@@ -118,8 +231,10 @@ class DoctorContractTest(unittest.TestCase):
             )
         self.assertNotEqual(result.returncode, 0)
         report = json.loads(result.stdout)
-        self.assertEqual(report["status"], "blocked")
-        self.assertEqual(report["checks"][0]["code"], "preflight_not_implemented")
+        self.assertEqual(report["status"], "failed")
+        self.assertIn(report["checks"][0]["code"], {
+            "podman_missing", "podman_backend_unavailable", "podman_backend_timeout",
+        })
         self.assertTrue(report["checks"][0]["remediation"])
 
     def test_malformed_configuration_is_reported_without_echoing_contents(self):
