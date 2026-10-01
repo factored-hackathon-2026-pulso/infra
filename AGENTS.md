@@ -1,6 +1,6 @@
 # Pulso infra — agent contract
 
-Read CONTEXT.md and relevant docs/adr before changing code. Windows/PowerShell first. This repo owns local environment and infrastructure for improvement-engine, not Agent Core or an LLM gateway.
+Read CONTEXT.md and relevant docs/adr before changing code. Windows/PowerShell first. This repo owns Terraform/AWS deployment infrastructure for improvement-engine, not its local environment, Agent Core or an LLM gateway.
 
 ## Development discipline
 
@@ -13,7 +13,7 @@ Read CONTEXT.md and relevant docs/adr before changing code. Windows/PowerShell f
 
 ## Verified commands
 
-Bootstrap tests: `python -m unittest discover -s tests -v`. These test the preflight contract; they do not certify Podman/AWS. Subsequent slice docs must add commands only after verifying them.
+Bootstrap tests: `python -m unittest discover -s tests -v`. Terraform CI also runs fmt and credential-free init/validate for every environment. These checks do not certify AWS or authorize an apply. Subsequent slice docs must add commands only after verifying them.
 
 ## Agent skills
 

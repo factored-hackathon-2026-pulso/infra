@@ -9,3 +9,5 @@ __pycache__/
 .scratch/
 output/
 data/
+!terraform/modules/data/
+!terraform/modules/data/*.tf

@@ -22,3 +22,18 @@ jobs:
           persist-credentials: false
       - name: Test portable infrastructure contracts (not stack readiness)
         run: python -m unittest discover -s tests -v
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive terraform
+      - name: Validate Terraform roots without credentials or remote state
+        shell: pwsh
+        run: |
+          foreach ($environment in "demo", "staging", "prod") {
+            terraform -chdir="terraform/envs/$environment" init -backend=false -input=false -lockfile=readonly
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            terraform -chdir="terraform/envs/$environment" validate
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

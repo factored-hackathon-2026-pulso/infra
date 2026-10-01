@@ -1,53 +1,38 @@
 # Pulso infrastructure
 
-Infrastructure and local environment for the autonomous improvement service.
+Terraform and AWS deployment infrastructure for the autonomous improvement
+service. This repository does not own the engine's local runtime or test
+harness: `improvement-engine` owns Compose/Podman, fixtures, PostgreSQL,
+LocalStack and integration CI.
 
-## Current slices
+## Terraform baseline
 
-Windows-first agent guidance and partial read-only doctor contract remain in
-place. No working local Podman/PG/S3 stack, Terraform deployment or cloud
-resources are claimed.
+`terraform/envs/{demo,staging,prod}` declares credential-free provider,
+backend and deployment input contracts. `terraform/modules/` separates network,
+data, identity/OIDC, compute and observability interfaces. This baseline creates
+no AWS resources, remote state or credentials; those require a reviewed,
+environment-specific Terraform slice and an approved plan.
 
-Run `python -m unittest discover -s tests -v` from this directory. The
-contract tests cover missing/invalid configuration, installed and missing
-tools, explicit blocking of unimplemented stack checks, and the reusable
-PostgreSQL CI boundary. Run `python scripts/doctor.py --config
-path/to/config.json --json`; the partial doctor intentionally cannot certify
-readiness yet.
+Copy an environment's `backend.hcl.example` outside Git and supply it only via
+approved deployment configuration. State, plan files, credentials, data and PII
+are ignored. `terraform init -backend=false` is used by CI solely to validate
+the module graph without remote-state access.
 
-Run `python scripts/doctor.py --config local/preflight.tools.json --json` for
-read-only Git/Python probes. Success has scope `tools`, not stack readiness.
-Optional `probe_timeout_seconds` accepts integers 1–30 (default 5); no custom
-commands or arguments are allowed and process output is discarded.
+Run:
 
-Run `python scripts/doctor.py --config local/preflight.stack.json --json` to
-see the pending stack gate (expected exit 1). Podman, PostgreSQL/S3
-connectivity and Core compatibility are not implemented in this slice.
-
-`postgres-integration.yml` is a reusable GitHub Actions workflow for the
-improvement-engine's explicit, ignored PostgreSQL artifact-migration test. It
-creates an isolated service database on GitHub-hosted Ubuntu runners; it does
-not use repository/environment secrets or deploy anything. A caller invokes it
-by SHA, for example:
-
-```yaml
-jobs:
-  postgres-artifact-migration:
-    uses: pulso-factored/infra/.github/workflows/postgres-integration.yml@<infra-commit-sha>
+```powershell
+python -m unittest discover -s tests -v
+terraform fmt -check -recursive terraform
 ```
 
-The workflow checks out the caller repository, so this must only be invoked by
-a repository that has `improvement-engine-core`, its U02 migration test, and
-Rust 1.98.1. Its fixed command cannot be supplied by the caller and preserves
-the caller's lockfile with `--locked`. Do not reuse the CI-only URL outside the
-ephemeral service database.
+CI validates every environment without `apply`. It has no reusable engine-test
+workflow and does not invoke `improvement-engine`.
 
-Before its first use, confirm in the `infra` repository Actions settings that
-the private reusable workflow is accessible to `improvement-engine`; GitHub
-controls this policy outside of this repository. The first caller CI run is the
-only evidence that the cross-repository boundary and real PostgreSQL gate work.
+## Legacy inventory
 
-See [agent instructions](AGENTS.md), [context](CONTEXT.md) and the slice
-journals. CI runs the portable Python contract tests on Windows/Linux; remote
-green is still distinct from local green. Configuration belongs in Git and
-must not contain credentials.
+The existing `local/` profiles and `scripts/doctor.py` remain only as a
+non-authoritative migration inventory. Do not extend or use them as a deployment
+stack. See [I04 migration inventory](docs/migration/i04-legacy-local-assets.md).
+
+See [agent instructions](AGENTS.md), [context](CONTEXT.md) and slice journals.
+A green structural check is not evidence of an AWS deployment.
