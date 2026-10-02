@@ -55,6 +55,11 @@ Tracing instrumentation is owned by the engine/platform; CloudWatch log groups
 and alarms are the AWS sink and alert substrate. See `docs/gaps/OPEN_GAPS.md`
 and `docs/runbooks/` before an apply.
 
+The authoritative declaration/deferred/external-prerequisite split is in
+[the deployment-status contract](docs/architecture/deployment-status.md).
+In particular, an ECS/RDS declaration does not prove runtime database access,
+and CPU alarms alone do not prove actionable operational monitoring.
+
 ## Removed local harness
 
 The obsolete infra-local doctor/profiles were removed because they had no CI or

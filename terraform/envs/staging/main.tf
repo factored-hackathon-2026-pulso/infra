@@ -24,18 +24,20 @@ module "security" {
   tags   = local.tags
 }
 module "identity" {
-  source                   = "../../modules/identity"
-  name                     = local.name
-  aws_region               = var.aws_region
-  github_oidc_provider_arn = var.github_oidc_provider_arn
-  github_subjects          = var.github_subjects
-  permissions_boundary_arn = var.permissions_boundary_arn
-  deploy_policy_json       = var.deploy_policy_json
-  runtime_secret_arn       = module.secrets.runtime_secret_arn
-  source_bucket_arn        = module.storage.source_bucket_arn
-  artifact_bucket_arn      = module.storage.artifact_bucket_arn
-  kms_key_arn              = var.kms_key_arn
-  tags                     = local.tags
+  source                      = "../../modules/identity"
+  name                        = local.name
+  aws_region                  = var.aws_region
+  github_oidc_provider_arn    = var.github_oidc_provider_arn
+  github_subjects             = var.github_subjects
+  permissions_boundary_arn    = var.permissions_boundary_arn
+  deploy_policy_json          = var.deploy_policy_json
+  runtime_secret_arn          = module.secrets.runtime_secret_arn
+  runtime_database_secret_arn = var.runtime_database_secret_arn
+  rds_master_secret_arn_guard = module.database.master_user_secret_arn
+  source_bucket_arn           = module.storage.source_bucket_arn
+  artifact_bucket_arn         = module.storage.artifact_bucket_arn
+  kms_key_arn                 = var.kms_key_arn
+  tags                        = local.tags
 }
 module "storage" {
   source               = "../../modules/storage"
@@ -57,23 +59,28 @@ module "database" {
   deletion_protection        = var.deletion_protection
   skip_final_snapshot        = var.skip_final_snapshot
   multi_az                   = var.multi_az
+  kms_key_arn                = var.kms_key_arn
   tags                       = local.tags
 }
+
 module "compute" {
-  source             = "../../modules/compute"
-  name               = local.name
-  aws_region         = var.aws_region
-  image_digest       = var.image_digest
-  private_subnet_ids = module.network.private_subnet_ids
-  security_group_ids = [module.security.workload_security_group_id]
-  execution_role_arn = module.identity.execution_role_arn
-  task_role_arn      = module.identity.runtime_role_arn
-  container_port     = var.container_port
-  task_cpu           = var.task_cpu
-  task_memory        = var.task_memory
-  desired_count      = var.desired_count
-  log_retention_days = var.log_retention_days
-  tags               = local.tags
+  source                      = "../../modules/compute"
+  name                        = local.name
+  aws_region                  = var.aws_region
+  image_digest                = var.image_digest
+  private_subnet_ids          = module.network.private_subnet_ids
+  security_group_ids          = [module.security.workload_security_group_id]
+  execution_role_arn          = module.identity.execution_role_arn
+  task_role_arn               = module.identity.runtime_role_arn
+  database_endpoint           = module.database.endpoint
+  runtime_database_secret_arn = var.runtime_database_secret_arn
+  rds_master_secret_arn_guard = module.database.master_user_secret_arn
+  container_port              = var.container_port
+  task_cpu                    = var.task_cpu
+  task_memory                 = var.task_memory
+  desired_count               = var.desired_count
+  log_retention_days          = var.log_retention_days
+  tags                        = local.tags
 }
 module "observability" {
   source                 = "../../modules/observability"

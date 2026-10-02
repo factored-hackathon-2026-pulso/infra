@@ -31,6 +31,9 @@ variable "skip_final_snapshot" {
 variable "multi_az" {
   type = bool
 }
+variable "kms_key_arn" {
+  type = string
+}
 variable "tags" {
   type = map(string)
 }
