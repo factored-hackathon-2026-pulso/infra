@@ -33,6 +33,7 @@ module "identity" {
   source_bucket_arn               = module.storage.source_bucket_arn
   runtime_secret_arn              = module.secrets.runtime_secret_arn
   runtime_secret_kms_key_arn      = var.kms_key_arn
+  aws_region                      = var.aws_region
   tags                            = local.tags
 }
 

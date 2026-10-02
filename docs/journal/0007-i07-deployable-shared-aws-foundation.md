@@ -37,8 +37,9 @@ is assumed.
 The ECS task-definition `secrets` reference is resolved by the execution role,
 before the task role is active. The exact runtime secret is therefore granted
 to a dedicated execution-role policy; `kms:Decrypt` is added only for the
-explicit optional customer-managed key input. The task role keeps only S3
-runtime-data permissions. Root and module inputs that did not control a
+explicit optional customer-managed key input, constrained to the region's
+Secrets Manager `kms:ViaService` and the exact secret encryption context. The
+task role keeps only S3 runtime-data permissions. Root and module inputs that did not control a
 resource (`compute_engine`, caller resource IDs, ingress placeholders and
 unwired alarm/trace settings) were removed rather than retained as deceptive
 configuration. The source bucket now shares the artifact bucket's incomplete

@@ -57,6 +57,11 @@ class DeployableAwsFoundationTests(unittest.TestCase):
         self.assertIn('role   = aws_iam_role.execution.id', identity)
         self.assertIn('"secretsmanager:GetSecretValue"', identity)
         self.assertIn('"kms:Decrypt"', identity)
+        self.assertIn('for_each = var.runtime_secret_kms_key_arn == "" ? [] : [var.runtime_secret_kms_key_arn]', identity)
+        self.assertIn('variable = "kms:ViaService"', identity)
+        self.assertIn('values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]', identity)
+        self.assertIn('variable = "kms:EncryptionContext:SecretARN"', identity)
+        self.assertIn('values   = [var.runtime_secret_arn]', identity)
         self.assertNotIn('"secretsmanager:GetSecretValue"], Resource = [var.runtime_secret_arn]', identity.split('data "aws_iam_policy_document" "execution_secret"')[0])
         self.assertFalse(list((MODULES / "api").glob("*.tf")))
 

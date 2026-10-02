@@ -21,6 +21,18 @@ data "aws_iam_policy_document" "execution_secret" {
       sid       = "DecryptRuntimeSecret"
       actions   = ["kms:Decrypt"]
       resources = [statement.value]
+
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "kms:EncryptionContext:SecretARN"
+        values   = [var.runtime_secret_arn]
+      }
     }
   }
 }

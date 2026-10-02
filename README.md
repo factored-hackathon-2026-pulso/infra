@@ -18,7 +18,9 @@ uploads bank data or a secret value.
 ECS resolves the configured runtime secret before a container starts. The
 execution role therefore receives a narrowly scoped `GetSecretValue` grant for
 that exact secret; an optional `kms:Decrypt` grant is created only when the
-environment supplies a customer-managed KMS key. The task role remains limited
+environment supplies a customer-managed KMS key, and then only through that
+region's Secrets Manager service with the exact secret ARN encryption context.
+The task role remains limited
 to the source/artifact object paths it consumes at runtime.
 
 `staging` is the validation environment. `prod` is the demo environment for
