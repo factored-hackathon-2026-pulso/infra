@@ -1,16 +1,4 @@
-resource "aws_apigatewayv2_api" "this" {
-  name          = "${var.name}-api"
-  protocol_type = "HTTP"
-  tags          = var.tags
-}
-resource "aws_apigatewayv2_stage" "this" {
-  api_id      = aws_apigatewayv2_api.this.id
-  name        = "$default"
-  auto_deploy = true
-  access_log_settings {
-    destination_arn = var.access_log_group_arn
-    format = jsonencode({ requestId = "$context.requestId", status = "$context.status"
-    })
-  }
-  tags = var.tags
-}
+# No public API is declared here. HTTP API v2 is public by default and cannot
+# use VPC security groups, so declaring an API without an authenticated route
+# or approved private ingress would manufacture an unauthenticated endpoint.
+# See docs/contracts/edge-integration-v1.md and docs/gaps/OPEN_GAPS.md.

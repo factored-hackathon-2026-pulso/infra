@@ -1,9 +1,2 @@
-variable "name" {
-  type = string
-}
-variable "access_log_group_arn" {
-  type = string
-}
-variable "tags" {
-  type = map(string)
-}
+# Intentionally empty. This retained module directory is a migration marker;
+# it is not invoked by staging or prod until an edge integration is approved.

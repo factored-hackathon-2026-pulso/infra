@@ -58,13 +58,19 @@ class TerraformFirstBaselineContractTests(unittest.TestCase):
     def test_aws_deployment_modules_have_explicit_interfaces(self):
         expected_modules = {
             "network": ("vpc_cidr", "public_subnet_cidrs", "private_subnet_cidrs", "nat_strategy"),
-            "security": ("vpc_id", "allowed_ingress_cidrs"),
-            "identity": ("github_subjects", "workload_assume_role_policy_json"),
+            "security": ("vpc_id",),
+            "identity": (
+                "github_oidc_provider_arn",
+                "github_subjects",
+                "runtime_secret_arn",
+                "source_bucket_arn",
+                "artifact_bucket_arn",
+                "kms_key_arn",
+            ),
             "compute": ("image_digest", "private_subnet_ids", "task_role_arn"),
             "storage": ("artifact_bucket_name", "source_bucket_name"),
             "database": ("postgres_engine_version", "private_subnet_ids"),
             "secrets": ("secret_name_prefix", "kms_key_arn"),
-            "api": ("access_log_group_arn",),
             "observability": ("alarm_email", "service_name", "cluster_name"),
         }
         for module, expected_variables in expected_modules.items():

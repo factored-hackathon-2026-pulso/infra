@@ -21,19 +21,20 @@ module "security" {
   source                = "../../modules/security"
   name                  = local.name
   vpc_id                = module.network.vpc_id
-  allowed_ingress_cidrs = var.allowed_ingress_cidrs
-  container_port        = var.container_port
   tags                  = local.tags
 }
 module "identity" {
   source                           = "../../modules/identity"
   name                             = local.name
-  github_oidc_thumbprints          = var.github_oidc_thumbprints
+  aws_region                       = var.aws_region
+  github_oidc_provider_arn         = var.github_oidc_provider_arn
   github_subjects                  = var.github_subjects
   permissions_boundary_arn         = var.permissions_boundary_arn
   deploy_policy_json               = var.deploy_policy_json
-  workload_assume_role_policy_json = var.workload_assume_role_policy_json
-  workload_policy_json             = var.workload_policy_json
+  runtime_secret_arn               = module.secrets.runtime_secret_arn
+  source_bucket_arn                = module.storage.source_bucket_arn
+  artifact_bucket_arn              = module.storage.artifact_bucket_arn
+  kms_key_arn                      = var.kms_key_arn
   tags                             = local.tags
 }
 module "storage" {
@@ -65,8 +66,8 @@ module "compute" {
   image_digest       = var.image_digest
   private_subnet_ids = module.network.private_subnet_ids
   security_group_ids = [module.security.workload_security_group_id]
-  execution_role_arn = module.identity.workload_role_arn
-  task_role_arn      = module.identity.workload_role_arn
+  execution_role_arn = module.identity.execution_role_arn
+  task_role_arn      = module.identity.runtime_role_arn
   container_port     = var.container_port
   task_cpu           = var.task_cpu
   task_memory        = var.task_memory
@@ -84,12 +85,6 @@ module "observability" {
   cpu_alarm_threshold    = var.cpu_alarm_threshold
   log_retention_days     = var.log_retention_days
   tags                   = local.tags
-}
-module "api" {
-  source               = "../../modules/api"
-  name                 = local.name
-  access_log_group_arn = module.observability.api_log_group_arn
-  tags                 = local.tags
 }
 module "secrets" {
   source               = "../../modules/secrets"

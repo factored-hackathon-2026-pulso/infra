@@ -1,11 +1,12 @@
-resource "aws_cloudwatch_log_group" "api" {
-  name              = "/pulso/${var.name}/api"
-  retention_in_days = var.log_retention_days
-  tags              = var.tags
-}
 resource "aws_sns_topic" "alarm" {
   name = "${var.name}-alarms"
   tags = var.tags
+}
+resource "aws_sns_topic_subscription" "alarm_email" {
+  count     = var.alarm_email == null ? 0 : 1
+  topic_arn = aws_sns_topic.alarm.arn
+  protocol  = "email"
+  endpoint  = var.alarm_email
 }
 resource "aws_cloudwatch_metric_alarm" "ecs_cpu" {
   alarm_name          = "${var.name}-ecs-cpu-high"

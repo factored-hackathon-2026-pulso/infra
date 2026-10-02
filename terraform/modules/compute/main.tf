@@ -19,7 +19,23 @@ resource "aws_ecs_task_definition" "this" {
   memory                   = var.task_memory
   execution_role_arn       = var.execution_role_arn
   task_role_arn            = var.task_role_arn
-  container_definitions = jsonencode([{ name = "improvement-engine", image = var.image_digest, essential = true
+  container_definitions = jsonencode([{
+    name      = "improvement-engine"
+    image     = var.image_digest
+    essential = true
+    portMappings = [{
+      containerPort = var.container_port
+      hostPort      = var.container_port
+      protocol      = "tcp"
+    }]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.task.name
+        "awslogs-region"        = var.aws_region
+        "awslogs-stream-prefix" = "engine"
+      }
+    }
   }])
 }
 resource "aws_ecs_service" "this" {

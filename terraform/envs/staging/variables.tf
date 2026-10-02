@@ -16,14 +16,11 @@ variable "availability_zones" {
 variable "nat_strategy" {
   type = string
 }
-variable "allowed_ingress_cidrs" {
-  type = list(string)
-}
 variable "container_port" {
   type = number
 }
-variable "github_oidc_thumbprints" {
-  type = list(string)
+variable "github_oidc_provider_arn" {
+  type = string
 }
 variable "github_subjects" {
   type = list(string)
@@ -32,12 +29,6 @@ variable "permissions_boundary_arn" {
   type = string
 }
 variable "deploy_policy_json" {
-  type = string
-}
-variable "workload_assume_role_policy_json" {
-  type = string
-}
-variable "workload_policy_json" {
   type = string
 }
 variable "artifact_bucket_name" {
@@ -89,7 +80,9 @@ variable "log_retention_days" {
   type = number
 }
 variable "alarm_email" {
-  type = string
+  type     = string
+  default  = null
+  nullable = true
 }
 variable "cpu_alarm_threshold" {
   type = number

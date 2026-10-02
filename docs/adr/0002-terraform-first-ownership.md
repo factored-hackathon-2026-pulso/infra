@@ -38,10 +38,12 @@ separate reviewed decision with explicit authorization.
 
 The foundation models VPC public/private subnet and NAT posture, security-group
 and IAM-policy boundaries, deferred compute/database, storage, Secrets Manager,
-API Gateway, and logs/metrics/traces/alarms through environment inputs and
-module contracts. It creates no cloud resources. VPN topology, concrete
-compute/database engine and provider-specific API/trace integrations remain
-explicitly deferred rather than silently chosen.
+and logs/metrics/traces/alarms through environment inputs and module contracts.
+It creates no cloud resources. A public HTTP API is specifically deferred: an
+HTTP API v2 cannot be guarded by a security group, and an API with no approved
+authorizer or private-ingress integration would be an unauthenticated public
+surface. VPN topology, concrete compute/database engine and provider-specific
+edge/trace integrations remain explicitly deferred rather than silently chosen.
 
 The obsolete local doctor/preflight harness was removed after verifying it had
 no infra CI or Terraform consumer. This is a scope cleanup, not a claim that

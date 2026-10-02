@@ -9,7 +9,13 @@ LocalStack and integration CI.
 
 `terraform/envs/{staging,prod}` compose concrete Terraform modules for VPC,
 public/private subnets and NAT, security groups, GitHub OIDC roles, ECS/Fargate,
-S3, RDS PostgreSQL, Secrets Manager, HTTP API Gateway, CloudWatch and SNS.
+S3, RDS PostgreSQL, Secrets Manager, CloudWatch and SNS. The public API edge
+is deliberately deferred until its authentication or private-ingress contract
+is approved.
+
+Both S3 buckets require clients to send explicit SSE-KMS headers using the
+configured CMK on every write; see
+[the storage encryption contract](docs/contracts/storage-encryption-v1.md).
 Terraform has not been applied: a checked-in resource declaration is a deploy
 plan, not evidence that AWS resources, remote state or credentials exist.
 
@@ -40,8 +46,11 @@ The OIDC issuer is fixed to GitHub Actions, but its thumbprint and allowed
 subjects are environment inputs: this repository never guesses a GitHub
 repository/branch trust rule. A VPN/customer gateway is intentionally not
 created: the input data necessary to establish a private attachment has not
-been approved. API Gateway is provisioned as an auditable entry layer but no
-route integration is invented before the engine exposes its deployment target.
+been approved. A public HTTP API is **not** provisioned: API Gateway HTTP APIs
+are public by default and do not attach to security groups. The versioned edge
+integration contract specifies what must be approved before one can be added;
+no route integration is invented before the engine exposes its deployment
+target.
 Tracing instrumentation is owned by the engine/platform; CloudWatch log groups
 and alarms are the AWS sink and alert substrate. See `docs/gaps/OPEN_GAPS.md`
 and `docs/runbooks/` before an apply.

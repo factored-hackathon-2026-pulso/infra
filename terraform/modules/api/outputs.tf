@@ -1,3 +1,3 @@
-output "api_endpoint" {
-  value = aws_apigatewayv2_api.this.api_endpoint
-}
+# Intentionally no endpoint output while the public/private edge boundary is
+# deferred. A future approved edge module must add its resource and output in
+# the same reviewed slice.
