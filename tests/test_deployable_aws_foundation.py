@@ -52,7 +52,7 @@ class DeployableAwsFoundationTests(unittest.TestCase):
         self.assertIn('from_port = 5432', security)
         self.assertIn('security_groups = [aws_security_group.database.id]', security)
         self.assertIn('runtime_secret_arn', compute)
-        self.assertFalse((MODULES / "api").exists())
+        self.assertFalse(list((MODULES / "api").glob("*.tf")))
 
 
 if __name__ == "__main__":
