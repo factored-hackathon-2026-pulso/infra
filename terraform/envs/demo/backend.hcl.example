@@ -1,6 +1,0 @@
-# Copy outside Git and fill values via approved CI/OIDC configuration. Never add credentials here.
-bucket       = "replace-with-remote-state-bucket"
-key          = "pulso/demo/terraform.tfstate"
-region       = "us-east-1"
-use_lockfile = true
-encrypt      = true

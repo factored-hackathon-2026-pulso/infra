@@ -31,7 +31,9 @@ jobs:
       - name: Validate Terraform roots without credentials or remote state
         shell: pwsh
         run: |
-          foreach ($environment in "demo", "staging", "prod") {
+          # Staging validates first; prod is the hackathon demo environment.
+          # This is validation only: no credentials, plan, apply or deploy.
+          foreach ($environment in "staging", "prod") {
             terraform -chdir="terraform/envs/$environment" init -backend=false -input=false -lockfile=readonly
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             terraform -chdir="terraform/envs/$environment" validate

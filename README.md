@@ -7,11 +7,17 @@ LocalStack and integration CI.
 
 ## Terraform baseline
 
-`terraform/envs/{demo,staging,prod}` declares credential-free provider,
+`terraform/envs/{staging,prod}` declares credential-free provider,
 backend and deployment input contracts. `terraform/modules/` separates network,
 data, identity/OIDC, compute and observability interfaces. This baseline creates
 no AWS resources, remote state or credentials; those require a reviewed,
 environment-specific Terraform slice and an approved plan.
+
+`staging` is the validation environment. `prod` is the demo environment for
+the hackathon; it is not a banking production deployment. Staging validates
+before a separately authorized production-demo change. There is deliberately no
+plan, apply or deployment workflow yet: CI only formats and validates both
+roots without credentials or a remote backend.
 
 Copy an environment's `backend.hcl.example` outside Git and supply it only via
 approved deployment configuration. State, plan files, credentials, data and PII
