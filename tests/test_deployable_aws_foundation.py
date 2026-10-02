@@ -51,10 +51,12 @@ class DeployableAwsFoundationTests(unittest.TestCase):
         compute = (MODULES / "compute" / "main.tf").read_text(encoding="utf-8")
         identity = (MODULES / "identity" / "main.tf").read_text(encoding="utf-8")
         self.assertIn('resource "aws_vpc_security_group_egress_rule" "runtime_to_database"', security)
+        self.assertIn('resource "aws_vpc_security_group_egress_rule" "runtime_https"', security)
         self.assertIn('resource "aws_vpc_security_group_ingress_rule" "database_from_runtime"', security)
         self.assertRegex(security, r"referenced_security_group_id\s*=\s*aws_security_group\.database\.id")
         self.assertRegex(security, r"referenced_security_group_id\s*=\s*aws_security_group\.runtime\.id")
         self.assertEqual(security.count("from_port                    = 5432"), 2)
+        self.assertNotIn("  egress {", security)
         self.assertIn('runtime_secret_arn', compute)
         self.assertIn('resource "aws_iam_role_policy" "execution_secret"', identity)
         self.assertIn('role   = aws_iam_role.execution.id', identity)
@@ -118,6 +120,12 @@ class DeployableAwsFoundationTests(unittest.TestCase):
             self.assertEqual(outside_string_semicolons(path.read_text(encoding="utf-8")), [], path)
         for path in ROOT.glob("terraform/**/*.tftest.hcl"):
             self.assertEqual(outside_string_semicolons(path.read_text(encoding="utf-8")), [], path)
+
+    def test_source_and_artifact_buckets_both_scope_lifecycle_to_all_objects(self):
+        storage = (MODULES / "storage" / "main.tf").read_text(encoding="utf-8")
+        self.assertIn('resource "aws_s3_bucket_lifecycle_configuration" "artifacts"', storage)
+        self.assertIn('resource "aws_s3_bucket_lifecycle_configuration" "source"', storage)
+        self.assertEqual(storage.count('filter {\n      prefix = ""\n    }'), 2)
 
 
 if __name__ == "__main__":
