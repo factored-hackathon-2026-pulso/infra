@@ -29,12 +29,16 @@ That proves formatting plus Terraform configuration and provider-schema
 validation, but not an authenticated AWS plan, API reachability, apply, or
 deployment until CI and an authorized manual plan are observed.
 
-The runtime group changes from the prior inline HTTPS rule to standalone
-egress-rule resources. It keeps `egress = []` on the group as an explicit
-state-migration boundary: Terraform first revokes any former inline rules,
-then reconciles the standalone HTTPS and PostgreSQL rules. This avoids an AWS
-duplicate-rule failure on an existing state while preserving no implicit
-allow-all egress.
+The runtime group owns no inline `ingress`/`egress` arguments; all rules are
+standalone resources. On a new VPC security-group creation, the AWS provider
+removes AWS's default allow-all egress and the two explicit rules then become
+the desired egress surface. A deployed predecessor that tracked an inline
+HTTPS rule cannot be upgraded by mixing either `egress {}` or `egress = []`
+with standalone rules: the provider treats that as conflicting ownership.
+This repository has no deployed I07 state. If a future deployed state needs
+that transition, use an approved, separately reviewed staged state-migration
+runbook (including backup and an explicit maintenance window); do not apply
+this module as an implicit one-step migration.
 
 ## External requirements
 
