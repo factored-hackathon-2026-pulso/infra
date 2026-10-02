@@ -57,11 +57,15 @@ class TerraformFirstBaselineContractTests(unittest.TestCase):
 
     def test_aws_deployment_modules_have_explicit_interfaces(self):
         expected_modules = {
-            "network": ("vpc_cidr", "private_subnet_cidrs"),
-            "data": ("artifact_bucket_name", "source_bucket_name"),
-            "identity": ("github_repository", "environment_name"),
-            "compute": ("image_digest", "private_subnet_ids"),
-            "observability": ("alarm_email", "service_name"),
+            "network": ("vpc_cidr", "public_subnet_cidrs", "private_subnet_cidrs", "nat_strategy"),
+            "security": ("vpc_id", "allowed_ingress_cidrs"),
+            "identity": ("workload_principal", "least_privilege_policy_boundary"),
+            "compute": ("image_digest", "compute_engine", "private_subnet_ids"),
+            "storage": ("artifact_bucket_name", "source_bucket_name"),
+            "database": ("database_engine", "private_subnet_ids"),
+            "secrets": ("secret_name_prefix", "kms_key_arn"),
+            "api": ("api_mode", "private_subnet_ids"),
+            "observability": ("alarm_email", "service_name", "metric_namespace", "trace_mode"),
         }
         for module, expected_variables in expected_modules.items():
             variables = (TERRAFORM / "modules" / module / "variables.tf").read_text(
@@ -95,6 +99,13 @@ class TerraformFirstBaselineContractTests(unittest.TestCase):
         self.assertIn("improvement-engine", migration)
         self.assertIn("not authoritative", migration)
         self.assertIn("Do not add", migration)
+        for target in (
+            "local/preflight.stack.json",
+            "local/preflight.tools.json",
+            "scripts/doctor.py",
+            "tests/test_doctor.py",
+        ):
+            self.assertFalse((ROOT / target).exists(), target)
 
 
 if __name__ == "__main__":

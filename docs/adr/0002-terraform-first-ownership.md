@@ -33,3 +33,16 @@ hackathon demo environment, while `staging` validates its configuration first.
 This repository intentionally has no deployment workflow, AWS credentials,
 OIDC write permission, plan or apply automation. Adding any of those is a
 separate reviewed decision with explicit authorization.
+
+## I06 AWS foundation
+
+The foundation models VPC public/private subnet and NAT posture, security-group
+and IAM-policy boundaries, deferred compute/database, storage, Secrets Manager,
+API Gateway, and logs/metrics/traces/alarms through environment inputs and
+module contracts. It creates no cloud resources. VPN topology, concrete
+compute/database engine and provider-specific API/trace integrations remain
+explicitly deferred rather than silently chosen.
+
+The obsolete local doctor/preflight harness was removed after verifying it had
+no infra CI or Terraform consumer. This is a scope cleanup, not a claim that
+`improvement-engine` has an identical doctor implementation.

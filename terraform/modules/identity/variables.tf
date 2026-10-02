@@ -1,11 +1,11 @@
-variable "github_repository" {
+variable "workload_principal" {
   type        = string
-  description = "Repository allowed to assume environment-scoped deployment roles through OIDC."
+  description = "Runtime service principal selected by a future compute implementation; no OIDC trust is configured."
 }
 
-variable "environment_name" {
+variable "least_privilege_policy_boundary" {
   type        = string
-  description = "GitHub and AWS deployment environment name."
+  description = "Versioned policy-boundary reference or JSON digest for future IAM role/policy creation."
 }
 
 variable "tags" {
