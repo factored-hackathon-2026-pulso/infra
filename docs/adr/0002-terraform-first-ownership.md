@@ -25,3 +25,11 @@ Old local profiles and doctor files are inventory while their engine-local
 replacement is verified. They are not a supported interface and must not grow.
 The previous reusable PostgreSQL engine test workflow is removed, eliminating
 foreign SHA and cross-repository Actions permission coupling.
+
+## Environment posture
+
+Only `staging` and `prod` Terraform roots are supported. `prod` is the
+hackathon demo environment, while `staging` validates its configuration first.
+This repository intentionally has no deployment workflow, AWS credentials,
+OIDC write permission, plan or apply automation. Adding any of those is a
+separate reviewed decision with explicit authorization.

@@ -14,7 +14,7 @@ TERRAFORM = ROOT / "terraform"
 
 class TerraformFirstBaselineContractTests(unittest.TestCase):
     def test_expected_environment_roots_exist_with_provider_and_backend_contracts(self):
-        for environment in ("demo", "staging", "prod"):
+        for environment in ("staging", "prod"):
             root = TERRAFORM / "envs" / environment
             self.assertTrue((root / "main.tf").is_file(), environment)
             self.assertTrue((root / "versions.tf").is_file(), environment)
@@ -45,7 +45,7 @@ class TerraformFirstBaselineContractTests(unittest.TestCase):
     def test_native_s3_lockfile_contract_requires_a_compatible_terraform_ci_version(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         self.assertIn("terraform_version: 1.10.5", workflow)
-        for environment in ("demo", "staging", "prod"):
+        for environment in ("staging", "prod"):
             backend = (TERRAFORM / "envs" / environment / "backend.hcl.example").read_text(
                 encoding="utf-8"
             )
