@@ -1,13 +1,15 @@
-data "aws_iam_policy_document" "task_assume" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["ecs-tasks.amazonaws.com"]
-    }
-  }
-}
 locals {
+  task_assume_policy = {
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = ["sts:AssumeRole"]
+      Principal = {
+        Service = ["ecs-tasks.amazonaws.com"]
+      }
+    }]
+  }
+
   task_policy = {
     Version = "2012-10-17"
     Statement = [
@@ -42,13 +44,13 @@ locals {
 }
 resource "aws_iam_role" "task" {
   name_prefix          = "${var.tags["Environment"]}-pulso-task-"
-  assume_role_policy   = data.aws_iam_policy_document.task_assume.json
+  assume_role_policy   = jsonencode(local.task_assume_policy)
   permissions_boundary = var.least_privilege_policy_boundary == "" ? null : var.least_privilege_policy_boundary
   tags                 = var.tags
 }
 resource "aws_iam_role" "execution" {
   name_prefix          = "${var.tags["Environment"]}-pulso-exec-"
-  assume_role_policy   = data.aws_iam_policy_document.task_assume.json
+  assume_role_policy   = jsonencode(local.task_assume_policy)
   permissions_boundary = var.least_privilege_policy_boundary == "" ? null : var.least_privilege_policy_boundary
   tags                 = var.tags
 }
