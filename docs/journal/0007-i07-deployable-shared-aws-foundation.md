@@ -29,6 +29,13 @@ That proves formatting plus Terraform configuration and provider-schema
 validation, but not an authenticated AWS plan, API reachability, apply, or
 deployment until CI and an authorized manual plan are observed.
 
+The runtime group changes from the prior inline HTTPS rule to standalone
+egress-rule resources. It keeps `egress = []` on the group as an explicit
+state-migration boundary: Terraform first revokes any former inline rules,
+then reconciles the standalone HTTPS and PostgreSQL rules. This avoids an AWS
+duplicate-rule failure on an existing state while preserving no implicit
+allow-all egress.
+
 ## External requirements
 
 Manual plan/apply needs an approved AWS account/region, unique bucket names,

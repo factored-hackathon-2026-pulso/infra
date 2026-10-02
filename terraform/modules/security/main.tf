@@ -3,6 +3,11 @@ resource "aws_security_group" "runtime" {
   description = "Pulso runtime: no public ingress; egress is explicit."
   vpc_id      = var.vpc_id
 
+  # Explicitly removes legacy inline rules before standalone rules reconcile.
+  # This prevents the former inline HTTPS rule from duplicating runtime_https
+  # when an existing state upgrades to this module version.
+  egress = []
+
   tags = var.tags
 }
 

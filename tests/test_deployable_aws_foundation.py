@@ -57,6 +57,7 @@ class DeployableAwsFoundationTests(unittest.TestCase):
         self.assertRegex(security, r"referenced_security_group_id\s*=\s*aws_security_group\.runtime\.id")
         self.assertEqual(security.count("from_port                    = 5432"), 2)
         self.assertNotIn("  egress {", security)
+        self.assertIn("  egress = []", security)
         self.assertIn('runtime_secret_arn', compute)
         self.assertIn('resource "aws_iam_role_policy" "execution_secret"', identity)
         self.assertIn('role   = aws_iam_role.execution.id', identity)
