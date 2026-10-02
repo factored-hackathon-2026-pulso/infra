@@ -1,4 +1,6 @@
-output "storage_boundary" {
-  value       = { artifacts = var.artifact_bucket_name, source = var.source_bucket_name }
-  description = "Storage naming boundary; no bucket or data is provisioned by this foundation."
+output "artifact_bucket_arn" {
+  value = aws_s3_bucket.artifact.arn
+}
+output "source_bucket_arn" {
+  value = aws_s3_bucket.source.arn
 }

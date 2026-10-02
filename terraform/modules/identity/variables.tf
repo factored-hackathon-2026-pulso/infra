@@ -1,14 +1,24 @@
-variable "workload_principal" {
-  type        = string
-  description = "Runtime service principal selected by a future compute implementation; no OIDC trust is configured."
+variable "name" {
+  type = string
 }
-
-variable "least_privilege_policy_boundary" {
-  type        = string
-  description = "Versioned policy-boundary reference or JSON digest for future IAM role/policy creation."
+variable "github_oidc_thumbprints" {
+  type = list(string)
 }
-
+variable "github_subjects" {
+  type = list(string)
+}
+variable "permissions_boundary_arn" {
+  type = string
+}
+variable "deploy_policy_json" {
+  type = string
+}
+variable "workload_assume_role_policy_json" {
+  type = string
+}
+variable "workload_policy_json" {
+  type = string
+}
 variable "tags" {
-  type        = map(string)
-  description = "Mandatory ownership and environment tags."
+  type = map(string)
 }

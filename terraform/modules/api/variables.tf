@@ -1,14 +1,9 @@
-variable "api_mode" {
-  type        = string
-  description = "Deferred API Gateway exposure choice; no API, route or provider integration is created."
+variable "name" {
+  type = string
 }
-
-variable "private_subnet_ids" {
-  type        = list(string)
-  description = "Private network boundary supplied to a future API integration design."
+variable "access_log_group_arn" {
+  type = string
 }
-
 variable "tags" {
-  type        = map(string)
-  description = "Mandatory ownership and environment tags."
+  type = map(string)
 }

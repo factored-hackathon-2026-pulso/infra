@@ -31,13 +31,13 @@ class AwsFoundationContractTests(unittest.TestCase):
         required = {
             "network": ("vpc_cidr", "public_subnet_cidrs", "private_subnet_cidrs", "nat_strategy"),
             "security": ("vpc_id", "allowed_ingress_cidrs"),
-            "identity": ("workload_principal", "least_privilege_policy_boundary"),
-            "compute": ("compute_engine", "private_subnet_ids"),
+            "identity": ("github_subjects", "workload_assume_role_policy_json"),
+            "compute": ("image_digest", "private_subnet_ids"),
             "storage": ("artifact_bucket_name", "source_bucket_name"),
-            "database": ("database_engine", "private_subnet_ids"),
+            "database": ("postgres_engine_version", "private_subnet_ids"),
             "secrets": ("secret_name_prefix", "kms_key_arn"),
-            "api": ("api_mode", "private_subnet_ids"),
-            "observability": ("service_name", "alarm_email"),
+            "api": ("access_log_group_arn",),
+            "observability": ("service_name", "alarm_email", "cluster_name"),
         }
         for module, names in required.items():
             variables = (MODULES / module / "variables.tf").read_text(encoding="utf-8")
@@ -73,6 +73,34 @@ class AwsFoundationContractTests(unittest.TestCase):
             "${{ secrets.",
         ):
             self.assertNotIn(forbidden, workflow)
+
+    def test_foundation_modules_create_concrete_aws_boundaries_not_only_variable_interfaces(self):
+        required_resources = {
+            "network": ("aws_vpc", "aws_subnet", "aws_nat_gateway"),
+            "security": ("aws_security_group",),
+            "identity": ("aws_iam_role", "aws_iam_openid_connect_provider"),
+            "compute": ("aws_ecs_cluster", "aws_ecs_service"),
+            "storage": ("aws_s3_bucket", "aws_s3_bucket_public_access_block"),
+            "database": ("aws_db_subnet_group", "aws_db_instance"),
+            "secrets": ("aws_secretsmanager_secret",),
+            "api": ("aws_apigatewayv2_api", "aws_apigatewayv2_stage"),
+            "observability": ("aws_cloudwatch_log_group", "aws_cloudwatch_metric_alarm"),
+        }
+        for module, resource_names in required_resources.items():
+            source = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in (MODULES / module).glob("*.tf")
+            )
+            for resource_name in resource_names:
+                self.assertIn(f'resource "{resource_name}"', source, module)
+
+    def test_environment_wires_outputs_instead_of_requiring_caller_supplied_resource_ids(self):
+        for environment in ("staging", "prod"):
+            main = (ENVS / environment / "main.tf").read_text(encoding="utf-8")
+            self.assertIn("module.network.vpc_id", main)
+            self.assertIn("module.network.private_subnet_ids", main)
+            self.assertIn("module.security.workload_security_group_id", main)
+            self.assertNotIn('variable "vpc_id"', (ENVS / environment / "variables.tf").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

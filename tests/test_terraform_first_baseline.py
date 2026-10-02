@@ -59,13 +59,13 @@ class TerraformFirstBaselineContractTests(unittest.TestCase):
         expected_modules = {
             "network": ("vpc_cidr", "public_subnet_cidrs", "private_subnet_cidrs", "nat_strategy"),
             "security": ("vpc_id", "allowed_ingress_cidrs"),
-            "identity": ("workload_principal", "least_privilege_policy_boundary"),
-            "compute": ("image_digest", "compute_engine", "private_subnet_ids"),
+            "identity": ("github_subjects", "workload_assume_role_policy_json"),
+            "compute": ("image_digest", "private_subnet_ids", "task_role_arn"),
             "storage": ("artifact_bucket_name", "source_bucket_name"),
-            "database": ("database_engine", "private_subnet_ids"),
+            "database": ("postgres_engine_version", "private_subnet_ids"),
             "secrets": ("secret_name_prefix", "kms_key_arn"),
-            "api": ("api_mode", "private_subnet_ids"),
-            "observability": ("alarm_email", "service_name", "metric_namespace", "trace_mode"),
+            "api": ("access_log_group_arn",),
+            "observability": ("alarm_email", "service_name", "cluster_name"),
         }
         for module, expected_variables in expected_modules.items():
             variables = (TERRAFORM / "modules" / module / "variables.tf").read_text(

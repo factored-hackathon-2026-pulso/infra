@@ -1,14 +1,12 @@
 variable "artifact_bucket_name" {
-  type        = string
-  description = "Reserved immutable artifact/extract bucket name."
+  type = string
 }
-
 variable "source_bucket_name" {
-  type        = string
-  description = "Reserved readonly source-data bucket name; Terraform never uploads dataset bytes."
+  type = string
 }
-
+variable "kms_key_arn" {
+  type = string
+}
 variable "tags" {
-  type        = map(string)
-  description = "Mandatory ownership and environment tags."
+  type = map(string)
 }

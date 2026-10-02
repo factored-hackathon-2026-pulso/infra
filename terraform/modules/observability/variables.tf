@@ -1,24 +1,24 @@
-variable "alarm_email" {
-  type        = string
-  description = "Operational destination reserved for infrastructure alarm routing."
+variable "name" {
+  type = string
 }
-
 variable "service_name" {
-  type        = string
-  description = "Stable service identity used by logs, metrics and traces."
+  type = string
 }
-
-variable "metric_namespace" {
-  type        = string
-  description = "Future CloudWatch metric namespace; no metric stream is provisioned."
+variable "cluster_name" {
+  type = string
 }
-
-variable "trace_mode" {
-  type        = string
-  description = "Future trace-export posture; provider collector/integration remains deferred."
+variable "db_instance_identifier" {
+  type = string
 }
-
+variable "alarm_email" {
+  type = string
+}
+variable "cpu_alarm_threshold" {
+  type = number
+}
+variable "log_retention_days" {
+  type = number
+}
 variable "tags" {
-  type        = map(string)
-  description = "Mandatory ownership and environment tags."
+  type = map(string)
 }

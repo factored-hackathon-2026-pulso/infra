@@ -1,4 +1,9 @@
-output "security_group_boundary" {
-  value       = { vpc_id = var.vpc_id, allowed_ingress_cidrs = var.allowed_ingress_cidrs }
-  description = "Security-group policy boundary; no group is provisioned by the foundation."
+output "edge_security_group_id" {
+  value = aws_security_group.edge.id
+}
+output "workload_security_group_id" {
+  value = aws_security_group.workload.id
+}
+output "database_security_group_id" {
+  value = aws_security_group.database.id
 }

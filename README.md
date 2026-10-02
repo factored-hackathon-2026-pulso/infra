@@ -7,13 +7,11 @@ LocalStack and integration CI.
 
 ## Terraform baseline
 
-`terraform/envs/{staging,prod}` declares credential-free provider, backend and
-deployment input contracts. `terraform/modules/` now declares interfaces for
-network (public/private subnets and NAT posture), security groups, IAM policy
-boundaries, deferred compute/database engines, storage, Secrets Manager, API
-Gateway and logs/metrics/traces/alarms. This is a Terraform **foundation**: it
-does not create AWS resources, remote state or credentials; those require a
-reviewed environment-specific implementation and approved plan.
+`terraform/envs/{staging,prod}` compose concrete Terraform modules for VPC,
+public/private subnets and NAT, security groups, GitHub OIDC roles, ECS/Fargate,
+S3, RDS PostgreSQL, Secrets Manager, HTTP API Gateway, CloudWatch and SNS.
+Terraform has not been applied: a checked-in resource declaration is a deploy
+plan, not evidence that AWS resources, remote state or credentials exist.
 
 `staging` is the validation environment. `prod` is the demo environment for
 the hackathon; it is not a banking production deployment. Staging validates
@@ -36,13 +34,17 @@ terraform fmt -check -recursive terraform
 CI validates every environment without `apply`. It has no reusable engine-test
 workflow and does not invoke `improvement-engine`.
 
-## Deferred boundaries
+## Explicit operational boundaries
 
-VPN topology, compute engine, database engine, API integration and tracing
-provider are configuration/deferred decisions. The modules expose their inputs
-without selecting a vendor or creating an integration. Cost and availability
-trade-offs—especially NAT strategy—must be selected per environment in a later
-approved plan.
+The OIDC issuer is fixed to GitHub Actions, but its thumbprint and allowed
+subjects are environment inputs: this repository never guesses a GitHub
+repository/branch trust rule. A VPN/customer gateway is intentionally not
+created: the input data necessary to establish a private attachment has not
+been approved. API Gateway is provisioned as an auditable entry layer but no
+route integration is invented before the engine exposes its deployment target.
+Tracing instrumentation is owned by the engine/platform; CloudWatch log groups
+and alarms are the AWS sink and alert substrate. See `docs/gaps/OPEN_GAPS.md`
+and `docs/runbooks/` before an apply.
 
 ## Removed local harness
 

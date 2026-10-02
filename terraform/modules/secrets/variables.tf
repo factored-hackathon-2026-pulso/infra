@@ -1,14 +1,12 @@
 variable "secret_name_prefix" {
-  type        = string
-  description = "Environment-scoped prefix for future Secrets Manager metadata; no secret value is stored here."
+  type = string
 }
-
 variable "kms_key_arn" {
-  type        = string
-  description = "Optional customer-managed KMS key ARN selected by a future security slice."
+  type = string
 }
-
+variable "recovery_window_days" {
+  type = number
+}
 variable "tags" {
-  type        = map(string)
-  description = "Mandatory ownership and environment tags."
+  type = map(string)
 }
