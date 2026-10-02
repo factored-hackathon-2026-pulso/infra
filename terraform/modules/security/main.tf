@@ -10,13 +10,6 @@ resource "aws_security_group" "runtime" {
     cidr_blocks = ["0.0.0.0/0"]
     description = "AWS APIs and approved external dependencies"
   }
-  egress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.database.id]
-    description     = "PostgreSQL only"
-  }
   tags = var.tags
 }
 
@@ -25,11 +18,23 @@ resource "aws_security_group" "database" {
   description = "Pulso database accepts PostgreSQL only from runtime."
   vpc_id      = var.vpc_id
 
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.runtime.id]
-  }
   tags = var.tags
+}
+
+resource "aws_vpc_security_group_egress_rule" "runtime_to_database" {
+  security_group_id            = aws_security_group.runtime.id
+  referenced_security_group_id = aws_security_group.database.id
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+  description                  = "PostgreSQL only"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "database_from_runtime" {
+  security_group_id            = aws_security_group.database.id
+  referenced_security_group_id = aws_security_group.runtime.id
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+  description                  = "PostgreSQL only from runtime"
 }

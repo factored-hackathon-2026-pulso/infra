@@ -53,6 +53,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
   rule {
     id     = "abort-incomplete-upload"
     status = "Enabled"
+    filter {
+      prefix = ""
+    }
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
@@ -63,6 +66,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "source" {
   rule {
     id     = "abort-incomplete-upload"
     status = "Enabled"
+    filter {
+      prefix = ""
+    }
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }

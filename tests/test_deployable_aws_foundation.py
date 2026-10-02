@@ -50,11 +50,11 @@ class DeployableAwsFoundationTests(unittest.TestCase):
         security = (MODULES / "security" / "main.tf").read_text(encoding="utf-8")
         compute = (MODULES / "compute" / "main.tf").read_text(encoding="utf-8")
         identity = (MODULES / "identity" / "main.tf").read_text(encoding="utf-8")
-        self.assertRegex(security, r"from_port\s*=\s*5432")
-        self.assertRegex(
-            security,
-            r"security_groups\s*=\s*\[aws_security_group\.database\.id\]",
-        )
+        self.assertIn('resource "aws_vpc_security_group_egress_rule" "runtime_to_database"', security)
+        self.assertIn('resource "aws_vpc_security_group_ingress_rule" "database_from_runtime"', security)
+        self.assertRegex(security, r"referenced_security_group_id\s*=\s*aws_security_group\.database\.id")
+        self.assertRegex(security, r"referenced_security_group_id\s*=\s*aws_security_group\.runtime\.id")
+        self.assertEqual(security.count("from_port                    = 5432"), 2)
         self.assertIn('runtime_secret_arn', compute)
         self.assertIn('resource "aws_iam_role_policy" "execution_secret"', identity)
         self.assertIn('role   = aws_iam_role.execution.id', identity)
