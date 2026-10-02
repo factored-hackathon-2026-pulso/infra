@@ -4,16 +4,13 @@
 for local development, engine fixtures, Podman Compose, LocalStack, PostgreSQL
 integration tests, or an engine doctor.
 
-The pre-existing `local/` profiles and `scripts/doctor.py` remain temporarily
-as a migration inventory only. Their contents must not be extended, invoked by
-infra CI, or presented as an AWS deployment readiness check. The canonical
-owner is `pulso-factored/improvement-engine`, where I03 established the
-engine-local test and development boundary.
+The pre-existing `local/` profiles and `scripts/doctor.py` were removed in I06
+after verifying they had no infra CI/Terraform consumer. Their removal does not
+claim a like-for-like replacement in `improvement-engine`; see the exact
+evidence and boundary in [I06 removal](i06-legacy-local-removal.md).
 
 Do not add Compose files, container test workflows, fixture data, an engine
-doctor, or a reusable engine-test workflow to this repository. A future
-cleanup PR may remove inventory assets only after it verifies the replacement
-in `improvement-engine`; this baseline intentionally makes no such claim.
+doctor, or a reusable engine-test workflow to this repository.
 
 The former `postgres-integration.yml` reusable workflow has been removed:
 an `infra` PR cannot validate an `improvement-engine` migration and must not

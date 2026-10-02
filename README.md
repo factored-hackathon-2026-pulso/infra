@@ -7,11 +7,13 @@ LocalStack and integration CI.
 
 ## Terraform baseline
 
-`terraform/envs/{staging,prod}` declares credential-free provider,
-backend and deployment input contracts. `terraform/modules/` separates network,
-data, identity/OIDC, compute and observability interfaces. This baseline creates
-no AWS resources, remote state or credentials; those require a reviewed,
-environment-specific Terraform slice and an approved plan.
+`terraform/envs/{staging,prod}` declares credential-free provider, backend and
+deployment input contracts. `terraform/modules/` now declares interfaces for
+network (public/private subnets and NAT posture), security groups, IAM policy
+boundaries, deferred compute/database engines, storage, Secrets Manager, API
+Gateway and logs/metrics/traces/alarms. This is a Terraform **foundation**: it
+does not create AWS resources, remote state or credentials; those require a
+reviewed environment-specific implementation and approved plan.
 
 `staging` is the validation environment. `prod` is the demo environment for
 the hackathon; it is not a banking production deployment. Staging validates
@@ -34,11 +36,19 @@ terraform fmt -check -recursive terraform
 CI validates every environment without `apply`. It has no reusable engine-test
 workflow and does not invoke `improvement-engine`.
 
-## Legacy inventory
+## Deferred boundaries
 
-The existing `local/` profiles and `scripts/doctor.py` remain only as a
-non-authoritative migration inventory. Do not extend or use them as a deployment
-stack. See [I04 migration inventory](docs/migration/i04-legacy-local-assets.md).
+VPN topology, compute engine, database engine, API integration and tracing
+provider are configuration/deferred decisions. The modules expose their inputs
+without selecting a vendor or creating an integration. Cost and availability
+trade-offs—especially NAT strategy—must be selected per environment in a later
+approved plan.
+
+## Removed local harness
+
+The obsolete infra-local doctor/profiles were removed because they had no CI or
+Terraform consumer and contradict this repository's Terraform-first scope. This
+does not claim an engine replacement; see [I06 removal evidence](docs/migration/i06-legacy-local-removal.md).
 
 See [agent instructions](AGENTS.md), [context](CONTEXT.md) and slice journals.
 A green structural check is not evidence of an AWS deployment.

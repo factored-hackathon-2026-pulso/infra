@@ -1,39 +1,23 @@
-variable "aws_region" {
-  type = string
-}
-
-variable "github_repository" {
-  type = string
-}
-
-variable "image_digest" {
-  type = string
-}
-
-variable "alarm_email" {
-  type = string
-}
-
-variable "vpc_cidr" {
-  type = string
-}
-
-variable "private_subnet_cidrs" {
-  type = list(string)
-}
-
-variable "artifact_bucket_name" {
-  type = string
-}
-
-variable "source_bucket_name" {
-  type = string
-}
-
-variable "private_subnet_ids" {
-  type = list(string)
-}
-
-variable "security_group_ids" {
-  type = list(string)
-}
+variable "aws_region" { type = string }
+variable "vpc_cidr" { type = string }
+variable "public_subnet_cidrs" { type = list(string) }
+variable "private_subnet_cidrs" { type = list(string) }
+variable "availability_zones" { type = list(string) }
+variable "nat_strategy" { type = string }
+variable "vpc_id" { type = string }
+variable "allowed_ingress_cidrs" { type = list(string) }
+variable "workload_principal" { type = string }
+variable "least_privilege_policy_boundary" { type = string }
+variable "image_digest" { type = string }
+variable "compute_engine" { type = string }
+variable "private_subnet_ids" { type = list(string) }
+variable "security_group_ids" { type = list(string) }
+variable "artifact_bucket_name" { type = string }
+variable "source_bucket_name" { type = string }
+variable "database_engine" { type = string }
+variable "secret_name_prefix" { type = string }
+variable "kms_key_arn" { type = string }
+variable "api_mode" { type = string }
+variable "alarm_email" { type = string }
+variable "metric_namespace" { type = string }
+variable "trace_mode" { type = string }

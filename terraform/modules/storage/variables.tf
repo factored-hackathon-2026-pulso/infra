@@ -1,11 +1,11 @@
 variable "artifact_bucket_name" {
   type        = string
-  description = "Name reserved for immutable artifact and extract storage."
+  description = "Reserved immutable artifact/extract bucket name."
 }
 
 variable "source_bucket_name" {
   type        = string
-  description = "Name reserved for approved readonly source data."
+  description = "Reserved readonly source-data bucket name; Terraform never uploads dataset bytes."
 }
 
 variable "tags" {

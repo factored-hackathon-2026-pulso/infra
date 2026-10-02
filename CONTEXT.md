@@ -6,4 +6,8 @@ Terraform has two environments only: `staging` for validation and `prod` for
 the hackathon demo. No deployment is automated; a future manually approved
 plan/apply design must be introduced as its own reviewed slice.
 
-The legacy doctor/local assets are migration inventory, not an authoritative stack. Missing configuration/tool/backend is a failure with remediation, not a healthy stack. LocalStack emulates S3 only and does not certify AWS IAM/VPC. Source data stays outside this repository.
+The Terraform foundation exposes public/private networking and NAT posture,
+security, IAM boundaries, deferred compute/database, storage, Secrets, API and
+observability contracts. It does not select a VPN topology, compute/database
+engine or provider integration. The obsolete local doctor/profile harness was
+removed after no-consumer verification; source data stays outside this repo.
