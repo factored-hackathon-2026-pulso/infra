@@ -1,6 +1,6 @@
 # Infrastructure context
 
-Owns Terraform and AWS deployment of the improvement service: remote-state contracts, network, identity/OIDC, data, compute and infrastructure observability. `improvement-engine` owns reproducible local development, Compose/Podman, fixtures, LocalStack, PostgreSQL integration tests and its CI. Agent Core and model routing are external products; consumer configuration is not implementation of those products.
+Owns Terraform and AWS deployment of the improvement service and of Agent Core (ADR 0003): remote-state contracts, network, identity/OIDC, data, compute and infrastructure observability. `improvement-engine` owns reproducible local development, Compose/Podman, fixtures, LocalStack, PostgreSQL integration tests and its CI. Agent Core is a second workload on the same foundation (ADR 0003): its code, image build, schema, migrations and runtime behavior stay in `agent-core`. Model routing is an external product; consumer configuration is not implementation of it.
 
 Terraform has two environments only: `staging` for validation and `prod` for
 the hackathon demo. No deployment is automated; a future manually approved
