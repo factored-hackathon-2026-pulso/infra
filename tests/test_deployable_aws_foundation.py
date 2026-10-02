@@ -50,8 +50,11 @@ class DeployableAwsFoundationTests(unittest.TestCase):
         security = (MODULES / "security" / "main.tf").read_text(encoding="utf-8")
         compute = (MODULES / "compute" / "main.tf").read_text(encoding="utf-8")
         identity = (MODULES / "identity" / "main.tf").read_text(encoding="utf-8")
-        self.assertIn('from_port = 5432', security)
-        self.assertIn('security_groups = [aws_security_group.database.id]', security)
+        self.assertRegex(security, r"from_port\s*=\s*5432")
+        self.assertRegex(
+            security,
+            r"security_groups\s*=\s*\[aws_security_group\.database\.id\]",
+        )
         self.assertIn('runtime_secret_arn', compute)
         self.assertIn('resource "aws_iam_role_policy" "execution_secret"', identity)
         self.assertIn('role   = aws_iam_role.execution.id', identity)
@@ -83,6 +86,38 @@ class DeployableAwsFoundationTests(unittest.TestCase):
             variables = (ROOT / "terraform" / "envs" / environment / "variables.tf").read_text(encoding="utf-8")
             for name in removed_inputs:
                 self.assertNotIn(f'variable "{name}"', variables, f"{environment}: {name}")
+
+    def test_terraform_native_syntax_does_not_use_semicolon_statement_delimiters(self):
+        def outside_string_semicolons(source: str) -> list[int]:
+            hits = []
+            quoted = False
+            escaped = False
+            comment = False
+            for index, character in enumerate(source):
+                if comment:
+                    if character == "\n":
+                        comment = False
+                    continue
+                if quoted:
+                    if escaped:
+                        escaped = False
+                    elif character == "\\":
+                        escaped = True
+                    elif character == '"':
+                        quoted = False
+                    continue
+                if character == "#":
+                    comment = True
+                elif character == '"':
+                    quoted = True
+                elif character == ";":
+                    hits.append(index)
+            return hits
+
+        for path in ROOT.glob("terraform/**/*.tf"):
+            self.assertEqual(outside_string_semicolons(path.read_text(encoding="utf-8")), [], path)
+        for path in ROOT.glob("terraform/**/*.tftest.hcl"):
+            self.assertEqual(outside_string_semicolons(path.read_text(encoding="utf-8")), [], path)
 
 
 if __name__ == "__main__":

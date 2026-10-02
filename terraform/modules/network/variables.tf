@@ -21,7 +21,10 @@ variable "availability_zones" {
 variable "nat_strategy" {
   type        = string
   description = "Cost/availability choice: none, single, or per_az."
-  validation { condition = contains(["none", "single", "per_az"], var.nat_strategy); error_message = "nat_strategy must be none, single, or per_az." }
+  validation {
+    condition     = contains(["none", "single", "per_az"], var.nat_strategy)
+    error_message = "nat_strategy must be none, single, or per_az."
+  }
 }
 
 variable "tags" {

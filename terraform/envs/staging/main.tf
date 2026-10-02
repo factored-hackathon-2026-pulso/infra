@@ -87,4 +87,9 @@ module "observability" {
   tags             = local.tags
 }
 
-check "private_compute_requires_nat" { assert { condition = var.desired_count == 0 || var.nat_strategy != "none"; error_message = "desired_count > 0 requires NAT in v1; VPC endpoints are not yet implemented." } }
+check "private_compute_requires_nat" {
+  assert {
+    condition     = var.desired_count == 0 || var.nat_strategy != "none"
+    error_message = "desired_count > 0 requires NAT in v1; VPC endpoints are not yet implemented."
+  }
+}
