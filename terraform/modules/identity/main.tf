@@ -32,8 +32,8 @@ locals {
         Resource = [var.runtime_secret_kms_key_arn]
         Condition = {
           StringEquals = {
-            "kms:ViaService"                    = "secretsmanager.${var.aws_region}.amazonaws.com"
-            "kms:EncryptionContext:SecretARN"   = var.runtime_secret_arn
+            "kms:ViaService"                  = "secretsmanager.${var.aws_region}.amazonaws.com"
+            "kms:EncryptionContext:SecretARN" = var.runtime_secret_arn
           }
         }
       }],
@@ -41,16 +41,16 @@ locals {
   }
 }
 resource "aws_iam_role" "task" {
-  name_prefix         = "${var.tags["Environment"]}-pulso-task-"
-  assume_role_policy  = data.aws_iam_policy_document.task_assume.json
+  name_prefix          = "${var.tags["Environment"]}-pulso-task-"
+  assume_role_policy   = data.aws_iam_policy_document.task_assume.json
   permissions_boundary = var.least_privilege_policy_boundary == "" ? null : var.least_privilege_policy_boundary
-  tags                = var.tags
+  tags                 = var.tags
 }
 resource "aws_iam_role" "execution" {
-  name_prefix         = "${var.tags["Environment"]}-pulso-exec-"
-  assume_role_policy  = data.aws_iam_policy_document.task_assume.json
+  name_prefix          = "${var.tags["Environment"]}-pulso-exec-"
+  assume_role_policy   = data.aws_iam_policy_document.task_assume.json
   permissions_boundary = var.least_privilege_policy_boundary == "" ? null : var.least_privilege_policy_boundary
-  tags                = var.tags
+  tags                 = var.tags
 }
 resource "aws_iam_role_policy_attachment" "execution" {
   role       = aws_iam_role.execution.name

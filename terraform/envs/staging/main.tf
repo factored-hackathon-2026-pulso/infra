@@ -59,16 +59,16 @@ module "storage" {
 }
 
 module "database" {
-  source             = "../../modules/database"
-  database_engine    = var.database_engine
-  private_subnet_ids = module.network.private_subnet_ids
-  security_group_ids = [module.security.database_security_group_id]
-  instance_class = var.database_instance_class
+  source                = "../../modules/database"
+  database_engine       = var.database_engine
+  private_subnet_ids    = module.network.private_subnet_ids
+  security_group_ids    = [module.security.database_security_group_id]
+  instance_class        = var.database_instance_class
   backup_retention_days = var.database_backup_retention_days
-  deletion_protection = var.database_deletion_protection
-  skip_final_snapshot = var.database_skip_final_snapshot
-  multi_az = var.database_multi_az
-  tags               = local.tags
+  deletion_protection   = var.database_deletion_protection
+  skip_final_snapshot   = var.database_skip_final_snapshot
+  multi_az              = var.database_multi_az
+  tags                  = local.tags
 }
 
 module "secrets" {
@@ -82,9 +82,9 @@ module "observability" {
   source             = "../../modules/observability"
   service_name       = module.compute.service_name
   log_retention_days = var.log_retention_days
-  alarm_actions = var.alarm_actions
-  cluster_name = "staging-pulso"
-  tags             = local.tags
+  alarm_actions      = var.alarm_actions
+  cluster_name       = "staging-pulso"
+  tags               = local.tags
 }
 
 check "private_compute_requires_nat" {
