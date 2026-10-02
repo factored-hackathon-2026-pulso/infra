@@ -1,4 +1,2 @@
-output "iam_boundary" {
-  value       = { principal = var.workload_principal, policy_boundary = var.least_privilege_policy_boundary }
-  description = "IAM role/policy contract, not an active role or federated trust."
-}
+output "task_role_arn" { value = aws_iam_role.task.arn }
+output "execution_role_arn" { value = aws_iam_role.execution.arn }

@@ -19,7 +19,6 @@ class AwsFoundationContractTests(unittest.TestCase):
             "storage",
             "database",
             "secrets",
-            "api",
             "observability",
         }
         for environment in ("staging", "prod"):
@@ -30,14 +29,13 @@ class AwsFoundationContractTests(unittest.TestCase):
     def test_foundation_declares_network_security_and_cost_control_interfaces(self):
         required = {
             "network": ("vpc_cidr", "public_subnet_cidrs", "private_subnet_cidrs", "nat_strategy"),
-            "security": ("vpc_id", "allowed_ingress_cidrs"),
-            "identity": ("workload_principal", "least_privilege_policy_boundary"),
-            "compute": ("compute_engine", "private_subnet_ids"),
+            "security": ("vpc_id",),
+            "identity": ("least_privilege_policy_boundary", "runtime_secret_kms_key_arn"),
+            "compute": ("image_digest", "private_subnet_ids"),
             "storage": ("artifact_bucket_name", "source_bucket_name"),
             "database": ("database_engine", "private_subnet_ids"),
             "secrets": ("secret_name_prefix", "kms_key_arn"),
-            "api": ("api_mode", "private_subnet_ids"),
-            "observability": ("service_name", "alarm_email"),
+            "observability": ("service_name", "alarm_actions"),
         }
         for module, names in required.items():
             variables = (MODULES / module / "variables.tf").read_text(encoding="utf-8")

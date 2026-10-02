@@ -1,17 +1,8 @@
-output "vpc_cidr" {
-  value       = var.vpc_cidr
-  description = "Contract placeholder until VPC resources are introduced in a reviewed slice."
-}
+output "vpc_id" { value = aws_vpc.this.id }
 
-output "private_subnet_cidrs" {
-  value       = var.private_subnet_cidrs
-  description = "Reserved private subnet contract."
-}
+output "private_subnet_ids" { value = aws_subnet.private[*].id }
 
-output "public_subnet_cidrs" {
-  value       = var.public_subnet_cidrs
-  description = "Public subnet contract for the future VPC implementation."
-}
+output "public_subnet_ids" { value = aws_subnet.public[*].id }
 
 output "nat_strategy" {
   value       = var.nat_strategy
