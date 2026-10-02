@@ -34,15 +34,26 @@ This repository intentionally has no deployment workflow, AWS credentials,
 OIDC write permission, plan or apply automation. Adding any of those is a
 separate reviewed decision with explicit authorization.
 
-## I06 AWS foundation
+## AWS foundation status
 
-The foundation models VPC public/private subnet and NAT posture, security-group
-and IAM-policy boundaries, deferred compute/database, storage, Secrets Manager,
-API Gateway, and logs/metrics/traces/alarms through environment inputs and
-module contracts. It creates no cloud resources. VPN topology, concrete
-compute/database engine and provider-specific API/trace integrations remain
-explicitly deferred rather than silently chosen.
+The foundation declares VPC public/private subnet and NAT posture, security-group
+and IAM-policy boundaries, ECS/Fargate, private RDS PostgreSQL, storage, Secrets
+Manager, and the initial CloudWatch/SNS resource-health substrate through
+environment inputs and module contracts. These are Terraform declarations, not
+evidence that resources have been applied. Runtime database-secret injection, engine health
+semantics, engine metrics/traces and actionable service alarms remain dependent
+integration contracts; they are not implied by resource declarations. A public
+HTTP API is specifically deferred: an
+HTTP API v2 cannot be guarded by a security group, and an API with no approved
+authorizer or private-ingress integration would be an unauthenticated public
+surface. VPN topology, concrete compute/database engine and provider-specific
+edge/trace integrations remain explicitly deferred rather than silently chosen.
 
-The obsolete local doctor/preflight harness was removed after verifying it had
-no infra CI or Terraform consumer. This is a scope cleanup, not a claim that
-`improvement-engine` has an identical doctor implementation.
+The obsolete local doctor/preflight harness is not part of the target infra
+boundary. Its removal is only complete once `improvement-engine` has a linked,
+verified local replacement; this is a scope cleanup, not a claim that the
+engine already has an identical local interface.
+
+There is no deployable API module or public ingress in the current foundation.
+Any future internal edge requires an approved listener, health/auth contract,
+identity-aware proxy and integration tests before Terraform resources are added.
