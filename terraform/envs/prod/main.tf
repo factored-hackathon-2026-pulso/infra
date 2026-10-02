@@ -42,10 +42,10 @@ module "compute" {
   image_digest       = var.image_digest
   private_subnet_ids = module.network.private_subnet_ids
   security_group_ids = [module.security.runtime_security_group_id]
-  task_role_arn = module.identity.task_role_arn
+  task_role_arn      = module.identity.task_role_arn
   execution_role_arn = module.identity.execution_role_arn
-  aws_region = var.aws_region
-  desired_count = var.desired_count
+  aws_region         = var.aws_region
+  desired_count      = var.desired_count
   runtime_secret_arn = module.secrets.runtime_secret_arn
   log_retention_days = var.log_retention_days
   tags               = local.tags

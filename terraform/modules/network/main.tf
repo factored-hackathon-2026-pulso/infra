@@ -66,7 +66,7 @@ resource "aws_nat_gateway" "this" {
 resource "aws_route_table" "private" {
   count  = length(local.zones)
   vpc_id = aws_vpc.this.id
-  tags    = var.tags
+  tags   = var.tags
 }
 resource "aws_route" "private_nat" {
   count                  = local.nat_count == 0 ? 0 : length(local.zones)
