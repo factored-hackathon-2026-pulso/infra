@@ -18,24 +18,24 @@ module "network" {
   tags                 = local.tags
 }
 module "security" {
-  source                = "../../modules/security"
-  name                  = local.name
-  vpc_id                = module.network.vpc_id
-  tags                  = local.tags
+  source = "../../modules/security"
+  name   = local.name
+  vpc_id = module.network.vpc_id
+  tags   = local.tags
 }
 module "identity" {
-  source                           = "../../modules/identity"
-  name                             = local.name
-  aws_region                       = var.aws_region
-  github_oidc_provider_arn         = var.github_oidc_provider_arn
-  github_subjects                  = var.github_subjects
-  permissions_boundary_arn         = var.permissions_boundary_arn
-  deploy_policy_json               = var.deploy_policy_json
-  runtime_secret_arn               = module.secrets.runtime_secret_arn
-  source_bucket_arn                = module.storage.source_bucket_arn
-  artifact_bucket_arn              = module.storage.artifact_bucket_arn
-  kms_key_arn                      = var.kms_key_arn
-  tags                             = local.tags
+  source                   = "../../modules/identity"
+  name                     = local.name
+  aws_region               = var.aws_region
+  github_oidc_provider_arn = var.github_oidc_provider_arn
+  github_subjects          = var.github_subjects
+  permissions_boundary_arn = var.permissions_boundary_arn
+  deploy_policy_json       = var.deploy_policy_json
+  runtime_secret_arn       = module.secrets.runtime_secret_arn
+  source_bucket_arn        = module.storage.source_bucket_arn
+  artifact_bucket_arn      = module.storage.artifact_bucket_arn
+  kms_key_arn              = var.kms_key_arn
+  tags                     = local.tags
 }
 module "storage" {
   source               = "../../modules/storage"

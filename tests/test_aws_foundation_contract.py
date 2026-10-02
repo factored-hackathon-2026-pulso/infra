@@ -138,7 +138,7 @@ class AwsFoundationContractTests(unittest.TestCase):
         security = (MODULES / "security" / "main.tf").read_text(encoding="utf-8")
         self.assertIn('resource "aws_vpc_security_group_egress_rule" "workload_to_database"', security)
         self.assertIn("referenced_security_group_id = aws_security_group.database.id", security)
-        self.assertIn("from_port                     = 5432", security)
+        self.assertIn("from_port                    = 5432", security)
         self.assertIn('resource "aws_vpc_security_group_ingress_rule" "database_from_workload"', security)
 
     def test_identity_has_shared_oidc_and_separate_hardcoded_ecs_roles(self):
