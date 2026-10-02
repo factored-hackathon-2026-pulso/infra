@@ -20,12 +20,14 @@ create resources and roots compose module outputs. `python -m unittest discover
 -s tests -v` passed 20 tests on Windows. CI also runs credential-free Terraform
 tests for both execution-role secret-policy branches: empty KMS input and an
 exactly scoped customer-managed key. They use a mocked AWS provider and do not
-plan, apply or deploy cloud resources.
+contact AWS APIs, create a cloud plan, apply, or deploy resources; each test
+does execute Terraform's local plan-mode evaluation against the mock.
 
 Terraform is absent from this host, so local `fmt`/`validate` is unverified.
 The pinned CI performs credential-free fmt/init/validate for staging then prod.
-That does not prove AWS syntax, plan, apply or deployment until CI and an
-authorized manual plan are observed.
+That proves formatting plus Terraform configuration and provider-schema
+validation, but not an authenticated AWS plan, API reachability, apply, or
+deployment until CI and an authorized manual plan are observed.
 
 ## External requirements
 
