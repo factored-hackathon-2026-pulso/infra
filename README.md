@@ -45,6 +45,14 @@ CI validates every environment without `plan` or `apply`. A future manual plan
 gate needs approved AWS account/OIDC/state inputs and must not reuse the
 engine's local CI.
 
+## Agent Core workload
+
+[ADR 0003](docs/adr/0003-agent-core-workload.md) accepts running Agent Core as a second
+workload on this foundation, in `us-east-1` for now. It is **not declared in Terraform yet**:
+the ownership split, the interface contract with the `agent-core` repository and the
+prerequisites are tracked in the ADR, the [deployment-status contract](docs/architecture/deployment-status.md)
+and [open gaps](docs/gaps/OPEN_GAPS.md).
+
 ## Deferred boundaries
 
 VPN topology, database engine, API integration and tracing provider are
