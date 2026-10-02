@@ -11,6 +11,10 @@ variable "source_bucket_name" { type = string }
 variable "database_engine" { type = string }
 variable "secret_name_prefix" { type = string }
 variable "kms_key_arn" { type = string }
+variable "runtime_database_secret_arn" {
+  type        = string
+  description = "Externally bootstrapped application-role secret ARN; never the RDS master secret."
+}
 variable "desired_count" { type = number }
 variable "database_instance_class" { type = string }
 variable "database_backup_retention_days" { type = number }

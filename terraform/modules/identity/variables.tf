@@ -18,3 +18,26 @@ variable "runtime_secret_kms_key_arn" {
   type        = string
   description = "Optional customer-managed KMS key that encrypts the runtime secret; empty selects the AWS-managed-key path."
 }
+
+variable "runtime_database_secret_arn" {
+  type        = string
+  description = "Externally bootstrapped pulso_runtime secret ARN; never the RDS master secret."
+
+  validation {
+    condition = can(regex(
+      "^arn:(aws|aws-us-gov|aws-cn):secretsmanager:[^:]+:[0-9]{12}:secret:.+$",
+      var.runtime_database_secret_arn,
+    ))
+    error_message = "runtime_database_secret_arn must be a non-empty Secrets Manager ARN for the application database secret."
+  }
+}
+
+variable "runtime_database_secret_kms_key_arn" {
+  type        = string
+  description = "Optional customer-managed KMS key that encrypts the pulso_runtime database secret."
+}
+
+variable "rds_master_secret_arn_guard" {
+  type        = string
+  description = "Terraform-only invariant input; never included in a runtime policy document."
+}

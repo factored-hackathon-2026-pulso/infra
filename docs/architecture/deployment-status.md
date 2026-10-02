@@ -24,15 +24,16 @@ without a capability gap.
 
 ### Runtime database access
 
-Environment configuration must select one
-`database_connection_secret_arn` per environment, which is either the
-RDS-managed master secret or a separately approved application secret. The
-runtime role may read only that secret through Secrets Manager/KMS; Terraform
-does not write its value. The task receives the reference and the engine
-validates the standard database JSON schema at startup without logging it.
+Environment configuration must select one externally bootstrapped
+`pulso_runtime` application-secret ARN per environment. It is distinct from
+the RDS-managed master secret; Terraform blocks any attempt to bind the two
+values. The runtime role may read only the application secret through
+Secrets Manager/KMS; Terraform does not write its value. The task receives
+the endpoint and application-secret reference, and the engine validates the
+standard database JSON schema at startup without logging it.
 
 An ECS/RDS declaration is not deployable application connectivity until the
-selected secret, endpoint/environment binding, rotation behavior and a
+application secret, endpoint/environment binding, rotation behavior and a
 non-sensitive connection smoke test have been verified.
 
 ### Runtime egress

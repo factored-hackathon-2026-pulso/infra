@@ -25,6 +25,10 @@ resource "aws_ecs_task_definition" "this" {
     name      = "improvement-engine"
     image     = var.image_digest
     essential = true
+    environment = [
+      { name = "PULSO_DATABASE_ENDPOINT", value = var.database_endpoint },
+      { name = "PULSO_DATABASE_SECRET_ARN", value = var.runtime_database_secret_arn },
+    ]
     portMappings = [{
       containerPort = 8080
       protocol      = "tcp"
@@ -43,6 +47,12 @@ resource "aws_ecs_task_definition" "this" {
     }
   }])
   tags = var.tags
+  lifecycle {
+    precondition {
+      condition     = var.runtime_database_secret_arn != var.rds_master_secret_arn_guard
+      error_message = "runtime_database_secret_arn must not equal the RDS master secret."
+    }
+  }
 }
 
 resource "aws_ecs_service" "this" {

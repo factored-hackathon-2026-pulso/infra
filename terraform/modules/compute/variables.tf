@@ -12,6 +12,25 @@ variable "security_group_ids" {
   type        = list(string)
   description = "Least-privilege security group IDs attached to compute."
 }
+
+variable "database_endpoint" { type = string }
+
+variable "runtime_database_secret_arn" {
+  type = string
+
+  validation {
+    condition = can(regex(
+      "^arn:(aws|aws-us-gov|aws-cn):secretsmanager:[^:]+:[0-9]{12}:secret:.+$",
+      var.runtime_database_secret_arn,
+    ))
+    error_message = "runtime_database_secret_arn must be a non-empty Secrets Manager ARN for the application database secret."
+  }
+}
+
+variable "rds_master_secret_arn_guard" {
+  type        = string
+  description = "Terraform-only invariant input; never propagated to ECS task configuration or IAM."
+}
 variable "task_role_arn" { type = string }
 variable "execution_role_arn" { type = string }
 variable "aws_region" { type = string }
