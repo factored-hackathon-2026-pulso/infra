@@ -9,13 +9,30 @@ locals {
       }
     }]
   }
-
   task_policy = {
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${var.source_bucket_arn}/*"] },
       { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = ["${var.artifact_bucket_arn}/*"] },
-    ]
+      {
+        Sid      = "ReadRuntimeDatabaseSecret"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.runtime_database_secret_arn]
+      },
+      ]
+      , var.runtime_database_secret_kms_key_arn == "" ? [] : [{
+        Sid      = "DecryptRuntimeDatabaseSecret"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = [var.runtime_database_secret_kms_key_arn]
+        Condition = {
+          StringEquals = {
+            "kms:ViaService"                  = "secretsmanager.${var.aws_region}.amazonaws.com"
+            "kms:EncryptionContext:SecretARN" = var.runtime_database_secret_arn
+          }
+        }
+    }])
   }
 
   execution_secret_policy = {
@@ -62,6 +79,13 @@ resource "aws_iam_role_policy" "task" {
   name   = "pulso-runtime-data"
   role   = aws_iam_role.task.id
   policy = jsonencode(local.task_policy)
+
+  lifecycle {
+    precondition {
+      condition     = var.runtime_database_secret_arn != var.rds_master_secret_arn_guard
+      error_message = "runtime_database_secret_arn must not equal the RDS master secret."
+    }
+  }
 }
 
 # ECS resolves task-definition secret references before the container starts.

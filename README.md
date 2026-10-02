@@ -53,6 +53,11 @@ that controls a current AWS resource. Cost and availability
 trade-offs—especially NAT strategy—must be selected per environment in a later
 approved plan.
 
+The authoritative declaration/deferred/external-prerequisite split is in
+[the deployment-status contract](docs/architecture/deployment-status.md).
+In particular, an ECS/RDS declaration does not prove runtime database access,
+and CPU alarms alone do not prove actionable operational monitoring.
+
 ## Removed local harness
 
 The obsolete infra-local doctor/profiles were removed because they had no CI or

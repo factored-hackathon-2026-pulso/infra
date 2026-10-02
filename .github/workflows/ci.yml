@@ -39,9 +39,13 @@ jobs:
             terraform -chdir="terraform/envs/$environment" validate
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-      - name: Test identity policy branches without cloud access
+      - name: Test IAM and ECS secret-reference guards without cloud access
         shell: pwsh
         run: |
           terraform -chdir=terraform/modules/identity init -backend=false -input=false -lockfile=readonly
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           terraform -chdir=terraform/modules/identity test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          terraform -chdir=terraform/modules/compute init -backend=false -input=false -lockfile=readonly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          terraform -chdir=terraform/modules/compute test

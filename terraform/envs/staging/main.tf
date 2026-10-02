@@ -27,28 +27,34 @@ module "security" {
 }
 
 module "identity" {
-  source                          = "../../modules/identity"
-  least_privilege_policy_boundary = var.least_privilege_policy_boundary
-  artifact_bucket_arn             = module.storage.artifact_bucket_arn
-  source_bucket_arn               = module.storage.source_bucket_arn
-  runtime_secret_arn              = module.secrets.runtime_secret_arn
-  runtime_secret_kms_key_arn      = var.kms_key_arn
-  aws_region                      = var.aws_region
-  tags                            = local.tags
+  source                              = "../../modules/identity"
+  least_privilege_policy_boundary     = var.least_privilege_policy_boundary
+  artifact_bucket_arn                 = module.storage.artifact_bucket_arn
+  source_bucket_arn                   = module.storage.source_bucket_arn
+  runtime_secret_arn                  = module.secrets.runtime_secret_arn
+  runtime_secret_kms_key_arn          = var.kms_key_arn
+  runtime_database_secret_arn         = var.runtime_database_secret_arn
+  runtime_database_secret_kms_key_arn = var.kms_key_arn
+  rds_master_secret_arn_guard         = module.database.master_user_secret_arn
+  aws_region                          = var.aws_region
+  tags                                = local.tags
 }
 
 module "compute" {
-  source             = "../../modules/compute"
-  image_digest       = var.image_digest
-  private_subnet_ids = module.network.private_subnet_ids
-  security_group_ids = [module.security.runtime_security_group_id]
-  task_role_arn      = module.identity.task_role_arn
-  execution_role_arn = module.identity.execution_role_arn
-  aws_region         = var.aws_region
-  desired_count      = var.desired_count
-  runtime_secret_arn = module.secrets.runtime_secret_arn
-  log_retention_days = var.log_retention_days
-  tags               = local.tags
+  source                      = "../../modules/compute"
+  image_digest                = var.image_digest
+  private_subnet_ids          = module.network.private_subnet_ids
+  security_group_ids          = [module.security.runtime_security_group_id]
+  task_role_arn               = module.identity.task_role_arn
+  execution_role_arn          = module.identity.execution_role_arn
+  aws_region                  = var.aws_region
+  desired_count               = var.desired_count
+  runtime_secret_arn          = module.secrets.runtime_secret_arn
+  database_endpoint           = module.database.endpoint
+  runtime_database_secret_arn = var.runtime_database_secret_arn
+  rds_master_secret_arn_guard = module.database.master_user_secret_arn
+  log_retention_days          = var.log_retention_days
+  tags                        = local.tags
 }
 
 module "storage" {
@@ -68,6 +74,7 @@ module "database" {
   deletion_protection   = var.database_deletion_protection
   skip_final_snapshot   = var.database_skip_final_snapshot
   multi_az              = var.database_multi_az
+  kms_key_arn           = var.kms_key_arn
   tags                  = local.tags
 }
 

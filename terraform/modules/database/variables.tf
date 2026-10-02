@@ -13,7 +13,9 @@ variable "private_subnet_ids" {
   type        = list(string)
   description = "Private subnet identifiers reserved for a future database subnet group."
 }
-
+variable "kms_key_arn" {
+  type = string
+}
 variable "tags" {
   type        = map(string)
   description = "Mandatory ownership and environment tags."

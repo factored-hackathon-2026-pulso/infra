@@ -68,10 +68,12 @@ class DeployableAwsFoundationTests(unittest.TestCase):
         self.assertIn('"secretsmanager.${var.aws_region}.amazonaws.com"', identity)
         self.assertIn('"kms:EncryptionContext:SecretARN"', identity)
         self.assertIn('Resource = [var.runtime_secret_arn]', identity)
-        self.assertNotIn('secretsmanager:GetSecretValue', identity.split('resource "aws_iam_role_policy" "task"')[1].split('# ECS resolves')[0])
+        task_policy = identity.split("task_policy =", 1)[1].split("execution_secret_policy =", 1)[0]
+        self.assertIn('var.runtime_database_secret_arn', task_policy)
+        self.assertNotIn('var.rds_master_secret_arn_guard', task_policy)
         self.assertFalse(list((MODULES / "api").glob("*.tf")))
 
-    def test_ci_exercises_both_execution_secret_policy_branches(self):
+    def test_ci_exercises_iam_and_ecs_secret_reference_guards(self):
         terraform_test = (MODULES / "identity" / "identity.tftest.hcl").read_text(encoding="utf-8")
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         versions = (MODULES / "identity" / "versions.tf").read_text(encoding="utf-8")
@@ -82,6 +84,12 @@ class DeployableAwsFoundationTests(unittest.TestCase):
         self.assertTrue(lockfile.is_file())
         self.assertIn('terraform -chdir=terraform/modules/identity init -backend=false -input=false -lockfile=readonly', workflow)
         self.assertIn('terraform -chdir=terraform/modules/identity test', workflow)
+        self.assertIn('terraform -chdir=terraform/modules/compute init -backend=false -input=false -lockfile=readonly', workflow)
+        self.assertIn('terraform -chdir=terraform/modules/compute test', workflow)
+        compute_versions = (MODULES / "compute" / "versions.tf").read_text(encoding="utf-8")
+        self.assertIn('required_version = ">= 1.10.0"', compute_versions)
+        self.assertIn('source  = "hashicorp/aws"', compute_versions)
+        self.assertTrue((MODULES / "compute" / ".terraform.lock.hcl").is_file())
 
     def test_roots_do_not_expose_inputs_that_have_no_resource_behavior(self):
         removed_inputs = ("vpc_id", "allowed_ingress_cidrs", "workload_principal", "compute_engine", "private_subnet_ids", "security_group_ids", "alarm_email", "metric_namespace", "trace_mode")
