@@ -8,12 +8,11 @@ LocalStack and integration CI.
 ## Terraform baseline
 
 `terraform/envs/{staging,prod}` declares credential-free provider, backend and
-deployment input contracts. `terraform/modules/` now declares interfaces for
-network (public/private subnets and NAT posture), security groups, IAM policy
-boundaries, deferred compute/database engines, storage, Secrets Manager, API
-Gateway and logs/metrics/traces/alarms. This is a Terraform **foundation**: it
-does not create AWS resources, remote state or credentials; those require a
-reviewed environment-specific implementation and approved plan.
+deployment input contracts. `terraform/modules/` provisions the shared AWS
+foundation: VPC with public/private subnets and a versioned NAT choice, private
+ECS/Fargate compute, RDS, S3 source/artifact buckets, Secrets Manager metadata,
+IAM task roles, API Gateway, CloudWatch logs and an ECS health alarm. It never
+uploads bank data or a secret value.
 
 `staging` is the validation environment. `prod` is the demo environment for
 the hackathon; it is not a banking production deployment. Staging validates
@@ -33,8 +32,9 @@ python -m unittest discover -s tests -v
 terraform fmt -check -recursive terraform
 ```
 
-CI validates every environment without `apply`. It has no reusable engine-test
-workflow and does not invoke `improvement-engine`.
+CI validates every environment without `plan` or `apply`. A future manual plan
+gate needs approved AWS account/OIDC/state inputs and must not reuse the
+engine's local CI.
 
 ## Deferred boundaries
 

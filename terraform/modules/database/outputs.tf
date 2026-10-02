@@ -1,4 +1,2 @@
-output "database_boundary" {
-  value       = { engine = var.database_engine, subnet_ids = var.private_subnet_ids }
-  description = "Database placement/engine contract, not a provisioned database."
-}
+output "endpoint" { value = aws_db_instance.this.address }
+output "master_secret_arn" { value = try(aws_db_instance.this.master_user_secret[0].secret_arn, null) }

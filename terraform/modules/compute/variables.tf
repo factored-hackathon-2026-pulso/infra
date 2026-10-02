@@ -17,6 +17,11 @@ variable "security_group_ids" {
   type        = list(string)
   description = "Least-privilege security group IDs attached to compute."
 }
+variable "task_role_arn" { type = string }
+variable "execution_role_arn" { type = string }
+variable "log_group_name" { type = string }
+variable "aws_region" { type = string }
+variable "desired_count" { type = number }
 
 variable "tags" {
   type        = map(string)

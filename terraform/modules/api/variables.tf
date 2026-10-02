@@ -7,6 +7,7 @@ variable "private_subnet_ids" {
   type        = list(string)
   description = "Private network boundary supplied to a future API integration design."
 }
+variable "log_group_arn" { type = string }
 
 variable "tags" {
   type        = map(string)

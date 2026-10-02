@@ -17,6 +17,9 @@ variable "trace_mode" {
   type        = string
   description = "Future trace-export posture; provider collector/integration remains deferred."
 }
+variable "log_retention_days" { type = number }
+variable "alarm_actions" { type = list(string) }
+variable "cluster_name" { type = string }
 
 variable "tags" {
   type        = map(string)

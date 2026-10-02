@@ -22,7 +22,7 @@ module "network" {
 
 module "security" {
   source                = "../../modules/security"
-  vpc_id                = var.vpc_id
+  vpc_id                = module.network.vpc_id
   allowed_ingress_cidrs = var.allowed_ingress_cidrs
   tags                  = local.tags
 }
@@ -38,8 +38,13 @@ module "compute" {
   source             = "../../modules/compute"
   image_digest       = var.image_digest
   compute_engine     = var.compute_engine
-  private_subnet_ids = var.private_subnet_ids
-  security_group_ids = var.security_group_ids
+  private_subnet_ids = module.network.private_subnet_ids
+  security_group_ids = [module.security.runtime_security_group_id]
+  task_role_arn = module.identity.task_role_arn
+  execution_role_arn = module.identity.execution_role_arn
+  log_group_name = module.observability.log_group_name
+  aws_region = var.aws_region
+  desired_count = var.desired_count
   tags               = local.tags
 }
 
@@ -53,7 +58,13 @@ module "storage" {
 module "database" {
   source             = "../../modules/database"
   database_engine    = var.database_engine
-  private_subnet_ids = var.private_subnet_ids
+  private_subnet_ids = module.network.private_subnet_ids
+  security_group_ids = [module.security.database_security_group_id]
+  instance_class = var.database_instance_class
+  backup_retention_days = var.database_backup_retention_days
+  deletion_protection = var.database_deletion_protection
+  skip_final_snapshot = var.database_skip_final_snapshot
+  multi_az = var.database_multi_az
   tags               = local.tags
 }
 
@@ -67,7 +78,8 @@ module "secrets" {
 module "api" {
   source             = "../../modules/api"
   api_mode           = var.api_mode
-  private_subnet_ids = var.private_subnet_ids
+  private_subnet_ids = module.network.private_subnet_ids
+  log_group_arn = module.observability.log_group_arn
   tags               = local.tags
 }
 
@@ -77,5 +89,8 @@ module "observability" {
   service_name     = "pulso-improvement-engine"
   metric_namespace = var.metric_namespace
   trace_mode       = var.trace_mode
+  log_retention_days = var.log_retention_days
+  alarm_actions = var.alarm_actions
+  cluster_name = "prod-pulso"
   tags             = local.tags
 }
