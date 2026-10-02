@@ -15,6 +15,12 @@ IAM task roles, CloudWatch logs and an ECS health alarm. API Gateway is deferred
 until an approved authenticated private integration exists. It never
 uploads bank data or a secret value.
 
+ECS resolves the configured runtime secret before a container starts. The
+execution role therefore receives a narrowly scoped `GetSecretValue` grant for
+that exact secret; an optional `kms:Decrypt` grant is created only when the
+environment supplies a customer-managed KMS key. The task role remains limited
+to the source/artifact object paths it consumes at runtime.
+
 `staging` is the validation environment. `prod` is the demo environment for
 the hackathon; it is not a banking production deployment. Staging validates
 before a separately authorized production-demo change. There is deliberately no
@@ -39,9 +45,9 @@ engine's local CI.
 
 ## Deferred boundaries
 
-VPN topology, compute engine, database engine, API integration and tracing
-provider are configuration/deferred decisions. The modules expose their inputs
-without selecting a vendor or creating an integration. Cost and availability
+VPN topology, database engine, API integration and tracing provider are
+deferred decisions. The foundation deliberately exposes only configuration
+that controls a current AWS resource. Cost and availability
 trade-offs—especially NAT strategy—must be selected per environment in a later
 approved plan.
 

@@ -3,11 +3,6 @@ variable "image_digest" {
   description = "Approved immutable engine image digest consumed by deployment."
 }
 
-variable "compute_engine" {
-  type        = string
-  description = "Deferred runtime choice (for example ECS or EC2); this foundation does not select or deploy one."
-}
-
 variable "private_subnet_ids" {
   type        = list(string)
   description = "Private subnet IDs where runtime compute may be scheduled."

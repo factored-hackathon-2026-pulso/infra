@@ -49,10 +49,23 @@ class DeployableAwsFoundationTests(unittest.TestCase):
     def test_runtime_is_private_and_api_is_deferred_until_authenticated_integration_exists(self):
         security = (MODULES / "security" / "main.tf").read_text(encoding="utf-8")
         compute = (MODULES / "compute" / "main.tf").read_text(encoding="utf-8")
+        identity = (MODULES / "identity" / "main.tf").read_text(encoding="utf-8")
         self.assertIn('from_port = 5432', security)
         self.assertIn('security_groups = [aws_security_group.database.id]', security)
         self.assertIn('runtime_secret_arn', compute)
+        self.assertIn('resource "aws_iam_role_policy" "execution_secret"', identity)
+        self.assertIn('role   = aws_iam_role.execution.id', identity)
+        self.assertIn('"secretsmanager:GetSecretValue"', identity)
+        self.assertIn('"kms:Decrypt"', identity)
+        self.assertNotIn('"secretsmanager:GetSecretValue"], Resource = [var.runtime_secret_arn]', identity.split('data "aws_iam_policy_document" "execution_secret"')[0])
         self.assertFalse(list((MODULES / "api").glob("*.tf")))
+
+    def test_roots_do_not_expose_inputs_that_have_no_resource_behavior(self):
+        removed_inputs = ("vpc_id", "allowed_ingress_cidrs", "workload_principal", "compute_engine", "private_subnet_ids", "security_group_ids", "alarm_email", "metric_namespace", "trace_mode")
+        for environment in ("staging", "prod"):
+            variables = (ROOT / "terraform" / "envs" / environment / "variables.tf").read_text(encoding="utf-8")
+            for name in removed_inputs:
+                self.assertNotIn(f'variable "{name}"', variables, f"{environment}: {name}")
 
 
 if __name__ == "__main__":

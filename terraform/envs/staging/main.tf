@@ -21,26 +21,24 @@ module "network" {
 }
 
 module "security" {
-  source                = "../../modules/security"
-  vpc_id                = module.network.vpc_id
-  allowed_ingress_cidrs = var.allowed_ingress_cidrs
-  tags                  = local.tags
+  source = "../../modules/security"
+  vpc_id = module.network.vpc_id
+  tags   = local.tags
 }
 
 module "identity" {
   source                          = "../../modules/identity"
-  workload_principal              = var.workload_principal
   least_privilege_policy_boundary = var.least_privilege_policy_boundary
-  artifact_bucket_arn = module.storage.artifact_bucket_arn
-  source_bucket_arn = module.storage.source_bucket_arn
-  runtime_secret_arn = module.secrets.runtime_secret_arn
+  artifact_bucket_arn             = module.storage.artifact_bucket_arn
+  source_bucket_arn               = module.storage.source_bucket_arn
+  runtime_secret_arn              = module.secrets.runtime_secret_arn
+  runtime_secret_kms_key_arn      = var.kms_key_arn
   tags                            = local.tags
 }
 
 module "compute" {
   source             = "../../modules/compute"
   image_digest       = var.image_digest
-  compute_engine     = var.compute_engine
   private_subnet_ids = module.network.private_subnet_ids
   security_group_ids = [module.security.runtime_security_group_id]
   task_role_arn      = module.identity.task_role_arn
@@ -80,11 +78,8 @@ module "secrets" {
 }
 
 module "observability" {
-  source           = "../../modules/observability"
-  alarm_email      = var.alarm_email
-  service_name     = module.compute.service_name
-  metric_namespace = var.metric_namespace
-  trace_mode       = var.trace_mode
+  source             = "../../modules/observability"
+  service_name       = module.compute.service_name
   log_retention_days = var.log_retention_days
   alarm_actions = var.alarm_actions
   cluster_name = "staging-pulso"
