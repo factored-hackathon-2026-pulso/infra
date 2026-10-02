@@ -18,8 +18,10 @@ migration inventory, not a supported deployment interface.
 Terraform validation is credential-free and backend-free in pull requests.
 Plans use approved OIDC credentials and environment backend configuration in a
 future deployment slice; applies remain approval-gated and are out of scope.
-The baseline has interfaces but intentionally creates no cloud resources,
-state, secrets or data.
+The baseline declares the AWS resources needed by the approved foundation, but
+an unapplied declaration is not evidence that an account contains resources,
+state, secrets or data. Only an explicitly authorized future deployment slice
+may plan or apply it.
 
 Old local profiles and doctor files are inventory while their engine-local
 replacement is verified. They are not a supported interface and must not grow.

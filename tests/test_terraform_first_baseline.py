@@ -113,6 +113,23 @@ class TerraformFirstBaselineContractTests(unittest.TestCase):
         ):
             self.assertFalse((ROOT / target).exists(), target)
 
+    def test_active_infrastructure_journal_has_no_retired_engine_local_harness_guidance(self):
+        """Infra's live guidance must not revive removed engine-local ownership."""
+        retired_journals = (
+            "0001-bootstrap.md",
+            "0002-config-and-tools.md",
+            "0002-i01-isolated-postgres-ci.md",
+            "0003-infrastructure-ci-gate.md",
+        )
+        for journal in retired_journals:
+            self.assertFalse((ROOT / "docs" / "journal" / journal).exists(), journal)
+
+        current_foundation = (ROOT / "docs" / "journal" / "0007-i07-concrete-aws-foundation.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Terraform declarations", current_foundation)
+        self.assertNotIn("Terraform binary is not installed", current_foundation)
+
 
 if __name__ == "__main__":
     unittest.main()

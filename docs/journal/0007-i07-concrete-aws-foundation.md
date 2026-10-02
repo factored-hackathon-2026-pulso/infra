@@ -78,9 +78,10 @@ against an AWS account.
 ## Final verification
 
 After the final independent infrastructure/security review, the portable
-contract suite passed: `python -m unittest discover -s tests -v` (**24 tests**)
-and `git diff --check` were green. The Windows host has no `terraform` binary,
-so `terraform fmt -check`, `init -backend=false` and `validate` were not run
-locally; the pinned credential-free CI workflow remains the required gate for
-both environment roots. No plan, apply, AWS credentials or external deployment
-was attempted.
+contract suite passed: `python -m unittest discover -s tests -v` (**25 tests**)
+and `git diff --check` were green. Terraform 1.10.5 is available on the
+Windows host through its approved package location; `terraform fmt -check
+-recursive terraform`, followed by backend-free `init` and `validate` for both
+environment roots, passed. The manually dispatched credential-free CI run
+`36963510094` subsequently passed on Windows and Ubuntu. No plan, apply, AWS
+credentials or external deployment was attempted.
