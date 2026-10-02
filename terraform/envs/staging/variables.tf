@@ -40,6 +40,10 @@ variable "source_bucket_name" {
 variable "kms_key_arn" {
   type = string
 }
+variable "runtime_database_secret_arn" {
+  type        = string
+  description = "Externally bootstrapped application-role secret ARN; never the RDS master secret."
+}
 variable "postgres_engine_version" {
   type = string
 }

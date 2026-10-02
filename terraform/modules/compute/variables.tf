@@ -19,6 +19,16 @@ variable "execution_role_arn" {
 variable "task_role_arn" {
   type = string
 }
+variable "database_endpoint" {
+  type = string
+}
+variable "runtime_database_secret_arn" {
+  type = string
+}
+variable "rds_master_secret_arn_guard" {
+  type        = string
+  description = "Terraform-only invariant input; never propagated to ECS task configuration or IAM."
+}
 variable "container_port" {
   type = number
 }

@@ -175,7 +175,10 @@ class AwsFoundationContractTests(unittest.TestCase):
             r'values\s*=\s*\["secretsmanager\.\$\{var\.aws_region\}\.amazonaws\.com"\]',
         )
         self.assertIn('variable = "kms:EncryptionContext:SecretARN"', identity)
-        self.assertRegex(identity, r"values\s*=\s*\[var\.runtime_secret_arn\]")
+        self.assertRegex(
+            identity,
+            r"values\s*=\s*\[var\.runtime_secret_arn, var\.runtime_database_secret_arn\]",
+        )
         self.assertIn('variable = "kms:EncryptionContext:aws:s3:arn"', identity)
         self.assertRegex(
             identity,
@@ -271,6 +274,56 @@ class AwsFoundationContractTests(unittest.TestCase):
         self.assertIn('"awslogs-region"        = var.aws_region', compute)
         self.assertIn("portMappings = [{", compute)
         self.assertIn("containerPort = var.container_port", compute)
+
+    def test_runtime_receives_only_role_specific_database_references_and_uses_scoped_secret_kms_access(self):
+        database = "\n".join(
+            path.read_text(encoding="utf-8") for path in (MODULES / "database").glob("*.tf")
+        )
+        identity = (MODULES / "identity" / "main.tf").read_text(encoding="utf-8")
+        compute = "\n".join(
+            path.read_text(encoding="utf-8") for path in (MODULES / "compute").glob("*.tf")
+        )
+        self.assertIn("manage_master_user_password", database)
+        self.assertIn("master_user_secret_kms_key_id", database)
+        self.assertIn('output "master_user_secret_arn"', database)
+        self.assertIn('variable "database_endpoint"', compute)
+        self.assertIn('variable "runtime_database_secret_arn"', compute)
+        self.assertIn('"PULSO_DATABASE_ENDPOINT"', compute)
+        self.assertIn('"PULSO_DATABASE_SECRET_ARN"', compute)
+        self.assertNotIn("PULSO_DATABASE_PASSWORD", compute)
+        self.assertIn('variable "runtime_database_secret_arn"', (MODULES / "identity" / "variables.tf").read_text(encoding="utf-8"))
+        self.assertIn("var.runtime_database_secret_arn", identity)
+        self.assertNotIn("var.master_user_secret_arn", identity)
+        self.assertNotIn("master_user_secret", compute)
+        self.assertNotIn("aws_secretsmanager_secret_version", "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "terraform").rglob("*.tf")))
+        self.assertNotIn("PULSO_DATABASE_PASSWORD", compute)
+        self.assertNotIn('secrets = [', compute)
+        for environment in ("staging", "prod"):
+            main = (ENVS / environment / "main.tf").read_text(encoding="utf-8")
+            self.assertRegex(main, r"database_endpoint\s*=\s*module\.database\.endpoint")
+            self.assertRegex(main, r"runtime_database_secret_arn\s*=\s*var\.runtime_database_secret_arn")
+
+    def test_ecs_task_precondition_rejects_runtime_database_secret_equal_to_rds_master_secret(self):
+        compute = (MODULES / "compute" / "main.tf").read_text(encoding="utf-8")
+        variables = (MODULES / "compute" / "variables.tf").read_text(encoding="utf-8")
+        identity = (MODULES / "identity" / "main.tf").read_text(encoding="utf-8")
+        identity_variables = (MODULES / "identity" / "variables.tf").read_text(encoding="utf-8")
+        self.assertIn('variable "rds_master_secret_arn_guard"', variables)
+        self.assertIn('variable "rds_master_secret_arn_guard"', identity_variables)
+        self.assertRegex(
+            compute,
+            r"lifecycle\s*\{\s*precondition\s*\{\s*condition\s*=\s*var\.runtime_database_secret_arn\s*!=\s*var\.rds_master_secret_arn_guard",
+        )
+        self.assertIn("must not equal the RDS master secret", compute)
+        self.assertRegex(
+            identity,
+            r'resource "aws_iam_role_policy" "runtime"\s*\{[\s\S]*?lifecycle\s*\{\s*precondition\s*\{\s*condition\s*=\s*var\.runtime_database_secret_arn\s*!=\s*var\.rds_master_secret_arn_guard',
+            msg="IAM policy resource needs the same blocking invariant before policy creation.",
+        )
+        for environment in ("staging", "prod"):
+            main = (ENVS / environment / "main.tf").read_text(encoding="utf-8")
+            self.assertRegex(main, r"rds_master_secret_arn_guard\s*=\s*module\.database\.master_user_secret_arn")
+            self.assertNotIn('check "runtime_database_secret_is_not_rds_master"', main)
 
 
 if __name__ == "__main__":

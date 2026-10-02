@@ -25,6 +25,13 @@ variable "deploy_policy_json" {
 variable "runtime_secret_arn" {
   type = string
 }
+variable "runtime_database_secret_arn" {
+  type = string
+}
+variable "rds_master_secret_arn_guard" {
+  type        = string
+  description = "Terraform-only invariant input; never included in the runtime policy document."
+}
 variable "source_bucket_arn" {
   type = string
 }

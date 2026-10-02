@@ -30,7 +30,7 @@ data "aws_iam_policy_document" "runtime" {
   statement {
     sid       = "ReadRuntimeConfiguration"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [var.runtime_secret_arn]
+    resources = [var.runtime_secret_arn, var.runtime_database_secret_arn]
   }
   statement {
     sid       = "ReadApprovedSourceData"
@@ -78,7 +78,7 @@ data "aws_iam_policy_document" "runtime" {
     condition {
       test     = "StringEquals"
       variable = "kms:EncryptionContext:SecretARN"
-      values   = [var.runtime_secret_arn]
+      values   = [var.runtime_secret_arn, var.runtime_database_secret_arn]
     }
   }
 }
@@ -113,4 +113,11 @@ resource "aws_iam_role_policy" "runtime" {
   name   = "${var.name}-runtime-minimum"
   role   = aws_iam_role.runtime.id
   policy = data.aws_iam_policy_document.runtime.json
+
+  lifecycle {
+    precondition {
+      condition     = var.runtime_database_secret_arn != var.rds_master_secret_arn_guard
+      error_message = "runtime_database_secret_arn must not equal the RDS master secret."
+    }
+  }
 }
