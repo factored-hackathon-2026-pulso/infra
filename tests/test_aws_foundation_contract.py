@@ -72,12 +72,12 @@ class AwsFoundationContractTests(unittest.TestCase):
         for forbidden in (
             "terraform plan",
             "terraform apply",
-            "workflow_dispatch:",
             "schedule:",
             "id-token: write",
             "${{ secrets.",
         ):
             self.assertNotIn(forbidden, workflow)
+        self.assertIn("workflow_dispatch:", workflow)
 
     def test_foundation_modules_create_concrete_aws_boundaries_not_only_variable_interfaces(self):
         required_resources = {

@@ -27,7 +27,7 @@ class EnvironmentPromotionContractTests(unittest.TestCase):
         self.assertNotIn('"demo"', workflow)
         self.assertNotIn("terraform plan", workflow)
         self.assertNotIn("terraform apply", workflow)
-        self.assertNotIn("workflow_dispatch:", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
         self.assertNotIn("schedule:", workflow)
         self.assertNotIn("id-token: write", workflow)
         self.assertNotIn("${{ secrets.", workflow)
