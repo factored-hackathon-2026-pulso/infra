@@ -68,8 +68,13 @@ class DeployableAwsFoundationTests(unittest.TestCase):
     def test_ci_exercises_both_execution_secret_policy_branches(self):
         terraform_test = (MODULES / "identity" / "identity.tftest.hcl").read_text(encoding="utf-8")
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        versions = (MODULES / "identity" / "versions.tf").read_text(encoding="utf-8")
+        lockfile = MODULES / "identity" / ".terraform.lock.hcl"
         self.assertIn('run "aws_managed_secret_key_never_grants_kms_decrypt"', terraform_test)
         self.assertIn('run "customer_managed_key_is_bound_to_exact_secret_manager_context"', terraform_test)
+        self.assertIn('required_version = ">= 1.10.0"', versions)
+        self.assertTrue(lockfile.is_file())
+        self.assertIn('terraform -chdir=terraform/modules/identity init -backend=false -input=false -lockfile=readonly', workflow)
         self.assertIn('terraform -chdir=terraform/modules/identity test', workflow)
 
     def test_roots_do_not_expose_inputs_that_have_no_resource_behavior(self):

@@ -30,9 +30,9 @@ run "aws_managed_secret_key_never_grants_kms_decrypt" {
   assert {
     condition = alltrue([
       for statement in jsondecode(aws_iam_role_policy.task.policy).Statement :
-      !contains(statement.Action, "secretsmanager:GetSecretValue") && !contains(statement.Action, "kms:Decrypt")
+      alltrue([for action in statement.Action : startswith(action, "s3:")])
     ])
-    error_message = "The task role must not receive secret or KMS decryption authority."
+    error_message = "The task role must contain only S3 actions."
   }
 }
 
@@ -44,18 +44,26 @@ run "customer_managed_key_is_bound_to_exact_secret_manager_context" {
   }
 
   assert {
-    condition = jsondecode(aws_iam_role_policy.execution_secret.policy).Statement[1] == {
-      Sid      = "DecryptRuntimeSecret"
-      Effect   = "Allow"
-      Action   = ["kms:Decrypt"]
-      Resource = [var.runtime_secret_kms_key_arn]
-      Condition = {
-        StringEquals = {
-          "kms:ViaService"                  = "secretsmanager.${var.aws_region}.amazonaws.com"
-          "kms:EncryptionContext:SecretARN" = var.runtime_secret_arn
+    condition = jsondecode(aws_iam_role_policy.execution_secret.policy).Statement == [
+      {
+        Sid      = "ReadRuntimeSecret"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.runtime_secret_arn]
+      },
+      {
+        Sid      = "DecryptRuntimeSecret"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = [var.runtime_secret_kms_key_arn]
+        Condition = {
+          StringEquals = {
+            "kms:ViaService"                  = "secretsmanager.${var.aws_region}.amazonaws.com"
+            "kms:EncryptionContext:SecretARN" = var.runtime_secret_arn
+          }
         }
-      }
-    }
-    error_message = "A customer-managed KMS key must be usable only by Secrets Manager for this exact runtime secret."
+      },
+    ]
+    error_message = "A customer-managed KMS key must be usable only by Secrets Manager for this exact runtime secret, with no extra grants."
   }
 }

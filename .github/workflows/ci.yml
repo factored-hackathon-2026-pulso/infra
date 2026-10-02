@@ -40,4 +40,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
       - name: Test identity policy branches without cloud access
-        run: terraform -chdir=terraform/modules/identity test
+        shell: pwsh
+        run: |
+          terraform -chdir=terraform/modules/identity init -backend=false -input=false -lockfile=readonly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          terraform -chdir=terraform/modules/identity test
