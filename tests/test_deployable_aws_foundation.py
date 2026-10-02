@@ -57,13 +57,20 @@ class DeployableAwsFoundationTests(unittest.TestCase):
         self.assertIn('role   = aws_iam_role.execution.id', identity)
         self.assertIn('"secretsmanager:GetSecretValue"', identity)
         self.assertIn('"kms:Decrypt"', identity)
-        self.assertIn('for_each = var.runtime_secret_kms_key_arn == "" ? [] : [var.runtime_secret_kms_key_arn]', identity)
-        self.assertIn('variable = "kms:ViaService"', identity)
-        self.assertIn('values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]', identity)
-        self.assertIn('variable = "kms:EncryptionContext:SecretARN"', identity)
-        self.assertIn('values   = [var.runtime_secret_arn]', identity)
-        self.assertNotIn('"secretsmanager:GetSecretValue"], Resource = [var.runtime_secret_arn]', identity.split('data "aws_iam_policy_document" "execution_secret"')[0])
+        self.assertIn('var.runtime_secret_kms_key_arn == "" ? []', identity)
+        self.assertIn('"kms:ViaService"', identity)
+        self.assertIn('"secretsmanager.${var.aws_region}.amazonaws.com"', identity)
+        self.assertIn('"kms:EncryptionContext:SecretARN"', identity)
+        self.assertIn('Resource = [var.runtime_secret_arn]', identity)
+        self.assertNotIn('secretsmanager:GetSecretValue', identity.split('resource "aws_iam_role_policy" "task"')[1].split('# ECS resolves')[0])
         self.assertFalse(list((MODULES / "api").glob("*.tf")))
+
+    def test_ci_exercises_both_execution_secret_policy_branches(self):
+        terraform_test = (MODULES / "identity" / "identity.tftest.hcl").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn('run "aws_managed_secret_key_never_grants_kms_decrypt"', terraform_test)
+        self.assertIn('run "customer_managed_key_is_bound_to_exact_secret_manager_context"', terraform_test)
+        self.assertIn('terraform -chdir=terraform/modules/identity test', workflow)
 
     def test_roots_do_not_expose_inputs_that_have_no_resource_behavior(self):
         removed_inputs = ("vpc_id", "allowed_ingress_cidrs", "workload_principal", "compute_engine", "private_subnet_ids", "security_group_ids", "alarm_email", "metric_namespace", "trace_mode")

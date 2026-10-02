@@ -39,3 +39,5 @@ jobs:
             terraform -chdir="terraform/envs/$environment" validate
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Test identity policy branches without cloud access
+        run: terraform -chdir=terraform/modules/identity test

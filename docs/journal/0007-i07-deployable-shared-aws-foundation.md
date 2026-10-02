@@ -17,7 +17,10 @@ added: those remain exclusively in `improvement-engine`.
 `tests/test_deployable_aws_foundation.py` was RED against I06 because modules
 were interface-only and roots accepted resource IDs. It is GREEN after modules
 create resources and roots compose module outputs. `python -m unittest discover
--s tests -v` passed 17 tests on Windows.
+-s tests -v` passed 20 tests on Windows. CI also runs credential-free Terraform
+tests for both execution-role secret-policy branches: empty KMS input and an
+exactly scoped customer-managed key. They use a mocked AWS provider and do not
+plan, apply or deploy cloud resources.
 
 Terraform is absent from this host, so local `fmt`/`validate` is unverified.
 The pinned CI performs credential-free fmt/init/validate for staging then prod.
