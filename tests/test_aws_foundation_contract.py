@@ -19,7 +19,6 @@ class AwsFoundationContractTests(unittest.TestCase):
             "storage",
             "database",
             "secrets",
-            "api",
             "observability",
         }
         for environment in ("staging", "prod"):
@@ -36,7 +35,6 @@ class AwsFoundationContractTests(unittest.TestCase):
             "storage": ("artifact_bucket_name", "source_bucket_name"),
             "database": ("database_engine", "private_subnet_ids"),
             "secrets": ("secret_name_prefix", "kms_key_arn"),
-            "api": ("api_mode", "private_subnet_ids"),
             "observability": ("service_name", "alarm_email"),
         }
         for module, names in required.items():

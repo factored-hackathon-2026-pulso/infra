@@ -22,7 +22,6 @@ class DeployableAwsFoundationTests(unittest.TestCase):
             "storage": ("aws_s3_bucket",),
             "database": ("aws_db_instance", "aws_db_subnet_group"),
             "secrets": ("aws_secretsmanager_secret",),
-            "api": ("aws_apigatewayv2_api", "aws_apigatewayv2_stage"),
             "observability": ("aws_cloudwatch_log_group", "aws_cloudwatch_metric_alarm"),
         }
         for module, resources in expected.items():
@@ -46,6 +45,14 @@ class DeployableAwsFoundationTests(unittest.TestCase):
     def test_infra_keeps_local_runtime_out_of_the_repository(self):
         for target in ("local", "scripts/doctor.py", "tests/test_doctor.py"):
             self.assertFalse((ROOT / target).exists(), target)
+
+    def test_runtime_is_private_and_api_is_deferred_until_authenticated_integration_exists(self):
+        security = (MODULES / "security" / "main.tf").read_text(encoding="utf-8")
+        compute = (MODULES / "compute" / "main.tf").read_text(encoding="utf-8")
+        self.assertIn('from_port = 5432', security)
+        self.assertIn('security_groups = [aws_security_group.database.id]', security)
+        self.assertIn('runtime_secret_arn', compute)
+        self.assertFalse((MODULES / "api").exists())
 
 
 if __name__ == "__main__":

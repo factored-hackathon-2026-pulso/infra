@@ -12,3 +12,6 @@ variable "tags" {
   type        = map(string)
   description = "Mandatory ownership and environment tags."
 }
+variable "artifact_bucket_arn" { type = string }
+variable "source_bucket_arn" { type = string }
+variable "runtime_secret_arn" { type = string }

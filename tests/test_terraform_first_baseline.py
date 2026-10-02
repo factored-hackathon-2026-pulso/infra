@@ -64,7 +64,6 @@ class TerraformFirstBaselineContractTests(unittest.TestCase):
             "storage": ("artifact_bucket_name", "source_bucket_name"),
             "database": ("database_engine", "private_subnet_ids"),
             "secrets": ("secret_name_prefix", "kms_key_arn"),
-            "api": ("api_mode", "private_subnet_ids"),
             "observability": ("alarm_email", "service_name", "metric_namespace", "trace_mode"),
         }
         for module, expected_variables in expected_modules.items():

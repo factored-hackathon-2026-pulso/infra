@@ -31,6 +31,9 @@ module "identity" {
   source                          = "../../modules/identity"
   workload_principal              = var.workload_principal
   least_privilege_policy_boundary = var.least_privilege_policy_boundary
+  artifact_bucket_arn = module.storage.artifact_bucket_arn
+  source_bucket_arn = module.storage.source_bucket_arn
+  runtime_secret_arn = module.secrets.runtime_secret_arn
   tags                            = local.tags
 }
 
@@ -42,9 +45,10 @@ module "compute" {
   security_group_ids = [module.security.runtime_security_group_id]
   task_role_arn = module.identity.task_role_arn
   execution_role_arn = module.identity.execution_role_arn
-  log_group_name = module.observability.log_group_name
   aws_region = var.aws_region
   desired_count = var.desired_count
+  runtime_secret_arn = module.secrets.runtime_secret_arn
+  log_retention_days = var.log_retention_days
   tags               = local.tags
 }
 
@@ -75,18 +79,10 @@ module "secrets" {
   tags               = local.tags
 }
 
-module "api" {
-  source             = "../../modules/api"
-  api_mode           = var.api_mode
-  private_subnet_ids = module.network.private_subnet_ids
-  log_group_arn = module.observability.log_group_arn
-  tags               = local.tags
-}
-
 module "observability" {
   source           = "../../modules/observability"
   alarm_email      = var.alarm_email
-  service_name     = "pulso-improvement-engine"
+  service_name     = module.compute.service_name
   metric_namespace = var.metric_namespace
   trace_mode       = var.trace_mode
   log_retention_days = var.log_retention_days
@@ -94,3 +90,5 @@ module "observability" {
   cluster_name = "prod-pulso"
   tags             = local.tags
 }
+
+check "private_compute_requires_nat" { assert { condition = var.desired_count == 0 || var.nat_strategy != "none"; error_message = "desired_count > 0 requires NAT in v1; VPC endpoints are not yet implemented." } }

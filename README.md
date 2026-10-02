@@ -11,7 +11,8 @@ LocalStack and integration CI.
 deployment input contracts. `terraform/modules/` provisions the shared AWS
 foundation: VPC with public/private subnets and a versioned NAT choice, private
 ECS/Fargate compute, RDS, S3 source/artifact buckets, Secrets Manager metadata,
-IAM task roles, API Gateway, CloudWatch logs and an ECS health alarm. It never
+IAM task roles, CloudWatch logs and an ECS health alarm. API Gateway is deferred
+until an approved authenticated private integration exists. It never
 uploads bank data or a secret value.
 
 `staging` is the validation environment. `prod` is the demo environment for

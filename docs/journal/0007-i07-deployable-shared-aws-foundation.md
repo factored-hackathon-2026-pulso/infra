@@ -5,8 +5,9 @@
 I07 turns I06 contracts into AWS resources for `staging` and `prod` only;
 `prod` is the hackathon demo. The graph covers VPC, two-AZ public/private
 subnets, NAT routes, runtime/database security groups, ECS Fargate, RDS, S3,
-Secrets Manager metadata, IAM roles, API Gateway, CloudWatch logs and an ECS
-CPU alarm. It never uploads source data or a secret value.
+Secrets Manager metadata, IAM roles, CloudWatch logs and an ECS CPU alarm. It
+never uploads source data or a secret value. API Gateway is deliberately
+deferred: this slice has no approved authenticated private integration.
 
 No Podman, Compose, LocalStack, doctor, fixtures or engine test workflow is
 added: those remain exclusively in `improvement-engine`.

@@ -17,7 +17,6 @@ variable "source_bucket_name" { type = string }
 variable "database_engine" { type = string }
 variable "secret_name_prefix" { type = string }
 variable "kms_key_arn" { type = string }
-variable "api_mode" { type = string }
 variable "alarm_email" { type = string }
 variable "metric_namespace" { type = string }
 variable "trace_mode" { type = string }
