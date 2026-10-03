@@ -13,7 +13,7 @@ an applied AWS environment.
 | Database and compute | Private RDS PostgreSQL and ECS/Fargate task/service are declared | Engine DB secret reference/injection, task readiness/health contract and deployment smoke are not implemented by the declaration alone |
 | Debug ingress | No public API, ALB or proxy is declared | **`dependency_blocked`** until the engine listener and approved internal-ALB plus identity-proxy contract exist |
 | Observability | CloudWatch task log group, CPU diagnostics, SNS topic and CPU alarms are declared | Engine metrics/traces and actionable queue/progress/error/ingest/budget alarms require the engine-to-infra metric contract |
-| Agent Core workload | **Not declared.** [ADR 0003](../adr/0003-agent-core-workload.md) accepts the scope, region and engines | Image digest and ECR, ECS service and task roles, database, secrets, migration task, scheduled sweep and egress design are future slices; Agent Core can only run in demo mode today |
+| Agent Core workload | **Not declared.** [ADR 0003](../adr/0003-agent-core-workload.md) accepts the scope, region and engines | ECR repository and OIDC push role, ECS service and task roles, database, secrets, migration task, scheduled sweep and egress design are future slices; the image builds in `agent-core` CI but no digest is published; Agent Core can only run in demo mode today |
 | CI/CD | Credential-free fmt/validate and portable contracts run in CI | OIDC plan/apply, deploy and rollback remain manually approved future slices; no auto-deploy exists |
 
 The repository deliberately does not own Compose, Podman, LocalStack, engine
@@ -60,8 +60,9 @@ The ADR holds the ownership split and the contract with the `agent-core` reposit
 states what is true now.
 
 - Terraform declares nothing for it and nothing is deployed.
-- `agent-core` provides `/healthz`, `/readyz` and `agentcore migrate` (merged), but no Dockerfile or image
-  CI yet, so there is no digest to deploy.
+- `agent-core` provides `/healthz`, `/readyz`, `/version` and `agentcore migrate`, plus a Dockerfile and a CI job
+  that builds it (pulso-factored/agent-core#25). It does not publish a digest yet because this repository has not
+  created the ECR repository and push role (ADR 0003 item 8), so there is still no digest to deploy.
 - It needs the `controlled_nat` egress profile (LLM endpoints and JEV). That is the existing
   "Controlled external egress" gap, not a new decision.
 - Outside demo mode it requires pieces owned by other units, so a deployment would run synthetic-data demo

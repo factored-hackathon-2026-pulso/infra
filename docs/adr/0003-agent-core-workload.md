@@ -76,7 +76,8 @@ Both sides must change this table in the same pair of pull requests.
 
 4. **Plain configuration.** `AGENTCORE_SERVE_AGENTS`, host, port and the
    standard `OTEL_*` variables (for example `OTEL_EXPORTER_OTLP_ENDPOINT`) are
-   ordinary task environment variables. The identity public-key file read by
+   ordinary task environment variables, as are `--keys-reload-seconds` (item 10)
+   and the build-time `AGENTCORE_GIT_SHA` (item 9). The identity public-key file read by
    `--identity-keys` holds public keys only and is delivered as configuration.
 5. **Forbidden in deployed environments.** `AGENTCORE_ALLOW_DEMO` must be unset.
    The service must exit non-zero, naming each missing piece, rather than start
@@ -84,6 +85,39 @@ Both sides must change this table in the same pair of pull requests.
 6. **Commands.** `agentcore migrate` (run as a one-off task before a service
    update) and `agentcore sweep --once` (run on a schedule).
 7. **Egress hosts.** `api.typesafe.ai` and each host in `LLM_ENDPOINTS`.
+
+8. **Publication.** This repository owns the ECR repository and a GitHub OIDC
+   role that may only push to it, trusted for the `agent-core` repository and
+   its default branch (not for pull requests). The `agent-core` CI builds the
+   image, pushes it by immutable digest and records the digest in the run
+   summary; this repository deploys only a digest it copied from there. The
+   build passes `--build-arg GIT_SHA=<commit>`, which the image exposes as
+   `AGENTCORE_GIT_SHA` (item 9). Neither the role nor the repository exists yet;
+   see "Agent Core image publication" in `docs/gaps/OPEN_GAPS.md`.
+9. **Identity of the running build.** `GET /version` returns
+   `{package, contract, sha}`; like `/healthz` it is unauthenticated, outside
+   `/v1` and exposes no data. `contract` is the schema version of the public
+   contracts, `sha` is `AGENTCORE_GIT_SHA`. A smoke after each deploy should
+   compare `sha` with the digest's commit.
+10. **Key rotation without a restart.** The files read by `--identity-keys` and
+    `--staff-keys` are re-read at most every `--keys-reload-seconds` (default 5;
+    `0` disables it). A rotation is: publish the new `kid` next to the old one,
+    wait for the interval, retire the old one. A broken file keeps the last good
+    keys, so a half-written file does not take the service down.
+11. **Export for ingestion.** With `--registry-api`, read-only routes under
+    `/v1/export` (`runs`, `runs/{run_id}/events`, `registry-events`) feed the
+    improvement engine's ingestion, paginated with `after` and `limit` (maximum
+    500). They need a staff credential carrying the `exporter` role (or
+    `admin`); the staff-key issuer is therefore asked to mint one for the
+    ingestion service. The routes replace a read-only database role for this
+    purpose.
+12. **Schema changes are expand-only** ([agent-core ADR 0022](https://github.com/pulso-factored/agent-core/blob/main/docs/adr/0022-superficies-estables-y-migraciones-compatibles.md)).
+    `agentcore migrate` runs before the new image starts and the previous image
+    must keep working on the new schema, so a rollback is "redeploy the
+    previous digest" with no schema undo. A removal ships one version after
+    nothing deployed uses it. This repository still has to prove it on every
+    bump: run the previous image against the new schema (see the gap "Agent
+    Core schema compatibility smoke").
 
 ## Implementation status
 
@@ -95,8 +129,14 @@ Nothing for Agent Core is declared in Terraform and nothing is deployed.
   to the engine/registry database and, with `--eval-dsn`, to the evaluation
   database; it has no version table, so it suits a new or already-migrated
   database but cannot evolve a schema.
-- **Missing in `agent-core`:** a Dockerfile and an image CI that publishes a
-  digest.
+- **Delivered in `agent-core` (pulso-factored/agent-core#25, open when this was
+  written):** a Dockerfile (non-root, no secrets in the image) and a CI job that
+  builds it and checks both properties; `GET /version`; key-file reload;
+  `/v1/export`; registry reads for aliases and versions; `release_settings`
+  proposals; `eval_run_id` in `gate_failed`; the stability and expand-only
+  rules of item 12.
+- **Missing in `agent-core`:** the CI step that pushes the image and records its
+  digest (blocked on item 8: no ECR repository or push role exists).
 - **Contract mismatch to resolve before scheduling the sweep:** `agentcore
   sweep` reads `AGENTCORE_DATABASE_URL` (not `AGENTCORE_REGISTRY_DSN`) and
   needs `--registry <authoring directory>`, which a container built from the
