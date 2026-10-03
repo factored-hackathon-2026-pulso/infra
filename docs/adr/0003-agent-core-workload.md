@@ -166,8 +166,10 @@ The "Corrections" table above is true for SHA `86a7674`. The pull request adds, 
 the build to `agent-core`, its CI would push by digest through a GitHub OIDC role limited to push on that one
 repository and trusted only for the `agent-core` default branch (never pull requests); this repository would
 deploy only a digest copied from that run. If D-3 stays Pulso-side, the same repository is pushed from the
-Pulso release job and no `agent-core` role exists. Either way the repository itself is declared once and
-nothing is applied (gap "Agent Core image publication").
+Pulso release job and no `agent-core` role exists. Either way the repository itself is declared in `terraform/modules/image_registry` (immutable tags, scan on
+push, lifecycle policy) and is created only when `agent_core_repository_name` is set; the publisher role also
+needs the approved OIDC provider and exact protected-environment subjects (`agent_core_publish_subjects`, same
+rules as `ci_roles`). Nothing is applied (gap "Agent Core image publication").
 
 ## Implementation status
 

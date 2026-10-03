@@ -23,3 +23,18 @@ variable "database_skip_final_snapshot" { type = bool }
 variable "database_multi_az" { type = bool }
 variable "log_retention_days" { type = number }
 variable "alarm_actions" { type = list(string) }
+variable "agent_core_repository_name" {
+  type        = string
+  default     = ""
+  description = "ECR repository for the Agent Core image (ADR 0003); empty declares nothing. Set it in one environment per AWS account."
+}
+variable "agent_core_publisher_oidc_provider_arn" {
+  type        = string
+  default     = ""
+  description = "Approved account-level GitHub OIDC provider; empty creates no publisher role (depends on decision D-3)."
+}
+variable "agent_core_publish_subjects" {
+  type        = list(string)
+  default     = []
+  description = "Exact protected-environment OIDC subjects that may push the Agent Core image."
+}

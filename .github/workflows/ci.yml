@@ -49,3 +49,7 @@ jobs:
           terraform -chdir=terraform/modules/compute init -backend=false -input=false -lockfile=readonly
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           terraform -chdir=terraform/modules/compute test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          terraform -chdir=terraform/modules/image_registry init -backend=false -input=false -lockfile=readonly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          terraform -chdir=terraform/modules/image_registry test
