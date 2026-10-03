@@ -53,8 +53,8 @@ jobs:
         shell: pwsh
         run: |
           foreach ($module in "ecr", "rds_proxy", "core_data", "scheduled_task", "core_alarms") {
-            terraform -chdir=terraform/modules/$module init -backend=false -input=false
+            terraform "-chdir=terraform/modules/$module" init -backend=false -input=false
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            terraform -chdir=terraform/modules/$module test
+            terraform "-chdir=terraform/modules/$module" test
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
