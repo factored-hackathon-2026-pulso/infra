@@ -8,7 +8,7 @@ an applied AWS environment.
 | Area | Terraform status | Deferred or external prerequisite |
 |---|---|---|
 | Network and security | VPC, public/private subnets, NAT posture, workload/database security groups are declared | Private corporate access/VPN topology is external and creates no route here |
-| Identity | **Correction:** only the `task` and `execution` roles are declared. There is no GitHub OIDC trust, no deploy/CI role, no sandbox role and no observability-reader role (see "Identity module gap list") | Account-level OIDC provider, exact subjects, permissions boundary and deploy policy are approved inputs; the roles themselves are unwritten |
+| Identity | `identity` declares the legacy `task`/`execution` roles. Modules `workload_iam` (per-workload roles), `ci_roles` (OIDC plan/apply/deploy, `count = 0` until inputs exist), and `auxiliary_roles` (sandbox, worker launch, reader) are declared but not yet wired into `envs/*` (see "Identity module gap list") | Account-level OIDC provider, exact subjects, permissions boundary and deploy policy are approved inputs; the roles themselves are unwritten |
 | Storage and secrets | KMS-encrypted/versioned source and artifact buckets plus a runtime-secret container are declared | Backend/bootstrap KMS/state and secret values are provided outside Terraform; data-retention policy remains a deployment input |
 | Database and compute | Private RDS PostgreSQL and ECS/Fargate task/service are declared | Engine DB secret reference/injection, task readiness/health contract and deployment smoke are not implemented by the declaration alone |
 | Debug ingress | No public API, ALB or proxy is declared | **`dependency_blocked`** until the engine listener and approved internal-ALB plus identity-proxy contract exist |
@@ -76,12 +76,12 @@ deploy roles; the module declares only the rows marked "declared".
 |---|---|---|---|
 | `task` role (source/artifact S3, runtime DB secret read) | declared | per-workload split (engine api/worker, Core runtime/exporter) | design only |
 | `execution` role (ECR/logs managed policy, runtime secret read) | declared | one execution role per workload reading only its own secrets | design only |
-| GitHub OIDC provider and `ci-plan` / `ci-apply` roles | **absent** | roles with `count = 0` until `github_oidc_provider_arn` and `github_subjects` are approved; read-only plan role separate from apply | external OIDC ARN and exact subjects (OPEN_GAPS) |
-| Deploy role (ECS `UpdateService`/`RunTask`, `iam:PassRole` limited to task/execution roles with `PassedToService=ecs-tasks.amazonaws.com`) | **absent** | policy bounded by resource ARNs and a permissions boundary | approved deploy policy and boundary |
-| Worker `ecs:RunTask` on the `sandbox-lab` ARN plus limited `PassRole` | **absent** | extend engine worker task role | CLQ-43 sandbox contract |
-| `task-sandbox` role (GetObject session prefix, PutObject results prefix, explicit Deny on source bucket, secrets, `ecs:*`, `iam:*`) | **absent** | new role | CLQ-43 |
-| `observability-reader` (read-only on `/pulso/<env>/*`) | **absent** | new role | none technical |
-| Guard: no Core/exporter/sandbox policy may reference the RDS master secret | engine-only guard exists | generalise to all roles (T-07) | none |
+| GitHub OIDC provider and `ci-plan` / `ci-apply` roles | declared in `ci_roles` (`count = 0`; apply/deploy subjects must be protected environments); provider itself external | roles with `count = 0` until `github_oidc_provider_arn` and `github_subjects` are approved; read-only plan role separate from apply | external OIDC ARN and exact subjects (OPEN_GAPS) |
+| Deploy role (ECS `UpdateService`/`RunTask`, `iam:PassRole` limited to task/execution roles with `PassedToService=ecs-tasks.amazonaws.com`) | declared in `ci_roles` | policy bounded by resource ARNs and a permissions boundary | approved deploy policy and boundary |
+| Worker `ecs:RunTask` on the `sandbox-lab` ARN plus limited `PassRole` | declared in `auxiliary_roles` (disabled, CLQ-43) | extend engine worker task role | CLQ-43 sandbox contract |
+| `task-sandbox` role (GetObject session prefix, PutObject results prefix, explicit Deny on source bucket, secrets, `ecs:*`, `iam:*`) | declared in `auxiliary_roles` (disabled, CLQ-43) | new role | CLQ-43 |
+| `observability-reader` (read-only on `/pulso/<env>/*`) | declared in `auxiliary_roles` | new role | none technical |
+| Guard: no Core/exporter/sandbox policy may reference the RDS master secret | declared in `workload_iam` | generalise to all roles (T-07) | none |
 | Remote state/bootstrap trust (state bucket, lock, KMS) | **absent** | external bootstrap contract | OPEN_GAPS state/bootstrap |
 
 No OIDC role is created until the external inputs exist; Terraform declarations here are not proof of an

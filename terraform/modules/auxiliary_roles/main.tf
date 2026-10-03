@@ -1,7 +1,14 @@
 # task-sandbox (CLQ-43, disabled by default), the worker launch policy for it, and the
 # read-only observability reader. Nothing here is attached to existing roles.
 
-variable "environment_name" { type = string }
+variable "environment_name" {
+  type = string
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]*$", var.environment_name))
+    error_message = "environment_name must be lowercase alphanumerics and hyphens (it is embedded in IAM resource ARNs)."
+  }
+}
 variable "aws_region" { type = string }
 variable "source_bucket_arn" { type = string }
 variable "artifact_bucket_arn" { type = string }
@@ -9,11 +16,28 @@ variable "artifact_bucket_arn" { type = string }
 variable "sandbox_session_prefix" {
   type        = string
   description = "Artifact-bucket prefix the sandbox may read."
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$", var.sandbox_session_prefix))
+    error_message = "sandbox_session_prefix must be a concrete key prefix without wildcards, leading or trailing slash."
+  }
 }
 
 variable "sandbox_results_prefix" {
   type        = string
   description = "Artifact-bucket prefix the sandbox may write."
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$", var.sandbox_results_prefix))
+    error_message = "sandbox_results_prefix must be a concrete key prefix without wildcards, leading or trailing slash."
+  }
+  validation {
+    condition = (
+      !startswith("${var.sandbox_results_prefix}/", "${var.sandbox_session_prefix}/") &&
+      !startswith("${var.sandbox_session_prefix}/", "${var.sandbox_results_prefix}/")
+    )
+    error_message = "The sandbox read and write prefixes must not overlap (a sandbox must not overwrite its own inputs)."
+  }
 }
 
 variable "sandbox_task_definition_arn" {
@@ -34,6 +58,11 @@ variable "worker_task_role_name" {
 variable "observability_reader_principals" {
   type        = list(string)
   description = "Principal ARNs allowed to assume the reader. Empty disables the role."
+
+  validation {
+    condition     = alltrue([for p in var.observability_reader_principals : startswith(p, "arn:") && !strcontains(p, "*") && !endswith(p, ":root")])
+    error_message = "Reader principals must be specific role or user ARNs: no wildcard and no account root."
+  }
 }
 
 variable "permissions_boundary" { type = string }
@@ -169,17 +198,25 @@ resource "aws_iam_role_policy" "observability_reader" {
       {
         Sid    = "ReadPulsoLogGroups"
         Effect = "Allow"
-        Action = ["logs:GetLogEvents", "logs:FilterLogEvents", "logs:StartQuery", "logs:StopQuery", "logs:GetQueryResults"]
+        Action = ["logs:GetLogEvents", "logs:FilterLogEvents", "logs:StartQuery"]
         Resource = [
           "arn:aws:logs:${var.aws_region}:*:log-group:/pulso/${var.environment_name}/*",
           "arn:aws:logs:${var.aws_region}:*:log-group:/pulso/${var.environment_name}/*:log-stream:*",
         ]
       },
       {
-        Sid      = "ListLogGroupsAndAlarms"
+        # These logs actions do not support resource-level scoping; they expose metadata or results of
+        # queries the caller itself started on the log groups above.
+        Sid      = "LogsMetadataAndQueryResults"
         Effect   = "Allow"
-        Action   = ["logs:DescribeLogGroups", "logs:DescribeLogStreams", "cloudwatch:DescribeAlarms", "cloudwatch:GetMetricData", "cloudwatch:ListMetrics"]
-        Resource = ["arn:aws:logs:${var.aws_region}:*:log-group:/pulso/${var.environment_name}/*"]
+        Action   = ["logs:DescribeLogGroups", "logs:DescribeLogStreams", "logs:StopQuery", "logs:GetQueryResults"]
+        Resource = ["*"]
+      },
+      {
+        Sid      = "ReadAlarmsAndMetrics"
+        Effect   = "Allow"
+        Action   = ["cloudwatch:DescribeAlarms", "cloudwatch:GetMetricData", "cloudwatch:ListMetrics"]
+        Resource = ["*"]
       },
     ]
   })

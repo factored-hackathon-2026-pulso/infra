@@ -95,6 +95,84 @@ class PlanRulesTest(unittest.TestCase):
                       codes(validate_plan.validate(p_tag, manifest=EXAMPLE)))
 
 
+class PlanBypassHardeningTest(unittest.TestCase):
+    """Independent review findings: each case was accepted by the first implementation."""
+
+    def test_uninspectable_task_definition_is_rejected(self):
+        unknown = change("aws_ecs_task_definition", {})  # container_definitions computed/unknown
+        self.assertIn("pulso:plan_uninspectable_task_definition", codes(validate_plan.validate(plan(unknown))))
+        broken = change("aws_ecs_task_definition", {"container_definitions": "{not json"})
+        self.assertIn("pulso:plan_uninspectable_task_definition", codes(validate_plan.validate(plan(broken))))
+
+    def test_demo_flag_anywhere_in_container_definition_is_rejected(self):
+        cd = [{"name": "a", "image": "x@sha256:" + "a" * 64, "command": ["sh", "-c", "AGENTCORE_ALLOW_DEMO=1 run"]}]
+        c = change("aws_ecs_task_definition", {"container_definitions": json.dumps(cd)})
+        self.assertIn("pulso:plan_demo_flag", codes(validate_plan.validate(plan(c))))
+
+    def test_environment_files_are_rejected(self):
+        cd = [{"name": "a", "image": "x@sha256:" + "a" * 64, "environmentFiles": [{"type": "s3", "value": "arn:aws:s3:::b/e.env"}]}]
+        c = change("aws_ecs_task_definition", {"container_definitions": json.dumps(cd)})
+        self.assertIn("pulso:plan_environment_files", codes(validate_plan.validate(plan(c))))
+
+    def test_open_ingress_alternate_spellings_and_halves(self):
+        for cidr in ("0.0.0.0/1", "128.0.0.0/1", "0.0.0.0/0 ", "0.0.0.0/00", "::0/0", "0:0:0:0:0:0:0:0/0", "::/1"):
+            key = "cidr_ipv6" if ":" in cidr else "cidr_ipv4"
+            c = change("aws_vpc_security_group_ingress_rule", {key: cidr})
+            self.assertIn("pulso:plan_open_ingress", codes(validate_plan.validate(plan(c))), cidr)
+        ok = change("aws_vpc_security_group_ingress_rule", {"cidr_ipv4": "10.0.0.0/16"})
+        self.assertEqual(validate_plan.validate(plan(ok))["errors"], [])
+
+    def test_bucket_and_log_group_deletes_need_marker(self):
+        for t in ("aws_s3_bucket", "aws_cloudwatch_log_group"):
+            p = plan(change(t, actions=("delete", "create"), address=f"{t}.main"))
+            self.assertIn("pulso:plan_destructive", codes(validate_plan.validate(p)))
+
+    def test_wildcard_iam_policies_are_rejected(self):
+        admin = {"policy": json.dumps({"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]})}
+        for rtype in ("aws_iam_role_policy", "aws_iam_policy"):
+            self.assertIn("pulso:plan_iam_wildcard", codes(validate_plan.validate(plan(change(rtype, admin)))))
+        svc = {"policy": json.dumps({"Statement": [{"Effect": "Allow", "Action": ["iam:*"], "Resource": "*"}]})}
+        self.assertIn("pulso:plan_iam_wildcard", codes(validate_plan.validate(plan(change("aws_iam_role_policy", svc)))))
+        adm = change("aws_iam_role_policy_attachment",
+                     {"policy_arn": "arn:aws:iam::aws:policy/AdministratorAccess"})
+        self.assertIn("pulso:plan_iam_wildcard", codes(validate_plan.validate(plan(adm))))
+        deny = {"policy": json.dumps({"Statement": [{"Effect": "Deny", "Action": ["iam:*"], "Resource": "*"}]})}
+        self.assertEqual(validate_plan.validate(plan(change("aws_iam_role_policy", deny)))["errors"], [])
+
+    def test_any_principal_trust_is_rejected(self):
+        trust = json.dumps({"Statement": [{"Effect": "Allow", "Action": "sts:AssumeRole", "Principal": {"AWS": "*"}}]})
+        c = change("aws_iam_role", {"assume_role_policy": trust})
+        self.assertIn("pulso:plan_iam_wildcard", codes(validate_plan.validate(plan(c))))
+
+    def test_malformed_resource_change_is_an_error_not_a_crash(self):
+        r = validate_plan.validate({"resource_changes": [{"type": "aws_s3_bucket"}]})
+        self.assertIn("schema", codes(r))
+        r = validate_plan.validate({"resource_changes": ["x"]})
+        self.assertIn("schema", codes(r))
+
+    def test_apply_refuses_errored_or_unapplyable_plan(self):
+        p = plan(change("aws_s3_bucket"))
+        p["errored"] = True
+        m = approved_manifest(p)
+        self.assertIn("pulso:apply_not_applyable", codes(validate_plan.validate(p, manifest=m, mode="apply")))
+        p2 = plan(change("aws_s3_bucket"))
+        p2["applyable"] = False
+        m2 = approved_manifest(p2)
+        self.assertIn("pulso:apply_not_applyable", codes(validate_plan.validate(p2, manifest=m2, mode="apply")))
+
+    def test_infra_stage_must_not_roll_services_before_migrate(self):
+        svc = {"resource_changes": [{"address": "module.core.aws_ecs_service.this[0]", "type": "aws_ecs_service",
+               "change": {"actions": ["update"], "before": {"task_definition": "arn:td:1"},
+                          "after": {"task_definition": "arn:td:2"}}}]}
+        self.assertIn("pulso:plan_service_rollout_before_migrate",
+                      codes(validate_plan.validate(svc, stage="infra")))
+        self.assertEqual(validate_plan.validate(svc, stage="rollout")["errors"], [])
+        same = {"resource_changes": [{"address": "a", "type": "aws_ecs_service",
+                "change": {"actions": ["update"], "before": {"task_definition": "arn:td:1", "desired_count": 1},
+                           "after": {"task_definition": "arn:td:1", "desired_count": 2}}}]}
+        self.assertEqual(validate_plan.validate(same, stage="infra")["errors"], [])
+
+
 class ManifestGateTest(unittest.TestCase):
     def test_incompatible_manifest_refused(self):
         self.assertNotEqual(validate_manifest.validate(INCOMPATIBLE)["errors"], [])

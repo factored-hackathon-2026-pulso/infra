@@ -19,21 +19,21 @@ variable "plan_subjects" {
 
 variable "apply_subjects" {
   type        = list(string)
-  description = "Exact OIDC subjects allowed to assume ci-apply (use a protected GitHub environment)."
+  description = "Exact OIDC subjects allowed to assume ci-apply: protected GitHub environments only."
 
   validation {
-    condition     = alltrue([for s in var.apply_subjects : can(regex("^repo:[^*?/]+/[^*?/]+:[^*?]+$", s))])
-    error_message = "apply_subjects must be exact repo:<owner>/<repo>:<ref|environment|pull_request> values without wildcards."
+    condition     = alltrue([for s in var.apply_subjects : can(regex("^repo:[^*?/]+/[^*?/]+:environment:[^*?:]+$", s))])
+    error_message = "apply_subjects must be exact repo:<owner>/<repo>:environment:<name> values (a protected environment); branch, tag and pull_request subjects are not accepted."
   }
 }
 
 variable "deploy_subjects" {
   type        = list(string)
-  description = "Exact OIDC subjects allowed to assume the ECS deploy role."
+  description = "Exact OIDC subjects allowed to assume the ECS deploy role: protected GitHub environments only."
 
   validation {
-    condition     = alltrue([for s in var.deploy_subjects : can(regex("^repo:[^*?/]+/[^*?/]+:[^*?]+$", s))])
-    error_message = "deploy_subjects must be exact repo:<owner>/<repo>:<ref|environment|pull_request> values without wildcards."
+    condition     = alltrue([for s in var.deploy_subjects : can(regex("^repo:[^*?/]+/[^*?/]+:environment:[^*?:]+$", s))])
+    error_message = "deploy_subjects must be exact repo:<owner>/<repo>:environment:<name> values (a protected environment); branch, tag and pull_request subjects are not accepted."
   }
 }
 
@@ -48,12 +48,34 @@ variable "permissions_boundary" {
 }
 
 variable "deploy_cluster_arn" { type = string }
-variable "deploy_service_arns" { type = list(string) }
-variable "deploy_task_definition_arns" { type = list(string) }
+
+variable "deploy_service_arns" {
+  type = list(string)
+
+  validation {
+    condition     = alltrue([for a in var.deploy_service_arns : !strcontains(a, "*") && startswith(a, "arn:")])
+    error_message = "deploy_service_arns must be concrete ECS service ARNs without wildcards."
+  }
+}
+
+variable "deploy_task_definition_arns" {
+  type = list(string)
+
+  validation {
+    # A trailing :* (all revisions of one family) is the only wildcard allowed.
+    condition     = alltrue([for a in var.deploy_task_definition_arns : startswith(a, "arn:") && !strcontains(trimsuffix(a, ":*"), "*")])
+    error_message = "deploy_task_definition_arns may only wildcard the revision (family:*)."
+  }
+}
 
 variable "passable_role_arns" {
   type        = list(string)
   description = "Task and execution role ARNs the deploy role may pass to ECS; nothing else."
+
+  validation {
+    condition     = alltrue([for a in var.passable_role_arns : startswith(a, "arn:") && !strcontains(a, "*") && !strcontains(a, "?")])
+    error_message = "passable_role_arns must be concrete role ARNs without wildcards."
+  }
 }
 
 variable "tags" { type = map(string) }
@@ -104,6 +126,15 @@ locals {
         }
       },
       {
+        Sid      = "ObserveTasksInTheDeployCluster"
+        Effect   = "Allow"
+        Action   = ["ecs:DescribeTasks", "ecs:StopTask"]
+        Resource = ["${replace(var.deploy_cluster_arn, ":cluster/", ":task/")}/*"]
+        Condition = {
+          ArnEquals = { "ecs:cluster" = var.deploy_cluster_arn }
+        }
+      },
+      {
         Sid      = "PassTaskAndExecutionRolesToEcsOnly"
         Effect   = "Allow"
         Action   = ["iam:PassRole"]
@@ -131,6 +162,22 @@ resource "aws_iam_role_policy_attachment" "ci_plan_read_only" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
+# ReadOnlyAccess is broader than a plan needs (it includes parameter reads; kms:Decrypt stays allowed for the encrypted state backend); the explicit Deny wins.
+resource "aws_iam_role_policy" "ci_plan_deny_secret_reads" {
+  count = local.plan_on ? 1 : 0
+
+  name = "deny-secret-value-reads"
+  role = aws_iam_role.ci_plan[0].id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Deny"
+      Action   = ["secretsmanager:GetSecretValue", "ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
+      Resource = ["*"]
+    }]
+  })
+}
+
 resource "aws_iam_role" "ci_apply" {
   count = local.apply_on ? 1 : 0
 
@@ -143,6 +190,13 @@ resource "aws_iam_role" "ci_apply" {
     precondition {
       condition     = var.permissions_boundary != "" && var.apply_policy_json != ""
       error_message = "ci-apply needs the approved permissions boundary and the approved apply policy."
+    }
+    precondition {
+      condition = var.apply_policy_json == "" || !anytrue([
+        for s in try(tolist(jsondecode(var.apply_policy_json).Statement), [jsondecode(var.apply_policy_json).Statement]) :
+        try(s.Effect, "") == "Allow" && (can(s.NotAction) || contains(try(tolist(s.Action), [s.Action]), "*") || contains(try(tolist(s.Action), [s.Action]), "iam:*"))
+      ])
+      error_message = "The approved apply policy must not allow Action \"*\", \"iam:*\" or NotAction."
     }
   }
 }

@@ -21,7 +21,11 @@ who holds that authority. A passing offline check is not evidence of a deploymen
 1. Build `deploy-manifest.json` for the target environment (`staging` or `prod`; never anything else).
 2. `python release/validate_manifest.py deploy-manifest.json` exits 0 (rules M-01..M-10).
 3. `terraform show -json <saved plan> > plan.json`, then
-   `python release/validate_plan.py plan.json --manifest deploy-manifest.json` exits 0.
+   `python release/validate_plan.py plan.json --manifest deploy-manifest.json --stage infra` exits 0.
+   `--stage infra` rejects any plan that changes a service task definition: a service must never roll before
+   `core-migrate` (step 3). Service digests change only in the separate rollout plans of steps 5 and 7, validated with
+   `--stage rollout`; each such plan needs its own `infra.plan_digest` and approval.
+   If the plan updates or replaces an RDS instance, take the step 2 snapshots before applying it.
    A delete or replace of RDS, secrets or KMS fails unless the operator passes `--allow-delete <address>` after a
    conscious decision.
 4. The approver records an approval pinned to the manifest digest (`validate_plan.manifest_digest`) and
@@ -51,7 +55,8 @@ is never presented as success, and a `--dry-run` never is.
 
 ## 4. Rollback
 
-Rollback is a new plan with the previous manifest (digest pair reverted as a unit). Never edit an ECS service by hand:
+Rollback is a new plan with the previous manifest (digest pair reverted as a unit). It is a new plan, so it needs its
+own `infra.plan_digest` and an approval pinned to the manifest being applied; validate it with `--mode apply --stage rollout`. Roll services back in reverse order (engine api/worker, exporter, then Core runtime). Never edit an ECS service by hand:
 the circuit breaker reverts the task definition but Terraform state still points to the new one.
 
 Decision tree "is the schema compatible?":

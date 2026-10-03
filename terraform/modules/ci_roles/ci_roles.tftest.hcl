@@ -162,3 +162,95 @@ run "deploy_role_without_boundary_is_rejected" {
 
   expect_failures = [aws_iam_role.deploy]
 }
+
+# --- independent review (adversarial) findings ---
+
+run "apply_subject_must_be_a_protected_environment" {
+  command = plan
+
+  variables {
+    github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+    apply_subjects           = ["repo:pulso-factored/infra:pull_request"]
+  }
+
+  expect_failures = [var.apply_subjects]
+}
+
+run "deploy_subject_must_be_a_protected_environment" {
+  command = plan
+
+  variables {
+    github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+    deploy_subjects          = ["repo:pulso-factored/infra:ref:refs/heads/feature-x"]
+  }
+
+  expect_failures = [var.deploy_subjects]
+}
+
+run "wildcard_passable_roles_are_rejected" {
+  command = plan
+
+  variables {
+    passable_role_arns = ["arn:aws:iam::123456789012:role/*"]
+  }
+
+  expect_failures = [var.passable_role_arns]
+}
+
+run "wildcard_service_arns_are_rejected" {
+  command = plan
+
+  variables {
+    deploy_service_arns = ["*"]
+  }
+
+  expect_failures = [var.deploy_service_arns]
+}
+
+run "wildcard_apply_policy_is_rejected" {
+  command = plan
+
+  variables {
+    github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+    apply_subjects           = ["repo:pulso-factored/infra:environment:staging"]
+    apply_policy_json        = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"*\",\"Resource\":\"*\"}]}"
+    permissions_boundary     = "arn:aws:iam::123456789012:policy/pulso-boundary"
+  }
+
+  expect_failures = [aws_iam_role.ci_apply]
+}
+
+run "plan_role_cannot_read_secret_values" {
+  command = plan
+
+  variables {
+    github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+    plan_subjects            = ["repo:pulso-factored/infra:pull_request"]
+  }
+
+  assert {
+    condition = anytrue([
+      for s in jsondecode(aws_iam_role_policy.ci_plan_deny_secret_reads[0].policy).Statement :
+      s.Effect == "Deny" && contains(s.Action, "secretsmanager:GetSecretValue") && contains(s.Action, "ssm:GetParameter")
+    ])
+    error_message = "ci-plan must explicitly deny reading secret values (ReadOnlyAccess is broader than plan needs)."
+  }
+}
+
+run "deploy_role_can_observe_the_tasks_it_starts" {
+  command = plan
+
+  variables {
+    github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+    deploy_subjects          = ["repo:pulso-factored/infra:environment:staging"]
+    permissions_boundary     = "arn:aws:iam::123456789012:policy/pulso-boundary"
+  }
+
+  assert {
+    condition = anytrue([
+      for s in jsondecode(aws_iam_role_policy.deploy[0].policy).Statement :
+      contains(s.Action, "ecs:DescribeTasks") && !contains(s.Resource, "*")
+    ])
+    error_message = "The runbook waits on core-migrate exit codes; the deploy role needs ecs:DescribeTasks on this cluster tasks."
+  }
+}

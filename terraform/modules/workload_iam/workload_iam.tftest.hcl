@@ -83,7 +83,7 @@ run "task_policy_statements_naming_the_master_secret_are_rejected" {
   variables {
     task_statements = [{
       Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
+      Action   = ["s3:GetObject"]
       Resource = ["arn:aws:secretsmanager:us-east-1:123456789012:secret:rds-master-test"]
     }]
   }
@@ -97,5 +97,109 @@ run "trust_is_ecs_tasks_only" {
   assert {
     condition     = jsondecode(aws_iam_role.task.assume_role_policy).Statement[0].Principal.Service == ["ecs-tasks.amazonaws.com"]
     error_message = "Only ECS tasks may assume workload roles."
+  }
+}
+
+# --- independent review (adversarial) findings ---
+
+run "wildcard_secret_arns_are_rejected" {
+  command = plan
+
+  variables {
+    own_secret_arns = ["arn:aws:secretsmanager:us-east-1:123456789012:secret:*"]
+  }
+
+  expect_failures = [var.own_secret_arns]
+}
+
+run "bare_star_secret_arn_is_rejected" {
+  command = plan
+
+  variables {
+    own_secret_arns = ["*"]
+  }
+
+  expect_failures = [var.own_secret_arns]
+}
+
+run "wildcard_kms_keys_are_rejected" {
+  command = plan
+
+  variables {
+    secret_kms_key_arns = ["*"]
+  }
+
+  expect_failures = [var.secret_kms_key_arns]
+}
+
+run "task_statements_cannot_grant_privilege_escalation" {
+  command = plan
+
+  variables {
+    task_statements = [{
+      Effect   = "Allow"
+      Action   = ["iam:PassRole"]
+      Resource = ["arn:aws:iam::123456789012:role/x"]
+    }]
+  }
+
+  expect_failures = [var.task_statements]
+}
+
+run "task_statements_cannot_use_a_global_wildcard_action" {
+  command = plan
+
+  variables {
+    task_statements = [{
+      Effect   = "Allow"
+      Action   = "*"
+      Resource = ["*"]
+    }]
+  }
+
+  expect_failures = [var.task_statements]
+}
+
+run "task_statements_cannot_read_secrets_directly" {
+  command = plan
+
+  variables {
+    task_statements = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
+      Resource = ["arn:aws:secretsmanager:us-east-1:123456789012:secret:other-workload-secret"]
+    }]
+  }
+
+  expect_failures = [var.task_statements]
+}
+
+run "bounded_task_statement_is_accepted" {
+  command = plan
+
+  variables {
+    task_statements = [{
+      Effect   = "Allow"
+      Action   = ["s3:GetObject"]
+      Resource = ["arn:aws:s3:::pulso-artifacts-test/core/*"]
+    }]
+  }
+
+  assert {
+    condition     = length(aws_iam_role_policy.task) == 1
+    error_message = "A bounded explicit statement must still be accepted."
+  }
+}
+
+run "trust_is_bound_to_this_account_against_confused_deputy" {
+  command = plan
+
+  assert {
+    condition     = contains(keys(jsondecode(aws_iam_role.task.assume_role_policy).Statement[0].Condition.StringEquals), "aws:SourceAccount")
+    error_message = "ECS trust must carry aws:SourceAccount."
+  }
+  assert {
+    condition     = contains(keys(jsondecode(aws_iam_role.execution.assume_role_policy).Statement[0].Condition.StringEquals), "aws:SourceAccount")
+    error_message = "ECS trust must carry aws:SourceAccount."
   }
 }

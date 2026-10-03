@@ -116,3 +116,86 @@ run "observability_reader_is_read_only_on_pulso_log_groups" {
     error_message = "Log reads are scoped to /pulso/<env>/*."
   }
 }
+
+# --- independent review (adversarial) findings ---
+
+run "sandbox_prefixes_must_be_concrete" {
+  command = plan
+
+  variables {
+    sandbox_session_prefix = "sandbox/*"
+  }
+
+  expect_failures = [var.sandbox_session_prefix]
+}
+
+run "sandbox_prefixes_cannot_overlap" {
+  command = plan
+
+  variables {
+    sandbox_results_prefix = "sandbox/sessions/out"
+  }
+
+  expect_failures = [var.sandbox_results_prefix]
+}
+
+run "reader_principal_cannot_be_any" {
+  command = plan
+
+  variables {
+    observability_reader_principals = ["*"]
+  }
+
+  expect_failures = [var.observability_reader_principals]
+}
+
+run "reader_principal_cannot_be_account_root" {
+  command = plan
+
+  variables {
+    observability_reader_principals = ["arn:aws:iam::123456789012:root"]
+  }
+
+  expect_failures = [var.observability_reader_principals]
+}
+
+run "environment_name_cannot_inject_wildcards" {
+  command = plan
+
+  variables {
+    environment_name = "*"
+  }
+
+  expect_failures = [var.environment_name]
+}
+
+run "reader_cloudwatch_actions_are_not_scoped_to_a_logs_arn" {
+  command = apply
+
+  variables {
+    observability_reader_principals = ["arn:aws:iam::123456789012:role/oncall"]
+  }
+
+  # cloudwatch actions never match a logs ARN; they must sit in their own statement on "*".
+  assert {
+    condition = alltrue([
+      for s in jsondecode(aws_iam_role_policy.observability_reader[0].policy).Statement :
+      alltrue([for a in s.Action : startswith(a, "cloudwatch:")]) || alltrue([for a in s.Action : startswith(a, "logs:")])
+    ])
+    error_message = "Do not mix cloudwatch and logs actions in one statement."
+  }
+  assert {
+    condition = anytrue([
+      for s in jsondecode(aws_iam_role_policy.observability_reader[0].policy).Statement :
+      contains(s.Action, "cloudwatch:DescribeAlarms") && s.Resource == ["*"]
+    ])
+    error_message = "cloudwatch read actions only support Resource *."
+  }
+  assert {
+    condition = anytrue([
+      for s in jsondecode(aws_iam_role_policy.observability_reader[0].policy).Statement :
+      contains(s.Action, "logs:GetQueryResults") && s.Resource == ["*"]
+    ])
+    error_message = "Logs Insights query result actions do not support resource scoping."
+  }
+}
