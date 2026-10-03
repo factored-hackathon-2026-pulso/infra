@@ -53,6 +53,11 @@ the ownership split, the interface contract with the `agent-core` repository and
 prerequisites are tracked in the ADR, the [deployment-status contract](docs/architecture/deployment-status.md)
 and [open gaps](docs/gaps/OPEN_GAPS.md).
 
+Modules `workload`, `workload_iam`, `ci_roles` and `auxiliary_roles` are declared with
+mock-provider tests but are not yet wired into `envs/*`. Releases are manual and offline-validated:
+see `release/` (deploy-manifest schema, `validate_manifest.py`, `validate_plan.py`, `deploy_plan.py --dry-run`)
+and the [deploy and rollback runbook](docs/runbooks/deploy-core-and-engine.md).
+
 ## LLM gateway workload
 
 [ADR 0004](docs/adr/0004-llm-gateway-workload.md) accepts running the `llm-gateway` service (stateless HTTP

@@ -1,0 +1,82 @@
+{
+  "schema_version": "1",
+  "environment": "staging",
+  "engine": {
+    "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "git_sha": "1234567000000000000000000000000000000000",
+    "migrations_head": "0042_expand_runs",
+    "migration_class": "expand",
+    "expected_contracts_version": "1.3.0",
+    "expected_pin_manifest_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "agent_core": {
+    "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "image_tag": "86a7674-1234567",
+    "git_sha": "86a767474042a566a0dbd6ed23588959f27ebdb3",
+    "contracts_version": "1.3.0",
+    "schema_digest": {
+      "runtime": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "eval": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "pulso_package_sha": "1234567000000000000000000000000000000000"
+  },
+  "contracts": {
+    "pin_manifest_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "compat": {
+    "kind": "unchanged",
+    "n_minus_1_image_tested": false,
+    "strategy": null
+  },
+  "assets": {
+    "manifest_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "expected_state_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "release_ids": [
+      "rel-1"
+    ]
+  },
+  "exporter": {
+    "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "console": {
+    "image_digest": null,
+    "reason": "dependency_blocked:edge"
+  },
+  "sandbox": {
+    "image_digest": null,
+    "reason": "dependency_blocked:CLQ-43"
+  },
+  "runtime_config": {
+    "ref": "runtime-config/staging",
+    "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "infra": {
+    "git_sha": "abcdef0000000000000000000000000000000000",
+    "tfvars_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "plan_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "approvals": [
+    {
+      "approver": "release-owner",
+      "role": "human",
+      "approved_at": "2026-10-02T12:00:00Z",
+      "manifest_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+    }
+  ],
+  "smoke": {
+    "suite": "registry-wire-contract",
+    "target": "real_aws",
+    "doubles": [],
+    "result": "ok"
+  },
+  "rollback": {
+    "previous_manifest_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "previous_schema_digest": {
+      "runtime": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "eval": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  },
+  "signature": {
+    "status": "dependency_blocked"
+  }
+}

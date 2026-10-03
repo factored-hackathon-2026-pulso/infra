@@ -1,88 +1,124 @@
 # Agent Core as a deployed workload
 
-Status: **Accepted** (proposed and merged in pulso-factored/infra#11; the scope documents were aligned in
-journal 0010). Accepting the ADR creates no resources: see "Implementation status".
+Status: **Accepted** (provisional: decisions D-3 and D-6 of the two-team plan; the acceptance record belongs to
+the human owners and this revision does not replace it). Accepting the ADR creates no resources: see
+"Implementation status". Revised for package L9 (plan 17.3.9, DR-88..DR-91, DR-94, CLQ-38/39).
 
 ## Context
 
-ADR 0001 and ADR 0002 scope this repository to the improvement engine and treat
-Agent Core as an external product. Agent Core now has a bootable HTTP server
-(`agentcore serve`) and needs a place to run in `staging` and `prod`. Rebuilding
-the same network, database and secrets plumbing in a second repository would
-split ownership of one AWS account.
+ADR 0001 and ADR 0002 scope this repository to the improvement engine and treat Agent Core as an external
+product. Agent Core has a bootable HTTP server (`agentcore serve`) and needs a place to run in `staging` and
+`prod`. Rebuilding network, database and secrets plumbing in a second repository would split ownership of one
+AWS account. The first revision of this ADR was written before several facts in the pinned Agent Core
+checkout (contracts 1.3.0, SHA `86a7674`) were verified; the "Corrections" table lists each one.
 
 ## Decision
 
-1. **Scope.** This repository also owns the Terraform/AWS infrastructure that
-   *runs* Agent Core. It still does not own Agent Core's code, image build,
-   schema, migrations or runtime behavior; those stay in `agent-core`.
-2. **Shape.** One shared network/observability foundation per environment, plus
-   one *workload* per service (`improvement-engine`, `agent-core`) that consumes
-   it. Workloads do not share a database instance or a task role.
-3. **Environments.** Unchanged: `staging` and `prod` only. `prod` remains the
-   hackathon demo, not a banking deployment.
-4. **Region.** `us-east-1` (N. Virginia) for both environments for now. This is
-   provisional: where the decision-model provider (JEV) processes and retains
-   data has no public answer, so the region must be revisited before any real
-   customer data is involved.
-5. **Engines.** ECS on Fargate and RDS for PostgreSQL are the engines already
-   declared for the improvement service (see the deployment-status contract).
-   Agent Core reuses those choices, which also match its own stack decision (no
-   queues, Redis or vector store), with its own ECS service, task roles and
-   database instance.
-6. **Egress.** Agent Core must reach the LLM endpoint(s) and JEV over HTTPS, so
-   it needs the `controlled_nat` egress profile with the destination-control and
-   logging design that profile requires; `aws_private_endpoints_only` cannot
-   serve it. That design is the existing "Controlled external egress" gap.
-7. **No automated apply.** Unchanged from ADR 0002. Plan/apply automation, OIDC
-   write permission and remote state remain separate reviewed slices.
+1. **Scope.** This repository owns the Terraform/AWS infrastructure that *runs* Agent Core and the offline
+   release tooling (`release/`: deploy-manifest schema and validator). It does not own Agent Core's code,
+   schema or runtime behaviour. The Core image is built by the Pulso side (D-3, provisional, to be reviewed
+   with the agent-core team) from a pinned agent-core checkout; that build is outside this repository.
+2. **Separation (private service, roles, secrets).** The engine and Core are two ECS/Fargate workloads on one
+   shared network/observability foundation, and share nothing that carries authority:
+   - *Service:* `pulso-core-runtime` is a private service (no public IP, no load balancer, no WAF, no public
+     ingress). Name resolution is by Cloud Map private DNS (for example `core-runtime.<env>.pulso.internal`)
+     and reachability by security group only. An internal ALB is the documented alternative and is reserved
+     for a future `edge`; Service Connect is rejected (sidecar, opaque security-group semantics).
+   - *Roles:* one task role and one execution role per workload. Each execution role reads only its own
+     secrets (`kms:Decrypt` constrained by `ViaService` and `EncryptionContext:SecretARN`) plus ECR pull and
+     logs. Core tasks get no AWS permissions beyond that, and no workload role may read the RDS master secret.
+   - *Secrets:* separate Secrets Manager entries per workload (names and encryption only; values never in
+     Terraform state or Git, never `aws_secretsmanager_secret_version`). Core: `core/db-app`
+     (`{registry_dsn, eval_dsn}`), `core/db-migrate`, `core/db-exporter`, `core/keys`, `core/jev`,
+     `core/llm-endpoints` plus `core/llm-key-<alias>`, `core/identity-keys`, `core/staff-keys`,
+     `core/bridge-service-key`. Engine: `engine/runtime`, `engine/db-app`, `engine/service-key`. The engine
+     never receives a Core DSN and Core never receives an engine DSN (CLQ-39 asks Codex to confirm the engine
+     env names per profile).
+   - *Data:* a separate RDS PostgreSQL 16 instance for Core (fixed `engine_version`, own parameter group,
+     encrypted, backups). One instance with two logical databases (`core_runtime`, `core_eval`) and roles
+     `core_owner`, `core_app`, `core_eval_app`, `core_exporter_ro` is the default; `core_eval_separate_instance`
+     reserves two instances. Evaluation-load contention is measured in L10. Creating databases, roles and
+     grants is not Terraform: it is an authorised human bootstrap step (L2 entrypoint) using the RDS master
+     secret outside any runtime role.
+3. **Environments and region.** Unchanged: `staging` and `prod` only; `us-east-1`, provisional (data
+   residency of the decision-model provider is unanswered), `prod` is the hackathon demo.
+4. **Engines.** ECS on Fargate and RDS for PostgreSQL.
+5. **Egress.** Only `pulso-core-runtime` needs HTTPS egress to `api.typesafe.ai` and the `LLM_ENDPOINTS`
+   hosts, so it needs `controlled_nat`. An open 443 rule is not proof that only those hosts are reachable;
+   destination control stays `dependency_blocked` (see OPEN_GAPS "Controlled external egress").
+6. **No automated apply.** Unchanged from ADR 0002. Plan/apply, OIDC write permission and remote state remain
+   separate reviewed slices.
+7. **Static refusals.** Image references must match `@sha256:<64 hex>` (tags are never deployed);
+   `AGENTCORE_ALLOW_DEMO` is forbidden in a workload's environment or secrets and verified statically; task
+   definitions never use a public IP.
+8. **Release by joint manifest.** A release is described by `deploy-manifest.json` (schema
+   `release/deploy-manifest.schema.json`, validator `release/validate_manifest.py`, rules M-01..M-10). It
+   holds the digest pair, `contracts_version` / `pin_manifest_digest`, `schema_digest.{runtime,eval}`,
+   `compat`, `assets`, `exporter`, `console`, `sandbox`, `approvals[]`, `smoke` and `rollback`. Incompatible
+   manifests are rejected (`pulso:manifest_incompatible`). `signature` stays `dependency_blocked`: the
+   manifest is pinned by its digest recorded in the approval and is never described as signed.
+9. **Schema compatibility instead of migration versions (DR-88).** `agentcore migrate` is idempotent
+   `CREATE ... IF NOT EXISTS` with no version table and no down direction, so migration heads cannot be
+   compared. The manifest carries `schema_digest` (SHA-256 of the two schema files at the Core SHA). A changed
+   digest needs a declared `compat` (`expand` with evidence that image N-1 runs against schema N, or
+   `contract` with an explicit strategy). "Expand/contract tested in both directions" cannot be met for Core;
+   only image N-1 against schema N is testable.
+10. **Deploy order** (Pulso never updates before Core is ready): validate manifest and plan offline; human
+    `terraform apply` only if there is a diff; manual RDS snapshots; `core-migrate` with the new image;
+    schema smoke with the read-only role; update `pulso-core-runtime` and wait for `/readyz`; engine
+    migration; update exporter then engine services; idempotent seed and smoke; deployment receipt.
+11. **Rollback.** Restore the digest pair as a unit; data is not reverted. A rollback is a new plan with the
+    previous manifest, never a manual service edit (the ECS circuit breaker reverts the task definition while
+    Terraform state still points at the new one). PITR or snapshot restore is a separate human decision.
+12. **Key files (DR-89).** Fargate injects secrets as environment variables, not files. The Core entrypoint
+    materialises the identity/staff public-key files in tmpfs from those variables.
 
 ## Ownership split
 
-| Owned by `agent-core` | Owned by this repository |
+| Owned by `agent-core` | Owned by `improvement-engine` | Owned by this repository (`infra`) |
+|---|---|---|
+| Source, schema scripts, `agentcore migrate`, `sweep`, `/healthz`, `/readyz`, configuration validation | Engine image and entrypoints (CLQ-38), engine migrations, `/internal/v1/*` API, observation ingest | VPC, subnets, NAT/endpoints, one security group per workload |
+| Demo-mode guard and fail-closed startup | Engine env names per profile (CLQ-39) | ECR, ECS cluster, task definitions pinned to digests, services |
+| Contracts and pin manifest | Sandbox image (CLQ-43) | RDS instances, KMS keys, Secrets Manager entries (names only) |
+| | | Task/execution/CI roles, GitHub OIDC trust (blocked on inputs) |
+| | | Log groups (one owner per workload), alarms, EventBridge sweep and migrate tasks |
+| | | `release/` manifest schema and validator, deploy runbook |
+
+The Core image (Dockerfile, wheelhouse, entrypoints `runtime`, `exporter`, `migrate`, `sweep`, `seed`) is built
+on the Pulso side from the pinned checkout (D-3); the pinned `agent-core` tree has no Dockerfile.
+
+## Flow matrix (security groups)
+
+| Flow | Source -> destination:port |
 |---|---|
-| Dockerfile and image build | VPC, subnets, NAT, security groups |
-| `/healthz` and `/readyz` endpoints | ECR repository |
-| Schema scripts and the `agentcore migrate` command | ECS cluster, service, task definition (pinned to an image digest) |
-| Configuration contract with fail-closed validation | RDS instance(s): the engine database and the registry evaluation database |
-| `agentcore sweep`, graceful shutdown, timeouts, degraded mode, cost caps | Secrets Manager entries (names and encryption only) and KMS keys |
-| Guard that refuses `AGENTCORE_ALLOW_DEMO` outside demo | Task and execution roles, GitHub OIDC trust |
-| Image CI: build, test, publish digest | Load balancer or API Gateway, TLS, WAF |
-| Load tests | Scheduled sweep (EventBridge launching an ECS task) |
-| | One-off migration task definition |
-| | Log groups, alarms, backups, OpenTelemetry collector |
+| F1 invoke/read/alias/dry-run/version | `engine-worker` -> `core-runtime`:8000 |
+| F2 callbacks (binding, broker, authorizations, evaluation) | `core-runtime` -> `engine-api`:8080 |
+| F3 observations | `core-exporter` -> `engine-api`:8080 |
+| F4 engine database | `engine-api`, `engine-worker`, `engine-migrate` -> `engine-db`:5432 (Core cannot reach it) |
+| F5 Core database | `core-runtime`, `core-exporter`, `core-migrate`, `core-sweep` -> `core-db`:5432 (the engine cannot reach it) |
+| F6 model egress | `core-runtime` -> NAT -> 443 (destination control blocked) |
+| F7 AWS APIs | all -> VPC endpoints or NAT |
+| F8 launch sandbox | `engine-worker` -> ECS API (IAM, not network) |
+| F9 sandbox | `sandbox-lab` -> endpoints only |
+| F10 user/console ingress | none (`edge` is `dependency_blocked`) |
 
-## Interface contract between the repositories
+## Interface contract
 
-Both sides must change this table in the same pair of pull requests.
+Both repositories must change this table in the same pair of pull requests.
 
-1. **Image.** Agent Core publishes an immutable digest. This repository deploys
-   only a digest, never a tag.
-2. **Network.** The container listens on one port (default `8000`);
-   `/healthz` is liveness and `/readyz` is readiness (checks PostgreSQL). Both
-   are unauthenticated, live outside `/v1` and expose no data.
-3. **Secrets.** Values are set out of band, never in Terraform state or Git.
-   Terraform provisions the entries; the task injects them as environment
-   variables:
-
-   | Variable | Content |
-   |---|---|
-   | `AGENTCORE_REGISTRY_DSN` | PostgreSQL DSN for the engine and registry |
-   | `AGENTCORE_EVAL_DSN` | DSN for the registry evaluation database |
-   | `AGENTCORE_KEYS_FINGERPRINT`, `AGENTCORE_KEYS_TOKEN_MAP` | HMAC/encryption keys, `kid:base64` form |
-   | `AGENTCORE_JEV_API_KEY` | JEV API key |
-   | `LLM_ENDPOINTS` | JSON map of endpoint aliases (holds variable names only) |
-   | One variable per LLM endpoint | The key named by `api_key_env` in `LLM_ENDPOINTS` |
-
-4. **Plain configuration.** `AGENTCORE_SERVE_AGENTS`, host, port and the
-   standard `OTEL_*` variables (for example `OTEL_EXPORTER_OTLP_ENDPOINT`) are
-   ordinary task environment variables. The identity public-key file read by
-   `--identity-keys` holds public keys only and is delivered as configuration.
-5. **Forbidden in deployed environments.** `AGENTCORE_ALLOW_DEMO` must be unset.
-   The service must exit non-zero, naming each missing piece, rather than start
-   with test doubles. See "Implementation status" for why this cannot hold yet.
-6. **Commands.** `agentcore migrate` (run as a one-off task before a service
-   update) and `agentcore sweep --once` (run on a schedule).
+1. **Image.** One immutable Core digest serves runtime, exporter, migrate, sweep and seed; tag
+   `<sha_core7>-<sha_pulso7>`. Only digests are deployed.
+2. **Network.** One port (default `8000`); `/healthz` liveness, `/readyz` readiness (checks PostgreSQL), both
+   unauthenticated, outside `/v1`, exposing no data.
+3. **Secrets.** Injected as environment variables by name: `AGENTCORE_REGISTRY_DSN`, `AGENTCORE_EVAL_DSN`
+   (per JSON key of `core/db-app`), `AGENTCORE_KEYS_FINGERPRINT`, `AGENTCORE_KEYS_TOKEN_MAP`,
+   `AGENTCORE_JEV_API_KEY`, `LLM_ENDPOINTS` (alias map, variable names only) and one variable per LLM endpoint.
+4. **Plain configuration.** `AGENTCORE_SERVE_AGENTS`, host, port and `OTEL_*` variables; identity public keys
+   are public material delivered as configuration.
+5. **Forbidden.** `AGENTCORE_ALLOW_DEMO` must be unset in deployed environments and the service must exit
+   non-zero naming each missing piece. This cannot hold yet (see below).
+6. **Commands.** `agentcore migrate --eval-dsn ...` as a one-off task before a service update;
+   `agentcore sweep --once` on a schedule.
 7. **Egress hosts.** `api.typesafe.ai` and each host in `LLM_ENDPOINTS`.
 
    **Pending change ([ADR 0004](0004-llm-gateway-workload.md)):** when Agent Core consumes the `llm-gateway`
@@ -90,44 +126,41 @@ Both sides must change this table in the same pair of pull requests.
    workload, and Agent Core gets the gateway URL and its own consumer token instead. Until then this contract
    stands as written.
 
+## Corrections to the first revision (DR-94)
+
+| Earlier statement | Correct state at SHA `86a7674` / this revision |
+|---|---|
+| Core owns the Dockerfile and image CI | No Dockerfile in the pin; the image is built Pulso-side (D-3, provisional) |
+| `/healthz`, `/readyz`, `agentcore migrate` missing in places | They exist (`api/app.py`, `cli.py`, `composition/migrate.py`) |
+| Versioned migrations / migration heads | None: idempotent scripts; `schema_digest` and `compat` replace heads (DR-88) |
+| Six secret variables | Full per-workload inventory above; two key files via entrypoint |
+| One service | Runtime, exporter, one-off migrate, scheduled sweep |
+| ALB/WAF owned for Core | Private service via Cloud Map and security groups; no ALB, no WAF |
+| Open: one vs two databases | Default one instance with two logical databases; variable reserves two |
+| Open: ingress | No ingress; Core -> engine flow F2 added |
+| Egress vocabulary | `controlled_nat` only for `core-runtime`; control stays blocked |
+| Sweep env mismatch (`AGENTCORE_DATABASE_URL`, `--registry`) | Resolved by the Pulso-side entrypoint; verify in L2 |
+
 ## Implementation status
 
-Nothing for Agent Core is declared in Terraform and nothing is deployed.
+Terraform for Agent Core workloads is not merged yet; nothing is deployed and no plan was ever run. L9 delivers
+modules and tests under mock providers only, plus `release/` (schema, validator, tests). Inherited
+`dependency_blocked` items (OIDC, state/bootstrap, DB role creation, controlled egress, edge/console, human
+IdP, manifest signing, functional alarms) stay blocked with their owners in `docs/gaps/OPEN_GAPS.md`.
 
-- **Delivered in `agent-core` (pulso-factored/agent-core#19, merged):** `GET
-  /healthz`, `GET /readyz` (PostgreSQL check, `503` naming the failed check) and
-  `agentcore migrate`. `migrate` applies the existing idempotent schema scripts
-  to the engine/registry database and, with `--eval-dsn`, to the evaluation
-  database; it has no version table, so it suits a new or already-migrated
-  database but cannot evolve a schema.
-- **Missing in `agent-core`:** a Dockerfile and an image CI that publishes a
-  digest.
-- **Contract mismatch to resolve before scheduling the sweep:** `agentcore
-  sweep` reads `AGENTCORE_DATABASE_URL` (not `AGENTCORE_REGISTRY_DSN`) and
-  needs `--registry <authoring directory>`, which a container built from the
-  code would not carry.
-- **Demo-only today:** outside demo mode `serve` requires real tools,
-  authorization, transcript, calibration, classifier, field-classifier and
-  grant-active pieces. None exist yet (they belong to other units), so a
-  deployment can only run with `AGENTCORE_ALLOW_DEMO=1` and synthetic data.
-  That is acceptable only for the hackathon `prod` demo; contract item 5 applies
-  once the real pieces exist.
+Outside demo mode `serve` requires real tools, authorization, transcript, calibration, classifier,
+field-classifier and grant pieces that do not exist, so a deployment can run only with
+`AGENTCORE_ALLOW_DEMO=1` and synthetic data, acceptable only for the hackathon `prod` demo. This is a
+dependency, not something Terraform resolves.
 
 ## Consequences
 
-- AGENTS.md, CONTEXT.md and the README name Agent Core as a workload of this
-  repository (journal 0010).
-- The Agent Core Terraform slice needs the image digest, the contract items
-  above and the egress design; the prerequisites are tracked in
-  `docs/gaps/OPEN_GAPS.md`.
-- Customer-facing use needs a decision on data residency and a bank-grade
-  review; `us-east-1` and a hackathon-grade `prod` do not satisfy that.
+- AGENTS.md, CONTEXT.md and the README name Agent Core as a workload of this repository.
+- Customer-facing use needs a data-residency decision and a bank-grade review; `us-east-1` and a
+  hackathon-grade `prod` do not satisfy that.
 
 ## Open questions
 
-- Single database instance with two logical databases, or two instances for
-  the evaluation database.
+- Whether `pulso-core-runtime` later sits behind an internal ALB (with `edge`) and who terminates TLS.
 - Hosting for the analytics view (Phoenix or CloudWatch only).
-- Ingress for Agent Core: the improvement service's route is a private path
-  through an identity-aware proxy and an internal ALB, with no API Gateway
-  placeholder; whether Agent Core follows it, and who terminates TLS, is open.
+- Confirmation of D-3 (who builds the image) with the agent-core team.
