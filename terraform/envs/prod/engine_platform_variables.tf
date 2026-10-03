@@ -41,3 +41,9 @@ variable "engine_platform_service_discovery_namespace_id" {
   type    = string
   default = ""
 }
+
+variable "engine_ecr_enabled" {
+  type        = bool
+  default     = false
+  description = "Declare the engine and sandbox-lab ECR repositories (reuses the shared ecr module). Needed before the first image push."
+}

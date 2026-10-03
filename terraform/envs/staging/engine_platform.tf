@@ -49,3 +49,21 @@ check "engine_platform_requires_private_endpoints" {
     error_message = "engine_platform workloads have no internet egress; enable private_endpoints_enabled so they can pull images, read secrets and write logs."
   }
 }
+
+# Image repositories for the engine and the sandbox. Reuses the shared `ecr` module (ADR 0005): no engine-specific
+# repository code. Independent of engine_platform_enabled on purpose: the repositories must exist before a digest can
+# be pushed, and the workloads need that digest to be enabled. Off by default; names are `<env>/pulso-engine` and
+# `<env>/pulso-sandbox-lab`, next to Agent Core's `<env>/pulso-core`.
+module "engine_ecr" {
+  source   = "../../modules/ecr"
+  for_each = var.engine_ecr_enabled ? toset(["pulso-engine", "pulso-sandbox-lab"]) : toset([])
+
+  repository_name = "${local.tags["Environment"]}/${each.key}"
+  kms_key_arn     = var.kms_key_arn
+  tags            = local.tags
+}
+
+output "engine_ecr_repository_urls" {
+  description = "Engine and sandbox image repositories; empty while engine_ecr_enabled is false."
+  value       = { for name, repo in module.engine_ecr : name => repo.repository_url }
+}

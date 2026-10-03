@@ -11,6 +11,8 @@ product. Agent Core has a bootable HTTP server (`agentcore serve`) and needs a p
 `prod`. Rebuilding network, database and secrets plumbing in a second repository would split ownership of one
 AWS account. The first revision of this ADR was written before several facts in the pinned Agent Core
 checkout (contracts 1.3.0, SHA `86a7674`) were verified; the "Corrections" table lists each one.
+The current pin is `789d6c8` (ADR 0008 of `core-bridge`; `PULSO_CORE_SHA` must equal it); `86a7674` below is the
+SHA at which the corrections were verified.
 
 ## Decision
 
