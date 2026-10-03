@@ -53,6 +53,11 @@ the ownership split, the interface contract with the `agent-core` repository and
 prerequisites are tracked in the ADR, the [deployment-status contract](docs/architecture/deployment-status.md)
 and [open gaps](docs/gaps/OPEN_GAPS.md).
 
+[ADR 0005](docs/adr/0005-agent-core-escalado-fase-0-1.md) adds the scale-out pieces that do not depend on the
+Core topology: an ECR repository and a data plane (registry blob bucket, SNS event topic, SQS consumer queues with
+DLQs) wired into `envs/*`, plus `rds_proxy`, `scheduled_task` and `core_alarms` modules awaiting the Core
+workload slice. Nothing is applied.
+
 Modules `workload`, `workload_iam`, `ci_roles` and `auxiliary_roles` are declared with
 mock-provider tests but are not yet wired into `envs/*`. Releases are manual and offline-validated:
 see `release/` (deploy-manifest schema, `validate_manifest.py`, `validate_plan.py`, `deploy_plan.py --dry-run`)

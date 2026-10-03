@@ -23,3 +23,17 @@ variable "database_skip_final_snapshot" { type = bool }
 variable "database_multi_az" { type = bool }
 variable "log_retention_days" { type = number }
 variable "alarm_actions" { type = list(string) }
+
+variable "core_blob_bucket_name" {
+  type        = string
+  description = "Globally unique name of the Core registry blob bucket (agent-core ADR 0023)."
+}
+variable "core_event_consumers" {
+  type = map(object({
+    event_types                = list(string)
+    max_receive_count          = optional(number, 5)
+    visibility_timeout_seconds = optional(number, 60)
+  }))
+  description = "One SQS queue (and DLQ) per consumer of the outbound events, filtered by event_type."
+  default     = {}
+}

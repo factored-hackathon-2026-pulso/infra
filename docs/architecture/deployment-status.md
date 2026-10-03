@@ -60,7 +60,11 @@ Agent Core is a second workload on this foundation ([ADR 0003](../adr/0003-agent
 The ADR holds the ownership split and the contract with the `agent-core` repository; this section only
 states what is true now.
 
-- Terraform declares nothing for it and nothing is deployed.
+- Terraform declares no Core *workload* and nothing is deployed. [ADR 0005](../adr/0005-agent-core-escalado-fase-0-1.md)
+  adds, wired into `staging` and `prod`, an ECR repository and a data plane (registry blob bucket, SNS event topic,
+  SQS consumer queues with DLQs and alarms), and, as modules not yet wired, `rds_proxy`, `scheduled_task` (the
+  sweep) and `core_alarms` (the relay). They are validated with `terraform validate` and mocked `terraform test`
+  only.
 - `agent-core` provides `/healthz`, `/readyz`, `/version` and `agentcore migrate`, plus a Dockerfile and a CI job
   that builds it (pulso-factored/agent-core#25). No digest is published and no ECR repository exists yet, so
   there is still nothing to deploy; who builds the image (D-3) is to be reviewed with those facts.

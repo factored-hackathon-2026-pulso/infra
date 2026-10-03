@@ -24,6 +24,7 @@ variables {
   database_multi_az               = false
   log_retention_days              = 14
   alarm_actions                   = []
+  core_blob_bucket_name           = "pulso-test-core-blobs"
 }
 
 run "log_group_has_a_single_owner" {
