@@ -219,3 +219,39 @@ run "no_alarms_at_zero_desired_count" {
     error_message = "A zero-task posture must not page anyone."
   }
 }
+
+run "s3_prefix_list_egress_lets_every_workload_pull_ecr_layers" {
+  command = plan
+
+  variables {
+    enabled           = true
+    s3_egress_enabled = true
+    s3_prefix_list_id = "pl-0123456789abcdef0"
+    image             = "123456789012.dkr.ecr.us-east-1.amazonaws.com/engine@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    sandbox_image     = "123456789012.dkr.ecr.us-east-1.amazonaws.com/sandbox@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  }
+
+  assert {
+    condition     = toset(keys(aws_vpc_security_group_egress_rule.s3_layers)) == toset(["control-api", "worker", "migrate", "sandbox-lab"])
+    error_message = "ECR layers come from S3 (gateway endpoint): a VPC-CIDR rule does not cover them, so every task needs the prefix-list rule."
+  }
+  assert {
+    condition     = alltrue([for r in values(aws_vpc_security_group_egress_rule.s3_layers) : r.prefix_list_id == "pl-0123456789abcdef0" && r.from_port == 443 && r.to_port == 443])
+    error_message = "S3 egress is the endpoint prefix list on 443 only."
+  }
+}
+
+run "no_s3_rule_unless_the_gateway_endpoint_exists" {
+  command = plan
+
+  variables {
+    enabled       = true
+    image         = "123456789012.dkr.ecr.us-east-1.amazonaws.com/engine@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    sandbox_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/sandbox@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  }
+
+  assert {
+    condition     = length(aws_vpc_security_group_egress_rule.s3_layers) == 0
+    error_message = "Default plans no S3 egress."
+  }
+}

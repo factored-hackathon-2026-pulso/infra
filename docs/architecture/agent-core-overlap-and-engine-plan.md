@@ -23,8 +23,10 @@ piece, **their change stays** and we build on it. We do not keep a parallel modu
 
 Files both branches touch (conflict surface): `terraform/envs/{staging,prod}/{main,variables}.tf`,
 `docs/adr/0003-agent-core-workload.md`, `docs/architecture/deployment-status.md`, `docs/gaps/OPEN_GAPS.md`,
-`tests/test_agent_core_scope_contract.py`, `terraform/modules/database/outputs.tf`. Our new branch avoids all of
-them except the two env roots, where we only **append** new blocks at the end of the files.
+`tests/test_agent_core_scope_contract.py`, `terraform/modules/database/outputs.tf`. Our branch avoids all of
+them: the env wiring lives in new files `terraform/envs/{staging,prod}/engine_platform.tf` and
+`engine_platform_variables.tf` (Terraform loads every `.tf` in the root), so `main.tf` and `variables.tf` are
+byte-identical to `origin/main` and the two branches merge in either order without a textual conflict.
 
 ## 2. Branch layout and order of operations
 
@@ -32,8 +34,9 @@ them except the two env roots, where we only **append** new blocks at the end of
    `core_stack` modules, their env wiring, review fixes and docs. Kept for reference and for the delta below.
 2. `claude/u-infra-engine-platform` (from `origin/main`, the branch to push): `engine_platform`,
    `core_vpc_endpoints`, `workload_iam.pass_role_arns`, `network.private_route_table_ids`, env wiring behind two
-   flags that default to `false`, tests, this document. It touches no file that #20 owns except by appending.
-3. Merge #20 first (or in either order: our env edits are append-only, so the conflict is mechanical).
+   flags that default to `false`, tests, this document. It touches no file that #20 owns.
+3. Merge in either order (no shared file; resource names do not collide: ours are `pulso-engine-*`,
+   `<prefix>/engine/*` secrets, `/pulso/<env>/pulso-engine-*` logs, `<env>.pulso.internal`; theirs are `agent-core*`).
 4. After #20 merges, rebase the engine branch, then open a small follow-up that (a) points
    `engine_platform.core_runtime_security_group_ids` and `core_callback_security_group_ids` at
    `agent_core_network.service_security_group_id`, (b) passes the shared Cloud Map namespace id if one exists,

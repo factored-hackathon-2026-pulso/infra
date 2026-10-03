@@ -56,7 +56,7 @@ class EngineModuleContractTests(unittest.TestCase):
 
     def test_roots_default_both_switches_to_off(self):
         for env in ("staging", "prod"):
-            variables = (TF / "envs" / env / "variables.tf").read_text(encoding="utf-8")
+            variables = (TF / "envs" / env / "engine_platform_variables.tf").read_text(encoding="utf-8")
             for name in ("engine_platform_enabled", "private_endpoints_enabled"):
                 block = re.search(rf'variable "{name}" \{{(.*?)\n\}}', variables, re.S)
                 self.assertIsNotNone(block, (env, name))
@@ -66,7 +66,22 @@ class EngineModuleContractTests(unittest.TestCase):
         for env in ("staging", "prod"):
             main = (TF / "envs" / env / "main.tf").read_text(encoding="utf-8")
             self.assertIn('module "compute"', main)
-            self.assertIn('module "engine_platform"', main)
+            wiring = (TF / "envs" / env / "engine_platform.tf").read_text(encoding="utf-8")
+            self.assertIn('module "engine_platform"', wiring)
+            self.assertIn('module "private_endpoints"', wiring)
+
+    def test_wiring_lives_in_own_files_so_it_cannot_conflict_with_agent_core_pr(self):
+        # PR #20 edits envs/*/main.tf and variables.tf; our wiring must stay out of those files.
+        for env in ("staging", "prod"):
+            for name in ("main.tf", "variables.tf"):
+                text = (TF / "envs" / env / name).read_text(encoding="utf-8")
+                self.assertNotRegex(text, r"engine_platform|private_endpoints", (env, name))
+
+    def test_engine_workloads_reach_s3_and_the_ecs_api_privately(self):
+        for env in ("staging", "prod"):
+            wiring = (TF / "envs" / env / "engine_platform.tf").read_text(encoding="utf-8")
+            self.assertIn("s3_prefix_list_id", wiring)
+            self.assertRegex(wiring, r"ecs_api\s*=\s*var\.engine_platform_enabled")
 
 
 if __name__ == "__main__":

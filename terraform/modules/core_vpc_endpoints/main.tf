@@ -33,12 +33,19 @@ variable "customer_kms_in_use" {
   description = "True when secrets are encrypted with a customer-managed key: tasks then need the KMS endpoint."
 }
 
+variable "ecs_api" {
+  type        = bool
+  default     = false
+  description = "True when a private task calls the ECS API (a worker launching a sandbox task with ecs:RunTask): adds the ECS interface endpoint."
+}
+
 variable "tags" { type = map(string) }
 
 locals {
   interface_services = toset(concat(
     ["ecr.api", "ecr.dkr", "secretsmanager", "logs"],
     var.customer_kms_in_use ? ["kms"] : [],
+    var.ecs_api ? ["ecs"] : [],
   ))
 }
 

@@ -37,6 +37,18 @@ variable "permissions_boundary" {
   default = ""
 }
 
+variable "s3_egress_enabled" {
+  type        = bool
+  default     = false
+  description = "True when the shared S3 gateway endpoint exists. Plan-time bool because the prefix list id is unknown until apply."
+}
+
+variable "s3_prefix_list_id" {
+  type        = string
+  default     = ""
+  description = "Managed prefix list of the S3 gateway endpoint (core_vpc_endpoints.s3_prefix_list_id)."
+}
+
 variable "secret_name_prefix" { type = string }
 variable "log_retention_days" { type = number }
 
@@ -311,6 +323,19 @@ resource "aws_vpc_security_group_egress_rule" "sandbox_https_vpc" {
   from_port         = 443
   to_port           = 443
   description       = "VPC endpoints only"
+}
+
+# ECR layers are served from S3 through the gateway endpoint; the VPC-CIDR rule above does not cover that path, so
+# every workload (sandbox-lab included) needs the prefix-list rule to start at all.
+resource "aws_vpc_security_group_egress_rule" "s3_layers" {
+  for_each = var.enabled && var.s3_egress_enabled ? toset(keys(local.active)) : toset([])
+
+  security_group_id = aws_security_group.engine[each.key].id
+  prefix_list_id    = var.s3_prefix_list_id
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  description       = "S3 gateway endpoint (ECR image layers)"
 }
 
 # F1: control-api and worker call core-runtime (invoke/read/alias/dry-run/version, executor path).

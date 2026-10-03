@@ -76,3 +76,30 @@ run "endpoint_security_group_accepts_only_vpc_https" {
     error_message = "Endpoints accept TCP/443 from the VPC CIDR only."
   }
 }
+
+run "ecs_api_endpoint_only_when_tasks_launch_tasks" {
+  command = plan
+
+  variables {
+    enabled = true
+    ecs_api = true
+  }
+
+  assert {
+    condition     = contains(keys(aws_vpc_endpoint.interface), "ecs") && length(aws_vpc_endpoint.interface) == 6
+    error_message = "A worker that calls ecs:RunTask without NAT needs the ECS API endpoint."
+  }
+}
+
+run "ecs_api_endpoint_is_off_by_default" {
+  command = plan
+
+  variables {
+    enabled = true
+  }
+
+  assert {
+    condition     = !contains(keys(aws_vpc_endpoint.interface), "ecs")
+    error_message = "No ECS endpoint unless asked for (billed per AZ-hour)."
+  }
+}
