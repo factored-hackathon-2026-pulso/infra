@@ -187,7 +187,10 @@ class ManifestTest(unittest.TestCase):
             p.parent.name for p in tf.glob("*/*.tf")
             if 'resource "aws_cloudwatch_log_group"' in p.read_text("utf-8")
         ]
-        self.assertEqual(owners, ["observability"])
+        # engine_platform owns only the four /pulso/<env>/pulso-engine-* names; observability owns the legacy one.
+        self.assertEqual(sorted(owners), ["engine_platform", "observability"])
+        engine = (tf / "engine_platform" / "main.tf").read_text("utf-8")
+        self.assertIn('name              = "/pulso/${local.env}/${local.prefix}-${each.key}"', engine)
 
     def test_m10_console_digest_blocked_while_edge_blocked(self):
         m = self.mutate(lambda m: m["console"].update(image_digest=d("e")))

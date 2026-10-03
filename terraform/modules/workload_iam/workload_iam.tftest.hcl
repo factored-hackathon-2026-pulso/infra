@@ -203,3 +203,41 @@ run "trust_is_bound_to_this_account_against_confused_deputy" {
     error_message = "ECS trust must carry aws:SourceAccount."
   }
 }
+
+run "pass_role_is_an_explicit_exact_arn_grant_for_ecs_tasks_only" {
+  command = plan
+
+  variables {
+    pass_role_arns = ["arn:aws:iam::123456789012:role/test-sandbox-task", "arn:aws:iam::123456789012:role/test-sandbox-exec"]
+  }
+
+  assert {
+    condition = jsonencode(jsondecode(aws_iam_role_policy.pass_role[0].policy).Statement) == jsonencode([{
+      Sid       = "PassOnlyNamedRolesToEcsTasks"
+      Effect    = "Allow"
+      Action    = ["iam:PassRole"]
+      Resource  = var.pass_role_arns
+      Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } }
+    }])
+    error_message = "iam:PassRole is limited to the named role ARNs and the ecs-tasks service."
+  }
+}
+
+run "pass_role_rejects_wildcards" {
+  command = plan
+
+  variables {
+    pass_role_arns = ["arn:aws:iam::123456789012:role/*"]
+  }
+
+  expect_failures = [var.pass_role_arns]
+}
+
+run "no_pass_role_policy_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(aws_iam_role_policy.pass_role) == 0
+    error_message = "Existing consumers get no new policy (zero diff)."
+  }
+}

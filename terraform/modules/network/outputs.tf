@@ -8,3 +8,8 @@ output "nat_strategy" {
   value       = var.nat_strategy
   description = "Selected cost/availability posture; not an active NAT gateway."
 }
+
+output "private_route_table_ids" {
+  value       = aws_route_table.private[*].id
+  description = "Private route tables (gateway VPC endpoints attach here)."
+}
