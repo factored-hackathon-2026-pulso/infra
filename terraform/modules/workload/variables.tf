@@ -112,6 +112,23 @@ variable "service_registry_arn" {
   description = "Optional Cloud Map service ARN for private DNS (Core services)."
 }
 
+variable "read_only_root_filesystem" {
+  type        = bool
+  default     = false
+  description = "Render readonlyRootFilesystem = true. Pair it with ephemeral_volumes for every path the container must write."
+}
+
+variable "ephemeral_volumes" {
+  type        = map(string)
+  default     = {}
+  description = "Volume name -> absolute container path. Each is task-scoped ephemeral storage (Fargate has no tmpfs): writable, private to the task, gone when the task is replaced. Used for key files materialised at start (ADR 0009 of core-bridge, /run/pulso-keys) and cursors that are rebuilt after a restart. No host path and no EFS by design."
+
+  validation {
+    condition     = alltrue([for p in values(var.ephemeral_volumes) : startswith(p, "/") && p != "/"]) && length(distinct(values(var.ephemeral_volumes))) == length(var.ephemeral_volumes)
+    error_message = "ephemeral_volumes paths must be absolute, not the root, and distinct."
+  }
+}
+
 variable "tags" {
   type        = map(string)
   description = "Mandatory ownership and environment tags."

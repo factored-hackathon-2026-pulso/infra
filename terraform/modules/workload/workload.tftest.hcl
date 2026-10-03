@@ -195,3 +195,58 @@ run "stop_timeout_above_fargate_limit_is_rejected" {
 
   expect_failures = [var.stop_timeout]
 }
+
+run "no_ephemeral_volume_or_read_only_root_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(aws_ecs_task_definition.this.volume) == 0
+    error_message = "Existing workloads must keep a task definition without volumes."
+  }
+  assert {
+    condition     = !strcontains(aws_ecs_task_definition.this.container_definitions, "readonlyRootFilesystem") && !strcontains(aws_ecs_task_definition.this.container_definitions, "mountPoints")
+    error_message = "The new volume inputs must not change the rendered container of an existing workload."
+  }
+}
+
+run "ephemeral_volumes_mount_writable_task_storage_under_a_read_only_root" {
+  command = plan
+
+  variables {
+    read_only_root_filesystem = true
+    ephemeral_volumes         = { keys = "/run/pulso-keys", state = "/var/lib/pulso-exporter" }
+  }
+
+  assert {
+    condition     = jsondecode(aws_ecs_task_definition.this.container_definitions)[0].readonlyRootFilesystem == true
+    error_message = "readonlyRootFilesystem must render when requested."
+  }
+  assert {
+    condition     = toset([for m in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].mountPoints : m.containerPath]) == toset(["/run/pulso-keys", "/var/lib/pulso-exporter"]) && alltrue([for m in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].mountPoints : m.readOnly == false])
+    error_message = "Each ephemeral volume must be mounted writable at its path."
+  }
+  assert {
+    condition     = toset([for v in aws_ecs_task_definition.this.volume : v.name]) == toset(["keys", "state"])
+    error_message = "One task-scoped volume per entry (no host path or EFS: pinned by the structural contract test)."
+  }
+}
+
+run "ephemeral_volume_paths_must_be_absolute_and_not_the_root" {
+  command = plan
+
+  variables {
+    ephemeral_volumes = { keys = "run/pulso-keys" }
+  }
+
+  expect_failures = [var.ephemeral_volumes]
+}
+
+run "ephemeral_volume_paths_must_be_distinct" {
+  command = plan
+
+  variables {
+    ephemeral_volumes = { a = "/run/pulso-keys", b = "/run/pulso-keys" }
+  }
+
+  expect_failures = [var.ephemeral_volumes]
+}

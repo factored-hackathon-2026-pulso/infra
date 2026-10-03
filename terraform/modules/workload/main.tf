@@ -32,6 +32,10 @@ locals {
       }
     },
     var.command == null ? {} : { command = var.command },
+    var.read_only_root_filesystem ? { readonlyRootFilesystem = true } : {},
+    length(var.ephemeral_volumes) == 0 ? {} : {
+      mountPoints = [for n in sort(keys(var.ephemeral_volumes)) : { sourceVolume = n, containerPath = var.ephemeral_volumes[n], readOnly = false }]
+    },
     var.port == null ? {} : { portMappings = [{ containerPort = var.port, protocol = "tcp" }] },
     var.health_check_command == null ? {} : {
       healthCheck = {
@@ -56,6 +60,13 @@ resource "aws_ecs_task_definition" "this" {
   task_role_arn            = var.task_role_arn
   container_definitions    = local.container_json
   tags                     = var.tags
+
+  dynamic "volume" {
+    for_each = var.ephemeral_volumes
+    content {
+      name = volume.key
+    }
+  }
 
   lifecycle {
     precondition {

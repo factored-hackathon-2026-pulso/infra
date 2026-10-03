@@ -39,7 +39,9 @@ The parked branch `claude/u-infra-core-stack-parked` (local only, never pushed; 
 Still ours and merged: `engine_platform`, `core_vpc_endpoints`, `workload_iam.pass_role_arns`,
 `network.private_route_table_ids` (#23).
 
-## 3. Decision: no new Terraform module for the runtime
+## 3. Decision: no new Terraform module for the runtime (superseded by section 11)
+
+Superseded: section 11 records why the `bridge_services` module now exists. The reasoning below stays for the record.
 
 Evidence that the existing generic `workload` module can already run our image by variables only:
 
@@ -71,7 +73,7 @@ One image digest, repository `<env>/pulso-core` (the `ecr` instance already wire
 | `PULSO_EVAL_BUDGETS_JSON` (or `PULSO_EVAL_BUDGETS` file path) | plain | static budget map, no secrets; with neither set every `budget_ref` fails closed. |
 | `AGENTCORE_LLM_GATEWAY_URL` | plain | LLM gateway private URL (ADR 0004). |
 | `PULSO_LLM_MODE`, `PULSO_LLM_STAGE_POLICY_JSON` (or `PULSO_LLM_STAGE_POLICY` file path), `PULSO_LLM_POLICY_REQUIRED` | plain | `PULSO_LLM_MODE=disabled` is the explicit fixture/test opt-out (reported as a double in `/version`); otherwise gateway URL and token are required, and having none is a startup error. |
-| `PULSO_CORE_SHA`, `PULSO_SHA`, `PULSO_IMAGE_DIGEST` | plain | informational; `PULSO_CORE_SHA` must equal the pinned agent-core sha `789d6c8` or be unset (else exit 2). |
+| `PULSO_CORE_SHA`, `PULSO_SHA`, `PULSO_IMAGE_DIGEST` | plain | informational; `PULSO_CORE_SHA` must equal the pinned agent-core sha `894fa65` or be unset (else exit 2). |
 | `PULSO_CORE_EXPORT_ENABLED` | plain | leave unset: Core's HTTP `/v1/export/*` stays off (we ingest through the exporter). |
 | `AGENTCORE_DB_POOL_MAX` | plain | pass-through (ADR 0005). Blob bucket and SNS topic variables stay unset. |
 | `AGENTCORE_REGISTRY_DSN`, `AGENTCORE_EVAL_DSN` | secret | JSON keys of `core/db-app` (`arn:json-key::`). |
@@ -155,12 +157,13 @@ remain the existing `ci_roles` gap.
 1. **Closed in the image** (ADR 0009 of `core-bridge`): the entrypoint now materialises the four bridge signers, the
    identity/staff/service key sets and the two exporter seeds from the variables of section 4. No Terraform change
    is needed; the task definition injects them through `secrets`.
-2. **Open, platform side:** ADR 0009 requires a writable tmpfs or ephemeral volume at `/run/pulso-keys` under a
-   read-only root filesystem. The `workload` module renders no such volume. The Core workload slice must add an
-   optional volume at that path (shared module, Agent Core team's decision), or ADR 0003 item 12 is amended to
-   accept ephemeral task storage (files are 0400, uid 10001, and the secrets are unset from the environment).
-3. The runtime pins agent-core `789d6c8` (ADR 0008 of `core-bridge`; `PULSO_CORE_SHA` must equal it). ADR 0003 text
-   now cites it; the release manifest `contracts_version` / pin digest must still be updated by whoever owns it.
+2. **Closed here, pending the Agent Core team's agreement:** ADR 0009 requires a writable path at `/run/pulso-keys`
+   under a read-only root filesystem. Fargate has no tmpfs, so `workload` gained two additive inputs
+   (`read_only_root_filesystem`, `ephemeral_volumes`; defaults render nothing, existing task definitions are unchanged)
+   that mount task-scoped ephemeral storage. Files stay 0400 uid 10001 and the secrets are unset from the environment.
+3. The runtime pins agent-core `894fa65` (ADR 0009 of the pin bump, on top of `789d6c8`; `PULSO_CORE_SHA` must equal it).
+   ADR 0003 text and the release fixtures now cite it. The real `pin_manifest_digest` (`ed000b81...` per that ADR) is
+   recorded by whoever creates `contracts/agent_core/pin.json`; the fixtures keep placeholder digests.
 
 ## 8. Engine platform (unchanged, #23)
 
@@ -178,18 +181,53 @@ contract), the release-manifest extension for engine digests, and the runbook up
 
 1. Who owns the bridge schema DDL (`pulso_bridge` in the eval database)? The runtime applies it at startup with
    `AGENTCORE_EVAL_DSN`; should that DSN's role be allowed to create it, or does the `migrate` task run it?
-2. Will the Core workload slice add an optional writable tmpfs/ephemeral volume at `/run/pulso-keys` to `workload`
-   (ADR 0003 item 12; our image needs it under a read-only root), or is plain ephemeral storage acceptable?
-3. Which module opens the exporter's security group toward `control-api` (F3) and the Core database (F5)? We will
-   consume its output as `core_callback_security_group_ids`.
+2. We added optional `read_only_root_filesystem` and `ephemeral_volumes` (default off, no diff for existing
+   workloads) to the shared `workload` module for `/run/pulso-keys`. Is that acceptable to you, or do you prefer to own
+   the change?
+3. Resolved for our flows: `bridge_services` opens F1, F2 and F3 itself (both ends, by security-group reference).
+   Still open: who opens the Core database security group for our runtime and exporter (F5)? Ours is opt-in
+   (`manage_core_database_ingress`, default off) so it cannot duplicate yours.
 4. Is this secret layout for the extra material acceptable: `core/bridge-signers` (4 seeds), `core/exporter-keys`
-   (2 seeds), reuse of `core/bridge-service-key` for `PULSO_SERVICE_KEYS_JSON`, `core/llm-gateway-token`?
+   (2 seeds), `platform-exporter/keys` (the same 2 JSON keys, `control_api_seed` and `lab_broker_seed`, own values), reuse of `core/bridge-service-key` for `PULSO_SERVICE_KEYS_JSON`, `core/llm-gateway-token`?
 5. Should `core/jev` and `core/llm-endpoints` be dropped from the Core workload slice, given that the composed
    runtime consumes the gateway only (ADR 0004)?
 6. Is a shared Cloud Map namespace `<env>.pulso.internal` acceptable, and who creates it? Our modules take its id
    as an input.
-7. ADR 0003 text now cites pin `789d6c8`; does the release manifest move from `86a7674` to `789d6c8` too?
+7. Closed: ADR 0003 and the release fixtures now cite pin `894fa65` (was `86a7674` / `789d6c8`). Still open: who records the real `pin_manifest_digest`.
+8. `bridge_services` names its ECS services `pulso-core-runtime`, `pulso-core-exporter` and `pulso-platform-exporter`
+   (log groups `/pulso/<env>/pulso-*`). Will the Core workload slice deploy its own `pulso-core-runtime` too, or is ours
+   the single runtime? We must not both declare the same service, log group or Cloud Map name.
+9. Secret value shapes we assume: `core/db-exporter` and `core/bridge-service-key`, `core/identity-keys`,
+   `core/staff-keys`, `core/llm-gateway-token` are whole-secret strings; `core/db-app` has JSON keys `registry_dsn` and
+   `eval_dsn`. Is that how you will create them?
 
 ## 10. Local verification
 
 Terraform 1.16.4 locally (CI pins 1.10.5). Mock providers only; no plan or apply against an account.
+
+## 11. Bridge services: gap analysis and what was added
+
+Scope: only the services we own (`pulso-core-runtime` image in its runtime and exporter roles, and the platform
+exporter; PL-L5 of V3 section 32.4 and section 31.11). Foundations (VPC, endpoints, cluster, namespace, ECR module,
+KMS, database instances) are inputs. Nothing is applied.
+
+| Need | Before | Now |
+|---|---|---|
+| Task definitions, digest pinning, no `AGENTCORE_ALLOW_DEMO`, master-secret guard | `workload` (generic) | reused unchanged |
+| Read-only root plus writable `/run/pulso-keys` (ADR 0009), exporter cursor dir, `/tmp` | missing (no volume support) | `workload.read_only_root_filesystem` / `ephemeral_volumes` (additive, default no-op) |
+| Secret layout `core/bridge-signers` (identity, staff, callback, executor), `core/exporter-keys` (control_api_seed, lab_broker_seed) | missing | entries created by `bridge_services` (names only, no versions) |
+| `core/db-app`, `core/db-exporter`, `core/identity-keys`, `core/staff-keys`, `core/bridge-service-key`, `core/llm-gateway-token` | none (Core slice not merged) | consumed by ARN (`core_secret_arns`), never created here |
+| Platform exporter read-only DB credential and its two audience key seeds (control-api, lab-broker) | missing | `platform-exporter/db-readonly` (whole connection string) and `platform-exporter/keys` (JSON keys `control_api_seed` -> `PULSO_EXPORTER_KEY_CONTROL_API_SEED`, `lab_broker_seed` -> `PULSO_EXPORTER_KEY_LAB_BROKER_SEED`, like `core/exporter-keys`); names only |
+| Env and secret variable names per service (section 4.1, 4.2, platform exporter env) | spec only | rendered by `bridge_services`; tests pin the exact secret variable sets and the absence of demo, JEV, provider and static-token variables |
+| IAM least privilege | `workload_iam` | one pair of roles per service, each execution role limited to its own secret ARNs, task roles without statements |
+| SG: runtime/exporters to control-api (F2, F3), engine to runtime (F1) | engine side only, via inputs | both ends opened by `bridge_services` (references only); `check` refuses overlapping engine inputs |
+| SG: Core DB (F5) and platform DB read | missing | egress from each service to exactly one database group; the ingress on that group is opt-in |
+| Cloud Map `core-runtime.<env>.pulso.internal` | namespace and control-api only | `core-runtime` service in the shared namespace (never creates one) |
+| LLM gateway reach (ADR 0004) | missing | egress to the gateway security group; gateway side admits our `core-runtime` group |
+| ECR | `core_ecr` (`<env>/pulso-core`) and engine repos | platform-exporter repository through the shared `ecr` module (`bridge_ecr_enabled`) |
+| OIDC push role for the new repository, `core-migrate`, sweep, alarms for the new services | blocked / Core slice | not done (see journal 0014) |
+
+Wiring lives in `envs/{staging,prod}/bridge_services*.tf` (all switches default off). Provisional names to confirm
+with the platform-exporter code: `PLATFORM_DB_URL` (existing) and the per-attempt service JWT seeds
+`PULSO_EXPORTER_KEY_CONTROL_API_SEED` (observations, cursor) and `PULSO_EXPORTER_KEY_LAB_BROKER_SEED` (artifact uploads),
+confirmed against the platform-exporter entrypoint and its journal PL-0009.

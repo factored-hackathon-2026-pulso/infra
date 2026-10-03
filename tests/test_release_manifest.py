@@ -30,8 +30,8 @@ def good():
         },
         "agent_core": {
             "image_digest": d("b"),
-            "image_tag": "86a7674-1234567",
-            "git_sha": "86a767474042a566a0dbd6ed23588959f27ebdb3",
+            "image_tag": "894fa65-1234567",
+            "git_sha": "894fa65575d83420523f33ec1c6919b8965f7ebe",
             "contracts_version": "1.3.0",
             "schema_digest": {"runtime": d("1"), "eval": d("2")},
             "pulso_package_sha": "1234567" + "0" * 33,
@@ -187,8 +187,9 @@ class ManifestTest(unittest.TestCase):
             p.parent.name for p in tf.glob("*/*.tf")
             if 'resource "aws_cloudwatch_log_group"' in p.read_text("utf-8")
         ]
-        # engine_platform owns only the four /pulso/<env>/pulso-engine-* names; observability owns the legacy one.
-        self.assertEqual(sorted(owners), ["engine_platform", "observability"])
+        # engine_platform owns only the four /pulso/<env>/pulso-engine-* names, bridge_services the three
+        # /pulso/<env>/pulso-{core-runtime,core-exporter,platform-exporter} names; observability owns the legacy one.
+        self.assertEqual(sorted(owners), ["bridge_services", "engine_platform", "observability"])
         engine = (tf / "engine_platform" / "main.tf").read_text("utf-8")
         self.assertIn('name              = "/pulso/${local.env}/${local.prefix}-${each.key}"', engine)
 
