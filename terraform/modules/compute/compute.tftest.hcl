@@ -12,7 +12,7 @@ variables {
   database_endpoint           = "pulso.test.internal"
   runtime_database_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:pulso-runtime-db-test"
   rds_master_secret_arn_guard = "arn:aws:secretsmanager:us-east-1:123456789012:secret:rds-master-test"
-  log_retention_days          = 14
+  log_group_name              = "/pulso/test/improvement-engine"
   tags                        = { Environment = "test" }
 }
 
