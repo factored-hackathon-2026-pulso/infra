@@ -92,7 +92,9 @@ Both sides must change this table in the same pair of pull requests.
 
 ## Implementation status
 
-Nothing for Agent Core is declared in Terraform and nothing is deployed.
+**Update (ADR 0005, 2026-10-03):** the Terraform for this workload is now declared (not applied); the bullets below
+describe the state of `agent-core` when this ADR was accepted and the sweep/DSN mismatch has since been closed in
+`agent-core` (ADR 0023). Originally: nothing for Agent Core is declared in Terraform and nothing is deployed.
 
 - **Delivered in `agent-core` (pulso-factored/agent-core#19, merged):** `GET
   /healthz`, `GET /readyz` (PostgreSQL check, `503` naming the failed check) and

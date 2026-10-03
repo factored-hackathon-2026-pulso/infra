@@ -49,3 +49,13 @@ jobs:
           terraform -chdir=terraform/modules/compute init -backend=false -input=false -lockfile=readonly
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           terraform -chdir=terraform/modules/compute test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test Agent Core scale-out guards without cloud access
+        shell: pwsh
+        run: |
+          foreach ($module in "agent_core_network", "ecr", "rds_proxy", "agent_core_data", "agent_core_workload") {
+            terraform -chdir=terraform/modules/$module init -backend=false -input=false
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            terraform -chdir=terraform/modules/$module test
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

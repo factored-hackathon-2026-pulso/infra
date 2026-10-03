@@ -48,9 +48,12 @@ engine's local CI.
 ## Agent Core workload
 
 [ADR 0003](docs/adr/0003-agent-core-workload.md) accepts running Agent Core as a second
-workload on this foundation, in `us-east-1` for now. It is **not declared in Terraform yet**:
-the ownership split, the interface contract with the `agent-core` repository and the
-prerequisites are tracked in the ADR, the [deployment-status contract](docs/architecture/deployment-status.md)
+workload on this foundation, in `us-east-1` for now. Since
+[ADR 0005](docs/adr/0005-agent-core-escalado-fase-0-1.md) it is **declared in Terraform** (ECR, ECS services
+for the API and the outbox relay, a scheduled sweep, a migration task, RDS Proxy, an S3 blob bucket, an SNS/SQS
+event bus with dead-letter queues, an internal ALB with WAF and alarms) but **not applied**: nothing is
+deployed. The ownership split, the interface contract with the `agent-core` repository and the remaining
+prerequisites are tracked in the ADRs, the [deployment-status contract](docs/architecture/deployment-status.md)
 and [open gaps](docs/gaps/OPEN_GAPS.md).
 
 ## LLM gateway workload

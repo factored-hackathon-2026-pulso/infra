@@ -13,7 +13,7 @@ an applied AWS environment.
 | Database and compute | Private RDS PostgreSQL and ECS/Fargate task/service are declared | Engine DB secret reference/injection, task readiness/health contract and deployment smoke are not implemented by the declaration alone |
 | Debug ingress | No public API, ALB or proxy is declared | **`dependency_blocked`** until the engine listener and approved internal-ALB plus identity-proxy contract exist |
 | Observability | CloudWatch task log group, CPU diagnostics, SNS topic and CPU alarms are declared | Engine metrics/traces and actionable queue/progress/error/ingest/budget alarms require the engine-to-infra metric contract |
-| Agent Core workload | **Not declared.** [ADR 0003](../adr/0003-agent-core-workload.md) accepts the scope, region and engines | Image digest and ECR, ECS service and task roles, database, secrets, migration task, scheduled sweep and egress design are future slices; Agent Core can only run in demo mode today |
+| Agent Core workload | ECR, a separate RDS instance with RDS Proxy, ECS services (API, outbox relay), task definitions (including the migration and the scheduled sweep), S3 blob bucket, SNS topic with SQS queues and DLQs, internal ALB with WAF, secret entries and alarms are declared ([ADR 0003](../adr/0003-agent-core-workload.md), [ADR 0005](../adr/0005-agent-core-escalado-fase-0-1.md)); validated with `terraform validate` and mocked `terraform test` only | Nothing is applied. Needs a published image digest, secret values, an ACM certificate, approved ingress CIDRs, the evaluation database, destination-controlled egress and the OIDC/state gaps; Agent Core can only run in demo mode today |
 | LLM gateway workload | **Not declared.** [ADR 0004](../adr/0004-llm-gateway-workload.md) accepts the scope, a stateless private service and provider egress owned by this workload | Image digest and ECR, ECS service and task role, secret entries, internal ingress and the controlled-egress design are future slices; the `llm-gateway` repository has a Dockerfile and CI but publishes no digest |
 | CI/CD | Credential-free fmt/validate and portable contracts run in CI | OIDC plan/apply, deploy and rollback remain manually approved future slices; no auto-deploy exists |
 
@@ -56,13 +56,19 @@ public task access.
 
 ## Agent Core workload
 
-Agent Core is a second workload on this foundation ([ADR 0003](../adr/0003-agent-core-workload.md)).
-The ADR holds the ownership split and the contract with the `agent-core` repository; this section only
-states what is true now.
+Agent Core is a second workload on this foundation ([ADR 0003](../adr/0003-agent-core-workload.md)); the scale-out
+design is [ADR 0005](../adr/0005-agent-core-escalado-fase-0-1.md). The ADRs hold the ownership split and the
+contract with the `agent-core` repository; this section only states what is true now.
 
-- Terraform declares nothing for it and nothing is deployed.
-- `agent-core` provides `/healthz`, `/readyz` and `agentcore migrate` (merged), but no Dockerfile or image
-  CI yet, so there is no digest to deploy.
+- Terraform **declares** the workload (nine modules wired into `staging` and `prod`), but **nothing is applied**
+  and nothing is deployed. `agent_core_desired_count = 0` is the default.
+- The checks that exist are `terraform fmt`, `terraform validate` per environment and `terraform test` with
+  mocked providers (network, ECR, RDS Proxy, data plane, workload). They prove the declared guards (no `0.0.0.0/0`
+  ingress, digest-only images, per-role secrets, demo mode prod-only, master secret refused), not that AWS accepts
+  the plan.
+- `agent-core` provides `/healthz`, `/readyz`, `agentcore migrate`, `agentcore sweep --once` (same DSN variable as
+  `serve`), `agentcore relay`, `agentcore blobs-backfill` and the Dockerfile, but there is still no image CI
+  publishing a digest to ECR.
 - It needs the `controlled_nat` egress profile (LLM endpoints and JEV). That is the existing
   "Controlled external egress" gap, not a new decision.
 - Outside demo mode it requires pieces owned by other units, so a deployment would run synthetic-data demo

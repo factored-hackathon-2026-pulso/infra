@@ -29,19 +29,23 @@ class AgentCoreScopeContractTests(unittest.TestCase):
             self.assertNotIn("not its local environment, Agent Core or an LLM gateway", text, relative)
 
     def test_readme_points_to_the_agent_core_workload_without_claiming_it_is_deployed(self):
-        readme = read("README.md")
-        self.assertIn("Agent Core", readme)
-        self.assertIn("ADR 0003", readme)
-        self.assertIn("not declared in Terraform", readme)
+        section = read("README.md").split("## Agent Core workload", 1)[1].split("## LLM gateway workload", 1)[0]
+        self.assertIn("ADR 0003", section)
+        self.assertIn("ADR 0005", section)
+        self.assertIn("declared in Terraform", section)
+        self.assertIn("not applied", section)
+        self.assertIn("nothing is deployed", " ".join(section.split()))
 
-    def test_deployment_status_lists_the_agent_core_workload_as_not_declared(self):
+    def test_deployment_status_lists_the_agent_core_workload_as_declared_but_not_applied(self):
         status = read("docs/architecture/deployment-status.md")
         self.assertIn("| Agent Core workload |", status)
         self.assertIn("## Agent Core workload", status)
+        section = status.split("## Agent Core workload", 1)[1].split("## LLM gateway workload", 1)[0]
+        self.assertIn("**nothing is applied**", section)
 
     def test_open_gaps_track_the_agent_core_prerequisites(self):
         gaps = read("docs/gaps/OPEN_GAPS.md")
-        for needle in ("Agent Core workload declaration", "JEV data residency", "Agent Core runtime secrets"):
+        for needle in ("Agent Core workload apply", "JEV data residency", "Agent Core runtime secrets"):
             self.assertIn(needle, gaps)
 
 
