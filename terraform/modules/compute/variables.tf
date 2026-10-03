@@ -36,7 +36,10 @@ variable "execution_role_arn" { type = string }
 variable "aws_region" { type = string }
 variable "desired_count" { type = number }
 variable "runtime_secret_arn" { type = string }
-variable "log_retention_days" { type = number }
+variable "log_group_name" {
+  type        = string
+  description = "CloudWatch log group written by the task; owned by the observability module (single owner, DR-86)."
+}
 
 variable "tags" {
   type        = map(string)

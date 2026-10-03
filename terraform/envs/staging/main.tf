@@ -53,7 +53,7 @@ module "compute" {
   database_endpoint           = module.database.endpoint
   runtime_database_secret_arn = var.runtime_database_secret_arn
   rds_master_secret_arn_guard = module.database.master_user_secret_arn
-  log_retention_days          = var.log_retention_days
+  log_group_name              = module.observability.log_group_name
   tags                        = local.tags
 }
 
@@ -87,7 +87,7 @@ module "secrets" {
 
 module "observability" {
   source             = "../../modules/observability"
-  service_name       = module.compute.service_name
+  service_name       = "improvement-engine"
   log_retention_days = var.log_retention_days
   alarm_actions      = var.alarm_actions
   cluster_name       = "staging-pulso"

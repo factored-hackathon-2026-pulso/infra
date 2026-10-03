@@ -19,9 +19,18 @@ Terraform, workflow, secret or AWS change.
 - `docs/gaps/OPEN_GAPS.md`: the workload-declaration row is updated and three gaps are added: image
   publication, export credential, schema compatibility smoke.
 
+## Merge with main (2026-10-03)
+
+Main moved under this branch (#16, #17: ADR 0003 rewritten for L9 with D-3 "the image is built Pulso-side", the
+`core_exporter_ro` database role, `ci_roles`, `release/`). The conflicts in ADR 0003 and `deployment-status.md`
+were resolved by keeping main's text and re-adding this slice as a section, "Delivered by `agent-core`", plus a
+**Publication.** paragraph. The earlier proposal (agent-core pushes through an OIDC role) is now one of two
+options that depend on D-3, because main already decided, provisionally, that this repository builds the image;
+`agent-core` shipping a Dockerfile is new input for that review.
+
 ## Decision taken here (review it)
 
-Question: where does `agent-core` publish its image? Answer recorded in ADR 0003 item 8: this repository
+Question: where does `agent-core` publish its image? Recorded in ADR 0003 ("Publication") as conditional on D-3: this repository
 provisions the ECR repository and a GitHub OIDC role that can only push to it, trusted for the `agent-core`
 default branch and not for pull requests; `agent-core` CI pushes by digest and records it. Alternatives not
 chosen: a registry owned by `agent-core` (splits ownership of the AWS account, against ADR 0003 item 1) and
@@ -39,7 +48,7 @@ pushing from pull requests (any contributor could publish an image that this rep
 
 - RED first: `python -m unittest tests.test_agent_core_scope_contract` ran 10 tests with 4 failures and 1
   error (the new class).
-- GREEN: `python -m unittest discover -s tests` -> `Ran 35 tests ... OK`.
+- GREEN: `python -m unittest discover -s tests` -> OK, before and after merging main.
 - `terraform fmt` was not run locally (Terraform is not installed on this host); no `.tf` file changed and CI
   runs fmt/validate.
 
