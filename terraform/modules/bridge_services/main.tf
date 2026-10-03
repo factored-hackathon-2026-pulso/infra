@@ -647,8 +647,18 @@ output "container_settings" {
     command                   = v.command
     port                      = v.port
     environment               = v.environment
-    read_only_root_filesystem = true
-    ephemeral_volumes         = v.volumes
+    read_only_root_filesystem = try(module.workload[k].container_definition.readonlyRootFilesystem, false)
+    ephemeral_volumes         = { for m in try(module.workload[k].container_definition.mountPoints, []) : m.sourceVolume => m.containerPath }
   } }
-  description = "Plain (non-secret) rendered settings per service."
+  description = "Plain (non-secret) settings per service, read back from the rendered container definition."
+}
+
+output "rendered_containers" {
+  value       = { for k, w in module.workload : k => w.container_definition }
+  description = "Rendered container definitions per service (secret entries are ARN references)."
+}
+
+output "rendered_secrets" {
+  value       = { for k, w in module.workload : k => { for s in w.container_definition.secrets : s.name => s.valueFrom } }
+  description = "Secret variable name to Secrets Manager reference actually rendered per service (ARNs, never values)."
 }

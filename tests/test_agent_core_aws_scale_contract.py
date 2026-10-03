@@ -83,10 +83,9 @@ class EnvironmentWiringTests(unittest.TestCase):
 
     def test_the_ci_runs_the_new_module_tests(self):
         flat = normalized((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
-        # PR #25 quoted the argument so PowerShell expands $module; accept the quoted form (and the legacy one).
-        self.assertTrue(
-            'terraform "-chdir=terraform/modules/$module" test' in flat or "terraform -chdir=terraform/modules/$module test" in flat
-        )
+        # PR #25 quotes the argument so PowerShell expands $module; the unquoted form is the bug it fixed.
+        self.assertIn('terraform "-chdir=terraform/modules/$module" test', flat)
+        self.assertNotIn("terraform -chdir=terraform/modules/$module test", flat)
         for module in NEW_MODULES:
             self.assertIn(f'"{module}"', flat, module)
 

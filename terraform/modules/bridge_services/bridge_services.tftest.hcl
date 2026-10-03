@@ -260,3 +260,197 @@ run "individual_services_can_be_left_out" {
     error_message = "A platform-exporter-only plan declares one service, its two secrets and no Cloud Map name."
   }
 }
+
+# Review additions: assertions on what is really rendered (task definitions, rules), not on module-local literals.
+# The mock gives every secret this module creates the same ARN, so own-secret wiring is pinned by JSON key and by set.
+run "rendered_task_definitions_wire_each_variable_to_exactly_its_own_secret" {
+  command = apply
+
+  variables {
+    enabled = true
+  }
+
+
+  assert {
+    condition = (
+      output.rendered_secrets["core-runtime"]["AGENTCORE_REGISTRY_DSN"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-db-app-AbCdEf:registry_dsn::" &&
+      output.rendered_secrets["core-runtime"]["AGENTCORE_EVAL_DSN"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-db-app-AbCdEf:eval_dsn::" &&
+      output.rendered_secrets["core-runtime"]["CORE_IDENTITY_KEYS_JSON"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-identity-keys-AbCdEf" &&
+      output.rendered_secrets["core-runtime"]["CORE_STAFF_KEYS_JSON"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-staff-keys-AbCdEf" &&
+      output.rendered_secrets["core-runtime"]["PULSO_SERVICE_KEYS_JSON"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-bridge-service-key-AbCdEf" &&
+      output.rendered_secrets["core-runtime"]["AGENTCORE_LLM_GATEWAY_TOKEN"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-llm-gateway-token-AbCdEf"
+    )
+    error_message = "Each Core secret variable of the runtime must resolve to its own Core secret (db-app by JSON key)."
+  }
+  assert {
+    condition = (
+      output.rendered_secrets["core-runtime"]["PULSO_BRIDGE_IDENTITY_SIGNER_JSON"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:identity::" &&
+      output.rendered_secrets["core-runtime"]["PULSO_BRIDGE_STAFF_SIGNER_JSON"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:staff::" &&
+      output.rendered_secrets["core-runtime"]["PULSO_BRIDGE_CALLBACK_SIGNER_JSON"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:callback::" &&
+      output.rendered_secrets["core-runtime"]["PULSO_BRIDGE_EXECUTOR_SIGNER_JSON"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:executor::"
+    )
+    error_message = "The four bridge signers are four distinct JSON keys of core/bridge-signers (callback and executor must differ)."
+  }
+  assert {
+    condition = (
+      output.rendered_secrets["core-exporter"]["CORE_EXPORT_DATABASE_URL"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-db-exporter-AbCdEf" &&
+      output.rendered_secrets["core-exporter"]["PULSO_EXPORTER_KEY_CONTROL_API_SEED"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:control_api_seed::" &&
+      output.rendered_secrets["core-exporter"]["PULSO_EXPORTER_KEY_LAB_BROKER_SEED"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:lab_broker_seed::" &&
+      output.rendered_secrets["platform-exporter"]["PLATFORM_DB_URL"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf" &&
+      output.rendered_secrets["platform-exporter"]["PULSO_EXPORTER_KEY_CONTROL_API_SEED"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:control_api_seed::"
+    )
+    error_message = "Exporters resolve only their own database credential and their own seed secret."
+  }
+  assert {
+    condition = (
+      toset(output.execution_secret_arns["core-runtime"]) == toset([
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-db-app-AbCdEf",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-identity-keys-AbCdEf",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-staff-keys-AbCdEf",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-bridge-service-key-AbCdEf",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-llm-gateway-token-AbCdEf",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf",
+      ]) &&
+      toset(output.execution_secret_arns["core-exporter"]) == toset([
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-db-exporter-AbCdEf",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf",
+      ]) &&
+      toset(output.execution_secret_arns["platform-exporter"]) == toset([
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf",
+      ])
+    )
+    error_message = "Each execution role resolves exactly the ARNs of its own variables: no cross-service read, no foreign secret."
+  }
+  assert {
+    condition     = length(output.execution_secret_arns["core-runtime"]) == 6 && length(output.execution_secret_arns["core-exporter"]) == 2 && length(output.execution_secret_arns["platform-exporter"]) == 2
+    error_message = "No duplicated or extra ARN in any execution role (the mock gives every own secret one ARN, so sets alone would hide extras)."
+  }
+  assert {
+    condition     = alltrue([for k, c in output.rendered_containers : try(c.readonlyRootFilesystem, false) == true && length(c.mountPoints) >= 2 && contains([for m in c.mountPoints : m.containerPath], "/run/pulso-keys") && contains([for m in c.mountPoints : m.containerPath], "/tmp") && alltrue([for m in c.mountPoints : m.readOnly == false])])
+    error_message = "The rendered containers (not module literals) have a read-only root and writable ephemeral /run/pulso-keys and /tmp."
+  }
+  assert {
+    condition     = !contains(keys(output.rendered_containers["core-runtime"]), "user") && !strcontains(jsonencode(output.rendered_containers), "AGENTCORE_ALLOW_DEMO")
+    error_message = "The container does not override the image user, and no demo flag is rendered."
+  }
+}
+
+run "each_database_switch_opens_only_its_own_foreign_group" {
+  command = plan
+
+  variables {
+    enabled                      = true
+    manage_core_database_ingress = true
+  }
+
+  assert {
+    condition     = toset(keys(aws_vpc_security_group_ingress_rule.database_from_bridge)) == toset(["core-runtime", "core-exporter"])
+    error_message = "manage_core_database_ingress admits the Core services only, never the platform exporter."
+  }
+}
+
+run "the_platform_database_switch_opens_only_the_platform_group" {
+  command = plan
+
+  variables {
+    enabled                          = true
+    manage_platform_database_ingress = true
+  }
+
+  assert {
+    condition     = toset(keys(aws_vpc_security_group_ingress_rule.database_from_bridge)) == toset(["platform-exporter"])
+    error_message = "manage_platform_database_ingress admits the platform exporter only."
+  }
+}
+
+run "security_group_rules_are_exact_references_ports_and_never_open_cidrs" {
+  command = plan
+
+  variables {
+    enabled = true
+  }
+
+  assert {
+    condition     = alltrue([for k, r in aws_vpc_security_group_egress_rule.vpc_https : r.cidr_ipv4 == "10.20.0.0/16" && r.from_port == 443 && r.to_port == 443])
+    error_message = "AWS API egress is the VPC CIDR on 443 only."
+  }
+  assert {
+    condition     = alltrue([for k, r in aws_vpc_security_group_egress_rule.to_database : r.from_port == 5432 && r.to_port == 5432 && r.ip_protocol == "tcp" && r.cidr_ipv4 == null]) && alltrue([for k, r in aws_vpc_security_group_ingress_rule.control_api_from_bridge : r.from_port == 8080 && r.to_port == 8080 && r.referenced_security_group_id != null && r.cidr_ipv4 == null]) && alltrue([for k, r in aws_vpc_security_group_egress_rule.to_control_api : r.from_port == 8080 && r.to_port == 8080 && r.cidr_ipv4 == null])
+    error_message = "Database and control-api rules are tcp on exactly their port, by security-group reference."
+  }
+  assert {
+    condition     = alltrue([for k, r in aws_vpc_security_group_ingress_rule.runtime_from_engine : r.from_port == 8000 && r.to_port == 8000 && r.cidr_ipv4 == null]) && alltrue([for k, r in aws_vpc_security_group_egress_rule.engine_to_runtime : r.from_port == 8000 && r.to_port == 8000 && r.cidr_ipv4 == null])
+    error_message = "F1 is tcp on the runtime port only."
+  }
+  assert {
+    condition     = toset(keys(aws_vpc_security_group_egress_rule.s3_layers)) == toset(["core-runtime", "core-exporter", "platform-exporter"]) && length(aws_vpc_security_group_egress_rule.to_llm_gateway) == 1 && aws_vpc_security_group_egress_rule.to_llm_gateway[0].referenced_security_group_id == "sg-0123456789abcdef5" && aws_vpc_security_group_egress_rule.to_llm_gateway[0].from_port == 8080
+    error_message = "ECR layers via the S3 prefix list; the runtime (only) reaches the LLM gateway group."
+  }
+}
+
+run "no_s3_or_gateway_egress_unless_their_inputs_are_set" {
+  command = plan
+
+  variables {
+    enabled                          = true
+    s3_egress_enabled                = false
+    llm_gateway_url                  = ""
+    llm_gateway_security_group_id    = ""
+    engine_caller_security_group_ids = {}
+    core_secret_arns = {
+      db_app             = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-db-app-AbCdEf"
+      db_exporter        = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-db-exporter-AbCdEf"
+      identity_keys      = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-identity-keys-AbCdEf"
+      staff_keys         = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-staff-keys-AbCdEf"
+      bridge_service_key = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-bridge-service-key-AbCdEf"
+    }
+  }
+
+  assert {
+    condition     = length(aws_vpc_security_group_egress_rule.s3_layers) == 0 && length(aws_vpc_security_group_egress_rule.to_llm_gateway) == 0 && length(aws_vpc_security_group_ingress_rule.runtime_from_engine) == 0 && length(aws_vpc_security_group_egress_rule.engine_to_runtime) == 0
+    error_message = "Optional egress and engine-side rules appear only when their inputs are set."
+  }
+}
+
+run "wildcard_secret_arns_are_rejected" {
+  command = plan
+
+  variables {
+    enabled = true
+    core_secret_arns = {
+      db_app             = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-*"
+      db_exporter        = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-db-exporter-AbCdEf"
+      identity_keys      = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-identity-keys-AbCdEf"
+      staff_keys         = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-staff-keys-AbCdEf"
+      bridge_service_key = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-bridge-service-key-AbCdEf"
+      llm_gateway_token  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-llm-gateway-token-AbCdEf"
+    }
+  }
+
+  expect_failures = [var.core_secret_arns]
+}
+
+run "unknown_core_secret_keys_are_rejected" {
+  command = plan
+
+  variables {
+    enabled = true
+    core_secret_arns = {
+      db_master = "arn:aws:secretsmanager:us-east-1:123456789012:secret:core-db-master-AbCdEf"
+    }
+  }
+
+  expect_failures = [var.core_secret_arns]
+}
+
+run "missing_control_api_inputs_fail_closed" {
+  command = plan
+
+  variables {
+    enabled                       = true
+    control_api_security_group_id = ""
+  }
+
+  expect_failures = [aws_security_group.bridge]
+}
