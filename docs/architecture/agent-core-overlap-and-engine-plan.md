@@ -1,133 +1,173 @@
-# Agent Core overlap plan and engine platform plan
+# Agent Core overlap, engine platform and the pulso-core-runtime delta
 
-Status: working plan, written against `origin/main` at `c8a962e` and the open pull request #20
-(`feat/agent-core-aws-fase0-1`, ADR 0005, CONFLICTING at the time of writing). Nothing here is applied.
+Status: working plan, reconciled against `origin/main` at `994cb62` (2026-10-03), which contains #19, #21, #22
+and our #23. Nothing here is applied. Supersedes the earlier version written against `c8a962e` and PR #20.
 
-Principle: this is one company platform. Where the Agent Core team's #20 declares a shared or Agent-Core-generic
-piece, **their change stays** and we build on it. We do not keep a parallel module for the same concern.
+Principle: one company platform. The Agent Core team's modules stay theirs; we never copy or edit them. Our
+responsibility is (a) the improvement-engine platform and (b) how *our* composed runtime image
+(`pulso-core-runtime`, built from `core-bridge/` in the improvement-engine repository) is deployed on top of the
+shared foundation.
 
-## 1. What #20 covers and what we had in parallel
+## 1. What changed since #23's base
 
-| Concern | #20 module | Our parked module | Decision |
-|---|---|---|---|
-| Network path (security groups) | `agent_core_network` | `core_stack` security groups | Theirs. Ours differs on purpose (see section 3) and is a review request, not a second module. |
-| Image registry | `ecr` | none | Theirs. Engine images reuse `ecr` (one repository per image). |
-| Connection pooling | `rds_proxy` | none | Theirs, Agent Core only. The engine does not need it yet. |
-| Agent Core database | `database` (a separate instance) | `core_database` (shared instance, logical databases, grant contract) | Theirs for the instance. The **grant contract** (default privileges, CONNECT, REVOKE PUBLIC) is the one idea worth carrying over as a documented delta. |
-| Blob, events, queues | `agent_core_data` | none | Theirs. |
-| Ingress | `agent_core_ingress` (internal ALB + WAF) | none (Cloud Map, no ALB) | Theirs. ADR tension flagged in section 3. |
-| Serve, relay, migrate, sweep, secrets, roles, autoscaling | `agent_core_workload` | `core_stack`, `core_secrets`, `workload`, `workload_iam` use | Theirs. Not duplicated. |
-| Alarms | `agent_core_observability` | none | Theirs. |
-| Agent Core exporter workload | none (they ship `relay` instead) | `core_stack` exporter | Open question 3. |
-| AWS-API VPC endpoints | none (they open 0.0.0.0/0:443 for every role) | `core_vpc_endpoints` | Ours stays, as a shared opt-in module (used by the engine platform first). |
-
-Files both branches touch (conflict surface): `terraform/envs/{staging,prod}/{main,variables}.tf`,
-`docs/adr/0003-agent-core-workload.md`, `docs/architecture/deployment-status.md`, `docs/gaps/OPEN_GAPS.md`,
-`tests/test_agent_core_scope_contract.py`, `terraform/modules/database/outputs.tf`. Our branch avoids all of
-them: the env wiring lives in new files `terraform/envs/{staging,prod}/engine_platform.tf` and
-`engine_platform_variables.tf` (Terraform loads every `.tf` in the root), so `main.tf` and `variables.tf` are
-byte-identical to `origin/main` and the two branches merge in either order without a textual conflict.
-
-## 2. Branch layout and order of operations
-
-1. `claude/u-infra-core-stack-parked` (local only, never pushed): the earlier `core_database`, `core_secrets`,
-   `core_stack` modules, their env wiring, review fixes and docs. Kept for reference and for the delta below.
-2. `claude/u-infra-engine-platform` (from `origin/main`, the branch to push): `engine_platform`,
-   `core_vpc_endpoints`, `workload_iam.pass_role_arns`, `network.private_route_table_ids`, env wiring behind two
-   flags that default to `false`, tests, this document. It touches no file that #20 owns.
-3. Merge in either order (no shared file; resource names do not collide: ours are `pulso-engine-*`,
-   `<prefix>/engine/*` secrets, `/pulso/<env>/pulso-engine-*` logs, `<env>.pulso.internal`; theirs are `agent-core*`).
-4. After #20 merges, rebase the engine branch, then open a small follow-up that (a) points
-   `engine_platform.core_runtime_security_group_ids` and `core_callback_security_group_ids` at
-   `agent_core_network.service_security_group_id`, (b) passes the shared Cloud Map namespace id if one exists,
-   (c) applies the delta in section 4.
-5. Never apply anything before the OIDC, state and authorization gaps in `docs/gaps/OPEN_GAPS.md` are closed.
-
-## 3. Where we deliberately differ, and the tensions to resolve
-
-1. **Ingress shape.** ADR 0003 item 2 says `pulso-core-runtime` is a private Cloud Map service with no ALB and no
-   WAF; ADR 0005 declares an internal ALB and a WAF. Both cannot be the accepted text. Recommended default:
-   keep #20's internal ALB for the Agent Core API (it answers the open ingress question and adds a rate limit)
-   and record in ADR 0003 that item 2 is superseded for Core ingress, while engine services stay on Cloud Map.
-2. **One shared service security group.** #20 puts `serve`, `relay`, `sweep` and `migrate` in one security group
-   and gives all of them 0.0.0.0/0:443. A least-privilege split (per role) and VPC endpoints for the one-off and
-   scheduled tasks is the stricter shape. Recommended default: accept their shape now, raise the split as a
-   follow-up once the egress destination design exists.
-3. **Sweep schedule enabled by default.** #20 defaults `sweep_enabled = true`. Recommended default: keep it, but
-   with `serve_desired_count = 0` the sweep runs against an unmigrated database; require a human to enable it
-   after the first migrate.
-4. **Separate versus shared database.** ADR 0003 item 2 and #20 both say a separate instance. Our parked module
-   defaulted to the shared instance. Recommended default: follow #20 (separate); revisit only with L10
-   evaluation-load measurements.
-5. **Egress to AWS APIs.** `core_vpc_endpoints` plus a prefix-list rule for S3 is needed by any workload whose
-   security group does not allow 0.0.0.0/0 (the engine platform). It is optional for #20's workloads.
-
-## 4. The delta that stays genuinely ours for Agent Core (held, rebased after #20)
-
-- Grant contract for the Agent Core database roles, expressed as output/documentation: `REVOKE ALL ... FROM PUBLIC`,
-  per-role `CONNECT`, and `ALTER DEFAULT PRIVILEGES FOR ROLE <owner>` for tables and sequences, so later
-  expand-only migrations (agent-core ADR 0022) do not silently remove access from the runtime and exporter roles.
-  Implemented and tested in the parked `core_database`; to be ported to whatever role model #20 settles on.
-- Scheduler role least privilege: `ecs:RunTask` conditioned on the shared cluster ARN and `iam:PassRole`
-  conditioned on `iam:PassedToService = ecs-tasks.amazonaws.com` (parked `core_stack`); a review request for
-  `agent_core_workload`'s scheduler role.
-- Exporter workload and the pulso-core-runtime service-JWT audiences and secrets (bridge service key, exporter
-  key), if the exporter stays a separate workload (question 3).
-
-## 5. Engine platform (our own infrastructure, this branch)
-
-Source: V3 section 31 and plan annex D.5 (services control-api, worker, lab-broker, human-issuer, console), plan
-16.13.2 and 16.16 flow rules, ADR 0003 flow matrix.
-
-| Service | Treatment |
+| Change | Effect on this plan |
 |---|---|
-| control-api (also serves the `lab-broker` audience on its own route group) | Declared: ECS service, Cloud Map `control-api.<env>.pulso.internal`, one task role and execution role, one security group, own log group |
-| worker | Declared: ECS service; may `ecs:RunTask` only the sandbox task, `iam:PassRole` only the two sandbox roles |
-| migrate | Declared: one-off task |
-| sandbox-lab | Declared: task definition only (launched by the worker), no secret, no database, VPC endpoints only |
-| human-issuer | **Not declared**: local-only test issuer, refused in remote profiles |
-| console (static delivery) | **Not declared**: depends on `edge`, which is `dependency_blocked` |
-| lab-broker | No separate service: it is a route group of control-api (plan 16.11) |
+| #19 (`ecr`) | Merged. One module for every image repository. The engine and sandbox images reuse it (section 5). |
+| #21 / ADR 0004 | JEV key, provider settings and provider egress belong to the LLM gateway workload. Our runtime already consumes the gateway only (section 4). |
+| #20 (`agent_core_network`, `_workload`, `_ingress`, `_data`, `_observability`, own roles) | **Closed, replaced by #22.** None of those modules exists on `main`. |
+| #22 / ADR 0005 | Adds `core_data`, `rds_proxy`, `scheduled_task`, `core_alarms` (plus `ecr`) *on top of* ADR 0003 and changes none of its decisions. Only `ecr` and `core_data` are wired. |
 
-Shared foundations are inputs (VPC, subnets, cluster, database security group, KMS, secret prefix); the module
-creates no VPC, NAT, ALB, WAF, cluster or database instance. The existing single `improvement-engine` service in
-`compute` is untouched; `engine_platform_enabled` defaults to `false`, so the plan is unchanged.
+Consequences, verified in the tree: there is **no `agent_core_workload` module**. The Core workload slice (ECS
+service, security groups, separate database, secrets, Cloud Map names, per-workload roles) is still unwritten and
+ADR 0003 ("Implementation status") says so. ADR 0003 item 2 stands: Core is a private Cloud Map service, no ALB,
+no WAF. ADR 0005 states the same, so the ALB tension recorded in the earlier version of this document is resolved
+in ADR 0003's favour and no longer needs an answer.
 
-Secrets are names only, one entry per workload need (`engine/db-control-api`, `db-worker`, `db-migrate`,
-`service-key-control-api`, `service-key-worker`, `verifier-keys`). The verifier entry holds the public keys of
-the four distinct integration keypairs (binding callback, observations exporter, broker executor, human session
-issuer) and is read only by control-api. No Core DSN, provider key or Jev key reaches any engine workload
-(plan 16.17), enforced by a test.
+## 2. What of ours is obsolete
 
-Observability: running-task alarms for control-api and worker, only when a non-zero count is expected.
+The parked branch `claude/u-infra-core-stack-parked` (local only, never pushed; `core_database`, `core_secrets`,
+`core_stack`, their env wiring and docs) is **superseded** and must stay unpushed:
 
-Provisional environment variable names, to be confirmed with the engine owners (CLQ-39): `PULSO_DATABASE_DSN`,
-`PULSO_SERVICE_SIGNING_KEY`, `PULSO_VERIFIER_KEYS`, `PULSO_CORE_BRIDGE_URL`, `PULSO_SANDBOX_TASK`, and the
-container commands (`worker`, `migrate`).
+| Parked piece | Status |
+|---|---|
+| `core_stack` (service, exporter, migrate, sweep, security groups, Cloud Map) | Superseded by the generic `workload` / `workload_iam` modules plus the pending Core workload slice (ADR 0003). |
+| `core_secrets` | Superseded by the `core/*` secret layout of ADR 0003 and `secrets`. |
+| `core_database` (shared instance, logical databases) | Superseded: ADR 0003 and #22 settle on a separate Core instance. Only the grant contract survives, as a documentation delta (section 6). |
+| Scheduler role least privilege (`ecs:RunTask` on the cluster ARN, `iam:PassRole` with `PassedToService`) | `scheduled_task` (#22) already limits the role to the one task and the listed `PassRole` targets. Nothing left to carry over. |
+| Open questions "separate versus shared database", "ALB or Cloud Map", "sweep default" | Closed by ADR 0003 / 0005, or owned by the Core workload slice. |
 
-Not done here (gaps): ECR repositories for the engine and sandbox images (reuse `ecr` from #20), the OIDC deploy
-and plan roles (`ci_roles`, blocked on inputs), engine queues or storage beyond PostgreSQL (none is required by
-the spec read so far), metric-based alarms for jobs, ingest and budget (need the engine-to-infra metric
-contract), the release manifest extension for the engine digests (`release/`), and the runbook update.
+Still ours and merged: `engine_platform`, `core_vpc_endpoints`, `workload_iam.pass_role_arns`,
+`network.private_route_table_ids` (#23).
 
-## 6. Questions for the user to relay to the Agent Core team
+## 3. Decision: no new Terraform module for the runtime
 
-1. ADR 0003 item 2 (no ALB, no WAF) and ADR 0005 (internal ALB and WAF) disagree. Is the ALB the accepted
-   ingress for Agent Core, and may ADR 0003 be amended to say so?
-2. Will `agent_core_network` accept one security group per role (serve, relay, sweep, migrate) and VPC endpoints
-   instead of 0.0.0.0/0:443 for the one-off and scheduled tasks?
-3. Does Agent Core keep a separate `exporter` workload, or does `relay` plus the read-only export API replace
-   it? Which of the two does the platform-observations path use?
-4. Which database roles and grants will the bootstrap create on the separate instance? Can the default-privileges
-   and CONNECT/REVOKE contract in section 4 be added to the bootstrap docs?
-5. Is a shared Cloud Map namespace (`<env>.pulso.internal`) acceptable, and who creates it? Our modules take its
-   id as an input so no second namespace is created.
-6. Should `sweep_enabled` default to `true` before the first migrate has run?
-7. Which environment variable names for key delivery (`identity-keys`, `staff-keys`) are final?
-8. Do you want the ECR repositories created by `ecr` for the engine images as well, under one naming scheme?
+Evidence that the existing generic `workload` module can already run our image by variables only:
 
-## 7. Local verification
+- `image` accepts any `repo@sha256:<64 hex>` reference; ours is one immutable digest.
+- `command` overrides the container command. `core-bridge/docker-entrypoint.sh` takes the first argument
+  (`runtime | exporter | migrate | agentcore`), so `command = ["runtime"]`, `["exporter"]` and `["migrate", ...]`
+  select the role of the same image, exactly the "one digest serves all roles" rule of ADR 0003.
+- `port` (8000), `environment`, `secrets` (`arn` or `arn:json-key::`) and `service_registry_arn` cover the
+  configuration surface in section 4. `create_service = false` covers `migrate`.
+- Its guards are compatible with the runtime: `AGENTCORE_ALLOW_DEMO` is forbidden by both sides (the runtime
+  exits with code 2 if it is present), digest pinning is enforced, the RDS master secret is refused.
 
-Terraform 1.16.4 was used locally (CI pins 1.10.5). Every module in this plan is exercised with mock providers;
-see the verification section of the journal entry in `BITACORA_PULSO.md`. No plan or apply was run against an
-account.
+A thin `pulso_core_runtime` wrapper module would only re-declare these inputs, and the surrounding slice it would
+plug into (security groups, database, Cloud Map, roles) does not exist yet. Writing it now would pre-empt the Core
+workload slice and duplicate ADR 0003. **We implement nothing** for the runtime; section 4 is the specification of
+the values to pass when that slice lands, and section 7 lists what the image itself must change first.
+
+## 4. Delta spec: deploying `pulso-core-runtime` on the shared foundation
+
+One image digest, repository `<env>/pulso-core` (the `ecr` instance already wired as `core_ecr`), three roles.
+
+### 4.1 Runtime service (`command = ["runtime"]`, port 8000, Cloud Map `core-runtime.<env>.pulso.internal`)
+
+| Name | Kind | Source / value |
+|---|---|---|
+| `PULSO_TENANT_ID` | plain | tenant allow-list primary entry; also required by the exporter. `PULSO_ALLOWED_TENANTS` (comma list) is optional. |
+| `PULSO_CONTROL_API_URL`, `PULSO_LAB_BROKER_URL` | plain | engine `control-api` private DNS (`engine_platform` output `control_api_dns_name`); lab-broker is a route group of control-api (plan 16.11). Both must be non-empty or the runtime exits 2. |
+| `PULSO_BRIDGE_INSTANCE`, `PULSO_BRIDGE_MAX_INFLIGHT`, `PULSO_EVAL_PERMITS`, `PULSO_KEYS_RELOAD_SECONDS` | plain | per-task identity (must be unique per task) and limits. |
+| `PULSO_EVAL_BUDGETS_JSON` | plain (or file) | static budget map. |
+| `AGENTCORE_LLM_GATEWAY_URL` | plain | LLM gateway private URL (ADR 0004). |
+| `PULSO_LLM_MODE`, `PULSO_LLM_STAGE_POLICY_JSON`, `PULSO_LLM_POLICY_REQUIRED` | plain | `gateway` or `disabled`; no gateway configuration is a startup error. |
+| `PULSO_CORE_SHA`, `PULSO_SHA`, `PULSO_IMAGE_DIGEST` | plain | informational; `PULSO_CORE_SHA` must equal the pinned agent-core sha or be unset. |
+| `AGENTCORE_DB_POOL_MAX` | plain | pass-through (ADR 0005). Blob bucket and SNS topic variables stay unset. |
+| `AGENTCORE_REGISTRY_DSN`, `AGENTCORE_EVAL_DSN` | secret | JSON keys of `core/db-app` (`arn:json-key::`). |
+| `AGENTCORE_LLM_GATEWAY_TOKEN` | secret | our consumer token of the gateway; both URL and token, or neither. |
+| `CORE_IDENTITY_KEYS_JSON`, `CORE_STAFF_KEYS_JSON` | secret | public key sets (`core/identity-keys`, `core/staff-keys`); the entrypoint writes them as `identity.json` / `staff.json`. |
+| `PULSO_SERVICE_KEYS_JSON` | secret | public verifiers of the `/internal/v1` service JWT audiences (engine callers). |
+| four bridge signer seeds: identity, staff, callback (control-api binding callback), executor (to lab-broker; **must be a different keypair than callback**) | secret | private material; file names `bridge-identity`, `bridge-staff`, `bridge-callback`, `bridge-executor`. Not delivered by the current entrypoint (section 7). |
+
+Forbidden and not needed: `AGENTCORE_ALLOW_DEMO`, `AGENTCORE_JEV_API_KEY`, `LLM_ENDPOINTS`, per-endpoint keys and
+the `AGENTCORE_KEYS_*` names of ADR 0003 item 3: the composed runtime never reads them (no occurrence in
+`core-bridge/src`). Once ADR 0004 is in force the runtime needs **no external egress**, only the gateway, so the
+`controlled_nat` requirement of ADR 0003 item 5 does not apply to it; it still applies to the gateway.
+
+### 4.2 Exporter service (`command = ["exporter"]`, no port, `desired_count` 1)
+
+| Name | Kind | Source / value |
+|---|---|---|
+| `CORE_EXPORT_DATABASE_URL` | secret | `core/db-exporter` (role `core_exporter_ro`, read-only). This is the ingest path; Core's `/v1/export/*` stays off (`PULSO_CORE_EXPORT_ENABLED` unset), which also means the "Agent Core export credential" gap is not needed by us. |
+| `EXPECTED_RUNTIME_DB`, `EXPECTED_EVAL_DB` | plain | logical database names the exporter must verify. |
+| `PULSO_TENANT_ID`, `PULSO_CORE_INSTANCE`, `PULSO_EXPORTER_BINDING_REF` | plain | |
+| `PULSO_INGEST_BASE_URL` | plain | engine `control-api` private DNS. |
+| `PULSO_EXPORTER_KEY_CONTROL_API`, `PULSO_EXPORTER_KEY_LAB_BROKER` (+ optional `_KID`) | **paths** to key files holding a 32-byte base64url seed | two distinct audience keys; their public halves go in the engine's `verifier-keys` secret. |
+| `PULSO_EXPORTER_STATE_DIR` | plain | writable directory for the cursor (SQLite). On Fargate it is ephemeral task storage: a restart replays from the anti-entropy rescan (`PULSO_EXPORTER_RESCAN_S`); a volume is a decision, not assumed. |
+| `PULSO_EXPORTER_POLL_S`, `_RESCAN_S`, `_SWEEP_S` | plain | defaults 5, 900, 86400. |
+
+### 4.3 Migrate (`command = ["migrate", ...]`, `create_service = false`)
+
+Runs `agentcore migrate` with the migrate DSN (`core/db-migrate`). The runtime itself also applies the
+`pulso_bridge` schema and its migrations at startup under an advisory lock, using `AGENTCORE_EVAL_DSN`
+(question 1).
+
+### 4.4 Network (flow matrix of ADR 0003, our side)
+
+F1 `engine-worker -> core-runtime:8000`; F2 `core-runtime -> control-api:8080` (callbacks and tool calls); F3
+`core-exporter -> control-api:8080`; F5 Core tasks -> Core database (through `rds_proxy` if it is wired). The engine
+inputs `core_runtime_security_group_ids` (F1 source side) and `core_callback_security_group_ids` (F2 and F3 source
+side, so it must include the exporter's group as well as the runtime's) are already variables of `engine_platform`;
+set them to the Core workload slice outputs when they exist.
+
+## 5. Engine images: reuse `ecr`, nothing parallel
+
+`envs/{staging,prod}/engine_platform.tf` now instantiates the shared `ecr` module once per image with
+`for_each`: `<env>/pulso-engine` (control-api, worker, migrate) and `<env>/pulso-sandbox-lab`, gated by
+`engine_ecr_enabled` (default `false`, a separate switch from `engine_platform_enabled` because the repositories
+must exist before a digest can be pushed and the workloads need that digest). Output `engine_ecr_repository_urls`.
+No new module, no `aws_ecr_repository` outside `modules/ecr`; a contract test pins both. Push permissions (OIDC)
+remain the existing `ci_roles` gap.
+
+## 6. Delta still held for the Agent Core team (documentation only)
+
+- Grant contract for the separate Core database bootstrap: `REVOKE ALL ... FROM PUBLIC`, per-role `CONNECT`, and
+  `ALTER DEFAULT PRIVILEGES FOR ROLE <owner>` for tables and sequences, so expand-only migrations (agent-core
+  ADR 0022) do not silently remove access from the runtime and exporter roles. The role bootstrap is a human
+  step (ADR 0003 item 2).
+- Roles needed by our image on top of ADR 0003: `core_exporter_ro` must read the tables the exporter lists, and
+  the runtime role must be allowed to create and own the `pulso_bridge` schema (or the migrate task must).
+
+## 7. Image-side gaps found while writing this spec (improvement-engine, not Terraform)
+
+1. `core-bridge/docker-entrypoint.sh` materialises only `identity.json`, `staff.json` and `service.json` from
+   environment variables. The four bridge signer files and the two exporter key files that the code reads
+   (`/run/pulso-keys/bridge-*.json`, `PULSO_EXPORTER_KEY_*` paths) have no Fargate delivery path, so the image
+   cannot start in AWS from secrets alone. It needs the same env-to-file step for them (DR-89).
+2. ADR 0003 item 12 says the key files live in tmpfs. The `workload` module renders no tmpfs mount, so the files
+   would sit on ephemeral task storage. Either the module gains an optional tmpfs volume (Agent Core team's
+   decision, it is a shared module) or the ADR is amended.
+3. The runtime reports pin `789d6c8` (ADR 0008 of `core-bridge`), while ADR 0003 and the release manifest text still
+   cite `86a7674`. The manifest `contracts_version` / pin digest must be updated by whoever owns the manifest.
+
+## 8. Engine platform (unchanged, #23)
+
+control-api (also the `lab-broker` route group), worker, migrate and sandbox-lab are declared behind
+`engine_platform_enabled` (default `false`); human-issuer (local-only) and console (`edge` blocked) are not
+declared. Shared foundations are inputs; no VPC, NAT, ALB, WAF, cluster or database instance is created. Secrets
+are names only. No Core DSN, provider key or JEV key reaches an engine workload (enforced by a test).
+Provisional engine variable names (CLQ-39): `PULSO_DATABASE_DSN`, `PULSO_SERVICE_SIGNING_KEY`,
+`PULSO_VERIFIER_KEYS`, `PULSO_CORE_BRIDGE_URL`, `PULSO_SANDBOX_TASK`.
+
+Not done: OIDC deploy and plan roles (`ci_roles`, blocked on inputs), engine metric alarms (need the metric
+contract), the release-manifest extension for engine digests, and the runbook update.
+
+## 9. Questions for the Agent Core team (relayed by the user)
+
+1. Who owns the bridge schema DDL (`pulso_bridge` in the eval database)? The runtime applies it at startup with
+   `AGENTCORE_EVAL_DSN`; should that DSN's role be allowed to create it, or does the `migrate` task run it?
+2. Will the Core workload slice add an optional tmpfs volume to `workload` (ADR 0003 item 12), or is ephemeral
+   storage acceptable for key files?
+3. Which module opens the exporter's security group toward `control-api` (F3) and the Core database (F5)? We will
+   consume its output as `core_callback_security_group_ids`.
+4. Is this secret layout for the extra material acceptable: `core/bridge-signers` (4 seeds), `core/exporter-keys`
+   (2 seeds), reuse of `core/bridge-service-key` for `PULSO_SERVICE_KEYS_JSON`, `core/llm-gateway-token`?
+5. Should `core/jev` and `core/llm-endpoints` be dropped from the Core workload slice, given that the composed
+   runtime consumes the gateway only (ADR 0004)?
+6. Is a shared Cloud Map namespace `<env>.pulso.internal` acceptable, and who creates it? Our modules take its id
+   as an input.
+7. Does the release manifest / ADR 0003 pin text move from `86a7674` to `789d6c8`?
+
+## 10. Local verification
+
+Terraform 1.16.4 locally (CI pins 1.10.5). Mock providers only; no plan or apply against an account.

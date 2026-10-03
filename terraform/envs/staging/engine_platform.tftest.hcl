@@ -25,6 +25,11 @@ mock_provider "aws" {
       arn = "arn:aws:servicediscovery:us-east-1:123456789012:service/srv-mock"
     }
   }
+  mock_data "aws_iam_policy_document" {
+    defaults = {
+      json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
+    }
+  }
   mock_data "aws_caller_identity" {
     defaults = {
       account_id = "123456789012"
@@ -55,6 +60,7 @@ variables {
   database_multi_az               = false
   log_retention_days              = 14
   alarm_actions                   = []
+  core_blob_bucket_name           = "pulso-test-core-blobs"
 }
 
 run "defaults_add_nothing" {
@@ -67,6 +73,23 @@ run "defaults_add_nothing" {
   assert {
     condition     = module.private_endpoints.s3_prefix_list_id == "" && module.private_endpoints.endpoint_security_group_id == ""
     error_message = "private_endpoints_enabled=false must add no VPC endpoint."
+  }
+  assert {
+    condition     = length(module.engine_ecr) == 0
+    error_message = "engine_ecr_enabled=false must add no repository."
+  }
+}
+
+run "engine_ecr_reuses_the_shared_ecr_module" {
+  command = plan
+
+  variables {
+    engine_ecr_enabled = true
+  }
+
+  assert {
+    condition     = toset(keys(module.engine_ecr)) == toset(["pulso-engine", "pulso-sandbox-lab"])
+    error_message = "Exactly one repository for the engine image and one for the sandbox image."
   }
 }
 

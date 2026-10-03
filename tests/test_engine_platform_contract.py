@@ -83,6 +83,16 @@ class EngineModuleContractTests(unittest.TestCase):
             self.assertIn("s3_prefix_list_id", wiring)
             self.assertRegex(wiring, r"ecs_api\s*=\s*var\.engine_platform_enabled")
 
+    def test_engine_images_reuse_the_shared_ecr_module_and_default_off(self):
+        for env in ("staging", "prod"):
+            wiring = (TF / "envs" / env / "engine_platform.tf").read_text(encoding="utf-8")
+            self.assertIn('source   = "../../modules/ecr"', wiring)
+            self.assertNotIn("aws_ecr_repository", wiring)
+            variables = (TF / "envs" / env / "engine_platform_variables.tf").read_text(encoding="utf-8")
+            block = re.search(r'variable "engine_ecr_enabled" \{(.*?)\n\}', variables, re.S)
+            self.assertIsNotNone(block, env)
+            self.assertIn("default     = false", block.group(1), env)
+
 
 if __name__ == "__main__":
     unittest.main()
