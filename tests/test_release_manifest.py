@@ -168,6 +168,27 @@ class ManifestTest(unittest.TestCase):
         m = self.mutate(lambda m: m.update(approvals=[]))
         self.assertTrue(codes(m))
 
+    def test_trailing_newline_does_not_bypass_patterns(self):
+        m = self.mutate(lambda m: m["engine"].update(git_sha=m["engine"]["git_sha"] + "\n"))
+        self.assertTrue(codes(m))
+        m = self.mutate(lambda m: m["engine"].update(image_digest=d("a") + "\n"))
+        self.assertTrue(codes(m))
+
+    def test_m05_reported_once_and_for_empty_or_null(self):
+        m = self.mutate(lambda m: m["assets"].pop("expected_state_digest"))
+        self.assertEqual(codes(m), ["pulso:assets_drift"])
+        for bad in ("", None, "not-a-digest"):
+            m = self.mutate(lambda m, b=bad: m["assets"].update(expected_state_digest=b))
+            self.assertEqual(codes(m), ["pulso:assets_drift"])
+
+    def test_log_group_has_single_declaring_resource(self):
+        tf = ROOT / "terraform" / "modules"
+        owners = [
+            p.parent.name for p in tf.glob("*/*.tf")
+            if 'resource "aws_cloudwatch_log_group"' in p.read_text("utf-8")
+        ]
+        self.assertEqual(owners, ["observability"])
+
     def test_m10_console_digest_blocked_while_edge_blocked(self):
         m = self.mutate(lambda m: m["console"].update(image_digest=d("e")))
         self.assertIn("pulso:console_blocked", codes(m))

@@ -59,7 +59,7 @@ def _check(value, schema, root, path, errors):
             errors.append(_err("schema", path, f"must be of type {'|'.join(names)}"))
             return None
     if isinstance(value, str):
-        if "pattern" in schema and not re.search(schema["pattern"], value):
+        if "pattern" in schema and not re.fullmatch(schema["pattern"], value):
             errors.append(_err("schema", path, f"must match {schema['pattern']}"))
         if len(value) < schema.get("minLength", 0):
             errors.append(_err("schema", path, "must not be empty"))
@@ -114,9 +114,9 @@ def _rules(m, errors):
             "must equal agent_core.image_digest"))
 
     # M-05: without the expected-state digest asset drift cannot be detected.
-    if not m["assets"].get("expected_state_digest"):
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(m["assets"].get("expected_state_digest") or "")):
         errors.append(_err(
-            "pulso:assets_drift", "assets.expected_state_digest", "is required"))
+            "pulso:assets_drift", "assets.expected_state_digest", "is required (sha256:<64 hex>)"))
 
     # M-06: a Core schema change must be declared (Core has no versioned migrations).
     previous = m["rollback"]["previous_schema_digest"]
@@ -175,11 +175,9 @@ def validate(manifest, schema=None):
             "smoke_counts_as_success": False,
         }
     _check(manifest, schema, schema, "", errors)
-    # M-05 is reported with its own code even when the schema also flags the absence.
-    if not errors or all(e["code"] == "schema" for e in errors):
-        if "expected_state_digest" not in manifest.get("assets", {}):
-            errors = [e for e in errors if e["path"] != "assets.expected_state_digest"]
-            errors.append(_err("pulso:assets_drift", "assets.expected_state_digest", "is required"))
+    # M-05 owns assets.expected_state_digest (absent, null or empty): report it once with
+    # its own code from _rules rather than as a generic schema error.
+    errors = [e for e in errors if e["path"] != "assets.expected_state_digest"]
     if not any(e["code"] == "schema" for e in errors):
         _rules(manifest, errors)
     return {"errors": errors, "smoke_counts_as_success": not errors and smoke_counts_as_success(manifest)}
