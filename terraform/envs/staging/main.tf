@@ -94,6 +94,19 @@ module "observability" {
   tags               = local.tags
 }
 
+module "agent_core_image_registry" {
+  count                           = var.agent_core_repository_name == "" ? 0 : 1
+  source                          = "../../modules/image_registry"
+  repository_name                 = var.agent_core_repository_name
+  kms_key_arn                     = ""
+  github_oidc_provider_arn        = var.agent_core_publisher_oidc_provider_arn
+  publish_subjects                = var.agent_core_publish_subjects
+  least_privilege_policy_boundary = var.least_privilege_policy_boundary
+  untagged_retention_days         = 14
+  max_images                      = 100
+  tags                            = merge(local.tags, { Service = "pulso-agent-core" })
+}
+
 check "private_compute_requires_nat" {
   assert {
     condition     = var.desired_count == 0 || var.nat_strategy != "none"
