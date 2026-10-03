@@ -100,3 +100,24 @@ check "private_compute_requires_nat" {
     error_message = "desired_count > 0 requires NAT in v1; VPC endpoints are not yet implemented."
   }
 }
+
+# --- Core scale-out data plane (ADR 0005; topology stays ADR 0003) ---------------------------------------------
+# Self-contained pieces: the image repository and the blob bucket / event bus. The Core runtime, database,
+# secrets and security groups belong to the Core workload slice (ADR 0003) and are not wired here yet.
+
+module "core_ecr" {
+  source          = "../../modules/ecr"
+  repository_name = "${local.tags["Environment"]}/pulso-core"
+  kms_key_arn     = var.kms_key_arn
+  tags            = local.tags
+}
+
+module "core_data" {
+  source           = "../../modules/core_data"
+  name_prefix      = "${local.tags["Environment"]}-core"
+  blob_bucket_name = var.core_blob_bucket_name
+  kms_key_arn      = ""
+  consumers        = var.core_event_consumers
+  alarm_actions    = var.alarm_actions
+  tags             = local.tags
+}
