@@ -121,6 +121,11 @@ Both repositories must change this table in the same pair of pull requests.
    `agentcore sweep --once` on a schedule.
 7. **Egress hosts.** `api.typesafe.ai` and each host in `LLM_ENDPOINTS`.
 
+   **Pending change ([ADR 0004](0004-llm-gateway-workload.md)):** when Agent Core consumes the `llm-gateway`
+   service, `LLM_ENDPOINTS`, the per-endpoint keys (item 3) and the provider hosts (this item) move to the gateway
+   workload, and Agent Core gets the gateway URL and its own consumer token instead. Until then this contract
+   stands as written.
+
 ## Corrections to the first revision (DR-94)
 
 | Earlier statement | Correct state at SHA `86a7674` / this revision |

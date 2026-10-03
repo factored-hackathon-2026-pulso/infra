@@ -14,6 +14,7 @@ an applied AWS environment.
 | Debug ingress | No public API, ALB or proxy is declared | **`dependency_blocked`** until the engine listener and approved internal-ALB plus identity-proxy contract exist |
 | Observability | One CloudWatch log group per workload (owned by the observability module; compute consumes its name, fixing the duplicate `/pulso/<env>/improvement-engine`, DR-86), CPU diagnostics, SNS topic and CPU alarms are declared | Engine metrics/traces and actionable queue/progress/error/ingest/budget alarms require the engine-to-infra metric contract |
 | Agent Core workload | **Not declared.** [ADR 0003](../adr/0003-agent-core-workload.md) (provisional acceptance) fixes topology, separation, flow matrix and release contract | Image digest and ECR, ECS service and task roles, separate database, secrets, migration task, scheduled sweep and egress design are future slices; Agent Core can only run in demo mode today |
+| LLM gateway workload | **Not declared.** [ADR 0004](../adr/0004-llm-gateway-workload.md) accepts the scope, a stateless private service and provider egress owned by this workload | Image digest and ECR, ECS service and task role, secret entries, internal ingress and the controlled-egress design are future slices; the `llm-gateway` repository has a Dockerfile and CI but publishes no digest |
 | CI/CD | Credential-free fmt/validate, portable contracts and Terraform tests (mock providers) run in CI; `release/validate_manifest.py` validates a deploy manifest offline | OIDC plan/apply, deploy and rollback remain manually approved future slices; no auto-deploy exists. `release/` tests run under the existing `python -m unittest discover -s tests` step; the workflow itself does not yet run the root-level `*.tftest.hcl` files (`terraform/envs/*/log_groups.tftest.hcl`), which is a Codex-owned file change |
 
 The repository deliberately does not own Compose, Podman, LocalStack, engine
@@ -86,3 +87,10 @@ deploy roles; the module declares only the rows marked "declared".
 
 No OIDC role is created until the external inputs exist; Terraform declarations here are not proof of an
 applied or authorised environment.
+
+## LLM gateway workload
+
+The LLM gateway is a third workload on this foundation ([ADR 0004](../adr/0004-llm-gateway-workload.md)). The
+ADR holds the ownership split and the contract with the `llm-gateway` repository; this section only states what
+is true now: nothing is declared in Terraform and nothing is deployed. Agent Core still carries its own gateway,
+so the provider keys and egress of ADR 0003 stay in force until Agent Core consumes the service.
