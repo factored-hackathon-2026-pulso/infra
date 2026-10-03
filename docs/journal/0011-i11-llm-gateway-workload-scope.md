@@ -20,6 +20,12 @@ Terraform, workflow, secret or AWS change.
 - `docs/adr/0003-agent-core-workload.md`: a pending-change note in the interface contract; the contract itself
   stays as written until Agent Core consumes the gateway.
 
+## Update: JEV through the gateway
+
+`llm-gateway` gained `POST /v1/jev` (a JEV pass-through that holds `JEV_API_KEY`, the retries and the egress to
+`api.typesafe.ai`). ADR 0004 now lists that secret, the JEV settings and the JEV host as gateway concerns, and
+ADR 0003's pending-change note includes `AGENTCORE_JEV_API_KEY`. Still documentation only.
+
 ## Facts checked in `llm-gateway` before writing
 
 - Stateless Go service; listens on `LISTEN_ADDR` (default `:8080`); `GET /healthz` unauthenticated;
