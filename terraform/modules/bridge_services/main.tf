@@ -380,11 +380,14 @@ locals {
           EXPORTER_STATE_PATH   = "/var/lib/pulso-platform-exporter/state.sqlite"
         },
       )
-      # PLATFORM_DB_URL is the whole read-only credential (a connection string); the key seed is provisional until
-      # the platform exporter materialises it like ADR 0009 (PL-L5). No static bearer token is ever injected.
+      # PLATFORM_DB_URL is the whole read-only credential (a connection string). The exporter mints a per-attempt
+      # service JWT (ADR 0009 style): observations and cursor use aud=control-api, artifact uploads aud=lab-broker,
+      # each with its own seed (the same two JSON keys core-exporter reads from core/exporter-keys). No static bearer
+      # token is ever injected.
       secrets = {
         PLATFORM_DB_URL                     = try(local.arn["platform-exporter/db-readonly"], "")
         PULSO_EXPORTER_KEY_CONTROL_API_SEED = "${local.platform_keys}:control_api_seed::"
+        PULSO_EXPORTER_KEY_LAB_BROKER_SEED  = "${local.platform_keys}:lab_broker_seed::"
       }
       secret_arns = compact([try(local.arn["platform-exporter/db-readonly"], ""), local.platform_keys])
       missing     = []

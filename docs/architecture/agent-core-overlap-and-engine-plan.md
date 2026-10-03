@@ -188,7 +188,7 @@ contract), the release-manifest extension for engine digests, and the runbook up
    Still open: who opens the Core database security group for our runtime and exporter (F5)? Ours is opt-in
    (`manage_core_database_ingress`, default off) so it cannot duplicate yours.
 4. Is this secret layout for the extra material acceptable: `core/bridge-signers` (4 seeds), `core/exporter-keys`
-   (2 seeds), reuse of `core/bridge-service-key` for `PULSO_SERVICE_KEYS_JSON`, `core/llm-gateway-token`?
+   (2 seeds), `platform-exporter/keys` (the same 2 JSON keys, `control_api_seed` and `lab_broker_seed`, own values), reuse of `core/bridge-service-key` for `PULSO_SERVICE_KEYS_JSON`, `core/llm-gateway-token`?
 5. Should `core/jev` and `core/llm-endpoints` be dropped from the Core workload slice, given that the composed
    runtime consumes the gateway only (ADR 0004)?
 6. Is a shared Cloud Map namespace `<env>.pulso.internal` acceptable, and who creates it? Our modules take its id
@@ -217,7 +217,7 @@ KMS, database instances) are inputs. Nothing is applied.
 | Read-only root plus writable `/run/pulso-keys` (ADR 0009), exporter cursor dir, `/tmp` | missing (no volume support) | `workload.read_only_root_filesystem` / `ephemeral_volumes` (additive, default no-op) |
 | Secret layout `core/bridge-signers` (identity, staff, callback, executor), `core/exporter-keys` (control_api_seed, lab_broker_seed) | missing | entries created by `bridge_services` (names only, no versions) |
 | `core/db-app`, `core/db-exporter`, `core/identity-keys`, `core/staff-keys`, `core/bridge-service-key`, `core/llm-gateway-token` | none (Core slice not merged) | consumed by ARN (`core_secret_arns`), never created here |
-| Platform exporter read-only DB credential and key seed | missing | `platform-exporter/db-readonly` (whole connection string) and `platform-exporter/keys`; names only |
+| Platform exporter read-only DB credential and its two audience key seeds (control-api, lab-broker) | missing | `platform-exporter/db-readonly` (whole connection string) and `platform-exporter/keys` (JSON keys `control_api_seed` -> `PULSO_EXPORTER_KEY_CONTROL_API_SEED`, `lab_broker_seed` -> `PULSO_EXPORTER_KEY_LAB_BROKER_SEED`, like `core/exporter-keys`); names only |
 | Env and secret variable names per service (section 4.1, 4.2, platform exporter env) | spec only | rendered by `bridge_services`; tests pin the exact secret variable sets and the absence of demo, JEV, provider and static-token variables |
 | IAM least privilege | `workload_iam` | one pair of roles per service, each execution role limited to its own secret ARNs, task roles without statements |
 | SG: runtime/exporters to control-api (F2, F3), engine to runtime (F1) | engine side only, via inputs | both ends opened by `bridge_services` (references only); `check` refuses overlapping engine inputs |
@@ -228,5 +228,6 @@ KMS, database instances) are inputs. Nothing is applied.
 | OIDC push role for the new repository, `core-migrate`, sweep, alarms for the new services | blocked / Core slice | not done (see journal 0014) |
 
 Wiring lives in `envs/{staging,prod}/bridge_services*.tf` (all switches default off). Provisional names to confirm
-with the platform-exporter code: `PLATFORM_DB_URL` (existing) and `PULSO_EXPORTER_KEY_CONTROL_API_SEED` (provisional,
-aligned with ADR 0009; the platform exporter does not materialise keys yet).
+with the platform-exporter code: `PLATFORM_DB_URL` (existing) and the per-attempt service JWT seeds
+`PULSO_EXPORTER_KEY_CONTROL_API_SEED` (observations, cursor) and `PULSO_EXPORTER_KEY_LAB_BROKER_SEED` (artifact uploads),
+confirmed against the platform-exporter entrypoint and its journal PL-0009.

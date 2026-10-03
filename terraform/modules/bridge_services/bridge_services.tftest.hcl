@@ -140,7 +140,7 @@ run "task_definitions_carry_names_only_and_a_read_only_root_with_ephemeral_key_s
     error_message = "The runtime injects exactly the ADR 0009 / delta-spec secret variables."
   }
   assert {
-    condition     = toset(output.secret_variable_names["core-exporter"]) == toset(["CORE_EXPORT_DATABASE_URL", "PULSO_EXPORTER_KEY_CONTROL_API_SEED", "PULSO_EXPORTER_KEY_LAB_BROKER_SEED"]) && toset(output.secret_variable_names["platform-exporter"]) == toset(["PLATFORM_DB_URL", "PULSO_EXPORTER_KEY_CONTROL_API_SEED"])
+    condition     = toset(output.secret_variable_names["core-exporter"]) == toset(["CORE_EXPORT_DATABASE_URL", "PULSO_EXPORTER_KEY_CONTROL_API_SEED", "PULSO_EXPORTER_KEY_LAB_BROKER_SEED"]) && toset(output.secret_variable_names["platform-exporter"]) == toset(["PLATFORM_DB_URL", "PULSO_EXPORTER_KEY_CONTROL_API_SEED", "PULSO_EXPORTER_KEY_LAB_BROKER_SEED"])
     error_message = "Exporters get their read-only database credential and their signing seeds only."
   }
   assert {
@@ -297,7 +297,10 @@ run "rendered_task_definitions_wire_each_variable_to_exactly_its_own_secret" {
       output.rendered_secrets["core-exporter"]["PULSO_EXPORTER_KEY_CONTROL_API_SEED"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:control_api_seed::" &&
       output.rendered_secrets["core-exporter"]["PULSO_EXPORTER_KEY_LAB_BROKER_SEED"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:lab_broker_seed::" &&
       output.rendered_secrets["platform-exporter"]["PLATFORM_DB_URL"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf" &&
-      output.rendered_secrets["platform-exporter"]["PULSO_EXPORTER_KEY_CONTROL_API_SEED"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:control_api_seed::"
+      output.rendered_secrets["platform-exporter"]["PULSO_EXPORTER_KEY_CONTROL_API_SEED"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:control_api_seed::" &&
+      output.rendered_secrets["platform-exporter"]["PULSO_EXPORTER_KEY_LAB_BROKER_SEED"] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridge-test-AbCdEf:lab_broker_seed::" &&
+      !contains(keys(output.rendered_secrets["core-runtime"]), "PULSO_EXPORTER_KEY_LAB_BROKER_SEED") &&
+      !contains(keys(output.rendered_secrets["core-runtime"]), "PULSO_EXPORTER_KEY_CONTROL_API_SEED")
     )
     error_message = "Exporters resolve only their own database credential and their own seed secret."
   }
