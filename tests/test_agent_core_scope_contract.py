@@ -45,5 +45,53 @@ class AgentCoreScopeContractTests(unittest.TestCase):
             self.assertIn(needle, gaps)
 
 
+def publication_paragraph(adr: str) -> str:
+    return adr.split("**Publication.**", 1)[1].split("\n\n", 1)[0]
+
+
+class AgentCoreDeliveryContractTests(unittest.TestCase):
+    """What agent-core delivered for the infra requests (pulso-factored/agent-core#25) and what stays open."""
+
+    def test_adr_contract_records_the_delivered_interface(self):
+        adr = read("docs/adr/0003-agent-core-workload.md")
+        for needle in (
+            "GET /version",
+            "AGENTCORE_GIT_SHA",
+            "--keys-reload-seconds",
+            "exporter",
+            "/v1/export",
+            "ADR 0022",
+            "expand-only",
+        ):
+            self.assertIn(needle, adr)
+
+    def test_adr_publication_path_is_ecr_plus_oidc_push_role(self):
+        adr = read("docs/adr/0003-agent-core-workload.md")
+        self.assertIn("**Publication.**", adr)
+        paragraph = publication_paragraph(adr)
+        self.assertIn("OIDC", paragraph)
+        self.assertIn("ECR", paragraph)
+
+    def test_status_documents_stop_claiming_agent_core_has_no_dockerfile(self):
+        for relative in ("docs/architecture/deployment-status.md", "docs/adr/0003-agent-core-workload.md"):
+            text = " ".join(read(relative).split())
+            self.assertNotIn("no Dockerfile or image CI yet", text, relative)
+            self.assertNotIn("a Dockerfile and an image CI that publishes a digest", text, relative)
+
+    def test_open_gaps_track_the_new_prerequisites(self):
+        gaps = read("docs/gaps/OPEN_GAPS.md")
+        for needle in (
+            "Agent Core image publication",
+            "Agent Core export credential",
+            "Agent Core schema compatibility smoke",
+        ):
+            self.assertIn(needle, gaps)
+
+    def test_journal_records_the_slice(self):
+        journal = read("docs/journal/0012-i12-agent-core-delivery-contract.md")
+        self.assertIn("## Verification", journal)
+        self.assertIn("## Not done", journal)
+
+
 if __name__ == "__main__":
     unittest.main()

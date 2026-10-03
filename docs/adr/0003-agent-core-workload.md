@@ -141,6 +141,34 @@ Both repositories must change this table in the same pair of pull requests.
 | Egress vocabulary | `controlled_nat` only for `core-runtime`; control stays blocked |
 | Sweep env mismatch (`AGENTCORE_DATABASE_URL`, `--registry`) | Resolved by the Pulso-side entrypoint; verify in L2 |
 
+## Delivered by `agent-core` since that revision (pulso-factored/agent-core#25, open when written)
+
+The "Corrections" table above is true for SHA `86a7674`. The pull request adds, in `agent-core`:
+
+- A Dockerfile (non-root user, no secrets in the image) and a CI job that builds it and checks both properties.
+  This is new input for D-3 (who builds the image); see "Open questions".
+- `GET /version` returns `{package, contract, sha}`; like `/healthz` it is unauthenticated, outside `/v1` and
+  exposes no data. `sha` is the build argument `GIT_SHA`, exposed as `AGENTCORE_GIT_SHA`.
+- Key rotation without a restart: the files read by `--identity-keys` and `--staff-keys` are re-read at most
+  every `--keys-reload-seconds` (default 5; `0` disables it). Publish the new `kid` next to the old one, wait
+  for the interval, retire the old one. A broken file keeps the last good keys.
+- Read-only routes `/v1/export/runs`, `/v1/export/runs/{run_id}/events` and `/v1/export/registry-events`
+  (with `--registry-api`), paginated with `after` and `limit`, which need a staff credential carrying the
+  `exporter` role (or `admin`). They are an application-level alternative to the read-only database role
+  `core_exporter_ro` for ingestion; which one the exporter workload uses is a decision of this repository
+  and the improvement-engine owners.
+- Registry reads for aliases and versions, `release_settings` proposals and `eval_run_id` in `gate_failed`.
+- Schema changes are expand-only ([agent-core ADR 0022](https://github.com/pulso-factored/agent-core/blob/main/docs/adr/0022-superficies-estables-y-migraciones-compatibles.md)):
+  the previous image keeps working on the new schema, so a rollback is "redeploy the previous digest". This
+  repository still has to prove it on every bump (gap "Agent Core schema compatibility smoke").
+
+**Publication.** Whoever builds the image needs an ECR repository, which this repository owns. If D-3 moves
+the build to `agent-core`, its CI would push by digest through a GitHub OIDC role limited to push on that one
+repository and trusted only for the `agent-core` default branch (never pull requests); this repository would
+deploy only a digest copied from that run. If D-3 stays Pulso-side, the same repository is pushed from the
+Pulso release job and no `agent-core` role exists. Either way the repository itself is declared once and
+nothing is applied (gap "Agent Core image publication").
+
 ## Implementation status
 
 Terraform for Agent Core workloads is not merged yet; nothing is deployed and no plan was ever run. L9 delivers
@@ -163,4 +191,5 @@ dependency, not something Terraform resolves.
 
 - Whether `pulso-core-runtime` later sits behind an internal ALB (with `edge`) and who terminates TLS.
 - Hosting for the analytics view (Phoenix or CloudWatch only).
-- Confirmation of D-3 (who builds the image) with the agent-core team.
+- Confirmation of D-3 (who builds the image) with the agent-core team, now that `agent-core` ships a Dockerfile
+  and an image build job (see "Delivered by `agent-core`" and **Publication.**).
