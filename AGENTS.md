@@ -1,6 +1,6 @@
 # Pulso infra — agent contract
 
-Read CONTEXT.md and relevant docs/adr before changing code. Windows/PowerShell first. This repo owns Terraform/AWS deployment infrastructure for improvement-engine and for running Agent Core as a deployed workload (ADR 0003). It does not own either service's local environment, Agent Core's code, image build, schema, migrations or runtime behavior, or an LLM gateway.
+Read CONTEXT.md and relevant docs/adr before changing code. Windows/PowerShell first. This repo owns Terraform/AWS deployment infrastructure for improvement-engine and for running Agent Core (ADR 0003) and the LLM gateway (ADR 0004, `llm-gateway` repository) as deployed workloads. It does not own either service's local environment, Agent Core's code, image build, schema, migrations or runtime behavior, or the gateway's code, image build, API contract or runtime behavior.
 
 ## Development discipline
 

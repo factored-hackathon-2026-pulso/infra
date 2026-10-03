@@ -53,6 +53,14 @@ the ownership split, the interface contract with the `agent-core` repository and
 prerequisites are tracked in the ADR, the [deployment-status contract](docs/architecture/deployment-status.md)
 and [open gaps](docs/gaps/OPEN_GAPS.md).
 
+## LLM gateway workload
+
+[ADR 0004](docs/adr/0004-llm-gateway-workload.md) accepts running the `llm-gateway` service (stateless HTTP
+gateway to OpenAI-compatible endpoints, consumed by Agent Core and other services) as a third workload on this
+foundation. It is **not declared in Terraform yet**: the interface contract, what is missing on each side and
+the open questions are in the ADR, the [deployment-status contract](docs/architecture/deployment-status.md) and
+[open gaps](docs/gaps/OPEN_GAPS.md).
+
 ## Deferred boundaries
 
 VPN topology, database engine, API integration and tracing provider are

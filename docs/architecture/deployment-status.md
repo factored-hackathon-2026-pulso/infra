@@ -14,6 +14,7 @@ an applied AWS environment.
 | Debug ingress | No public API, ALB or proxy is declared | **`dependency_blocked`** until the engine listener and approved internal-ALB plus identity-proxy contract exist |
 | Observability | CloudWatch task log group, CPU diagnostics, SNS topic and CPU alarms are declared | Engine metrics/traces and actionable queue/progress/error/ingest/budget alarms require the engine-to-infra metric contract |
 | Agent Core workload | **Not declared.** [ADR 0003](../adr/0003-agent-core-workload.md) accepts the scope, region and engines | Image digest and ECR, ECS service and task roles, database, secrets, migration task, scheduled sweep and egress design are future slices; Agent Core can only run in demo mode today |
+| LLM gateway workload | **Not declared.** [ADR 0004](../adr/0004-llm-gateway-workload.md) accepts the scope, a stateless private service and provider egress owned by this workload | Image digest and ECR, ECS service and task role, secret entries, internal ingress and the controlled-egress design are future slices; the `llm-gateway` repository has a Dockerfile and CI but publishes no digest |
 | CI/CD | Credential-free fmt/validate and portable contracts run in CI | OIDC plan/apply, deploy and rollback remain manually approved future slices; no auto-deploy exists |
 
 The repository deliberately does not own Compose, Podman, LocalStack, engine
@@ -66,3 +67,10 @@ states what is true now.
   "Controlled external egress" gap, not a new decision.
 - Outside demo mode it requires pieces owned by other units, so a deployment would run synthetic-data demo
   doubles only. Nothing in this document makes it a banking-grade or customer-data service.
+
+## LLM gateway workload
+
+The LLM gateway is a third workload on this foundation ([ADR 0004](../adr/0004-llm-gateway-workload.md)). The
+ADR holds the ownership split and the contract with the `llm-gateway` repository; this section only states what
+is true now: nothing is declared in Terraform and nothing is deployed. Agent Core still carries its own gateway,
+so the provider keys and egress of ADR 0003 stay in force until Agent Core consumes the service.
