@@ -46,6 +46,17 @@ variable "task_statements" {
   }
 }
 
+variable "pass_role_arns" {
+  type        = list(string)
+  default     = []
+  description = "Exact role ARNs this task role may pass to ECS tasks (for example a worker that launches a sandbox task). iam: stays forbidden in task_statements; this is the only, constrained path."
+
+  validation {
+    condition     = alltrue([for a in var.pass_role_arns : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/[^*?]+$", a))])
+    error_message = "pass_role_arns must be concrete role ARNs without wildcards."
+  }
+}
+
 variable "rds_master_secret_arn_guard" {
   type        = string
   description = "Terraform-only invariant input; never granted to any role (T-07)."
@@ -150,6 +161,23 @@ resource "aws_iam_role_policy" "task" {
       error_message = "A workload task role must never reference the RDS master secret."
     }
   }
+}
+
+resource "aws_iam_role_policy" "pass_role" {
+  count = length(var.pass_role_arns) == 0 ? 0 : 1
+
+  name = "${var.workload_name}-pass-role"
+  role = aws_iam_role.task.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "PassOnlyNamedRolesToEcsTasks"
+      Effect    = "Allow"
+      Action    = ["iam:PassRole"]
+      Resource  = var.pass_role_arns
+      Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } }
+    }]
+  })
 }
 
 output "task_role_arn" { value = aws_iam_role.task.arn }
