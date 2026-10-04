@@ -1,0 +1,15 @@
+output "state_bucket" {
+  description = "Remote-state bucket name."
+  value       = aws_s3_bucket.state.id
+}
+
+output "backend_hcl" {
+  description = "Contents for the env backend.hcl (kept outside Git). Copy into a local file and pass with -backend-config."
+  value       = <<-EOT
+    bucket       = "${aws_s3_bucket.state.id}"
+    key          = "${var.state_key}"
+    region       = "${var.aws_region}"
+    use_lockfile = true
+    encrypt      = true
+  EOT
+}
