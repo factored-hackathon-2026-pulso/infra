@@ -194,3 +194,84 @@ run "ecr_pull_arns_strip_the_registry_host_from_full_image_refs" {
     error_message = "Images are full refs <registry>/<repo>@sha256:...; the pull policy must name <repo> only."
   }
 }
+
+run "image_builder_is_wired_for_every_service_and_on_by_default" {
+  command = apply
+
+  assert {
+    condition     = toset(keys(output.image_build_projects)) == toset(["core-runtime", "llm-gateway", "support-platform-api", "support-platform-web", "pulso-engine", "caddy"])
+    error_message = "One CodeBuild project per ECR repository created by the bootstrap."
+  }
+  assert {
+    condition     = output.image_build_projects["core-runtime"] == "pulso-prod-build-core-runtime"
+    error_message = "Project names are <name_prefix>-build-<service>."
+  }
+}
+
+run "image_builder_can_be_switched_off" {
+  command = apply
+  variables {
+    enable_image_builder = false
+  }
+
+  assert {
+    condition     = length(output.image_build_projects) == 0
+    error_message = "enable_image_builder=false removes every build project."
+  }
+  assert {
+    condition     = !strcontains(output.deployer_policy_json_core, "codebuild:")
+    error_message = "No CodeBuild permission in the deployer policy without the builder."
+  }
+}
+
+run "deployer_policies_are_exposed_per_workload_and_follow_the_repository_prefix" {
+  command = apply
+
+  assert {
+    condition     = strcontains(output.deployer_policy_json_core, "parameter/pulso/core/images/core") && strcontains(output.deployer_policy_json_core, "repository/prod/core-runtime") && strcontains(output.deployer_policy_json_core, "repository/prod/llm-gateway")
+    error_message = "The core deployer may write the core and gateway digests and push their repositories."
+  }
+  assert {
+    condition     = strcontains(output.deployer_policy_json_platform, "parameter/pulso/platform/images/support_web") && !strcontains(output.deployer_policy_json_platform, "images/proxy")
+    error_message = "The platform deployer never writes the shared proxy (caddy) digest."
+  }
+  assert {
+    condition     = strcontains(output.deployer_policy_json_engine, "pulso-deploy-engine") && strcontains(output.deployer_policy_json_engine, "repository/prod/pulso-engine")
+    error_message = "The engine deployer may run only pulso-deploy-engine."
+  }
+}
+
+run "ssm_command_documents_are_one_per_host" {
+  command = apply
+
+  assert {
+    condition     = output.deploy_documents == tomap({ core = "pulso-deploy-core", platform = "pulso-deploy-platform", engine = "pulso-deploy-engine" })
+    error_message = "pulso-deploy-<workload> per host."
+  }
+}
+
+run "new_digests_leave_every_start_script_unchanged" {
+  command = apply
+  variables {
+    images = {
+      core = {
+        core    = "r/agent-core@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        gateway = "r/llm-gateway@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      }
+      platform = {
+        support_api = "r/support-api@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        support_web = "r/support-web@sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        proxy       = "r/caddy@sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      }
+      engine = {
+        pulso = "r/pulso@sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        proxy = "r/caddy@sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    }
+  }
+
+  assert {
+    condition     = output.host_user_data_sha256 == run.three_hosts_wired_with_private_dns.host_user_data_sha256
+    error_message = "A digest-only change must not alter any host user_data (instances are never replaced by a deploy)."
+  }
+}
