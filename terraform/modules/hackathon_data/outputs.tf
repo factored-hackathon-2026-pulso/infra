@@ -24,3 +24,11 @@ output "host_policy_json" {
   description = "Identity policy for the host role: masked lake, engine/, core/, tmp/ (never landing/ or lake/bronze/)."
   value       = local.host_policy_json
 }
+
+output "db_endpoint" {
+  value = aws_db_instance.this.address
+}
+
+output "db_port" {
+  value = aws_db_instance.this.port
+}

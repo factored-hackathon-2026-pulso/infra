@@ -167,7 +167,7 @@ run "rds_is_private_encrypted_single_az_and_cheap" {
     error_message = "Database must sit in db_subnet_ids."
   }
   assert {
-    condition     = !aws_db_instance.this.manage_master_user_password
+    condition     = aws_db_instance.this.manage_master_user_password != true
     error_message = "Master password lives in the single secret, not an RDS-managed one."
   }
 }
