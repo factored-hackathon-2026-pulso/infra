@@ -21,5 +21,5 @@ phases:
         DIGEST=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$TAG" --query 'imageDetails[0].imageDigest' --output text)
         [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest recorded for $TAG"; exit 1; }
         printf '{"image":"%s@%s","digest":"%s"}\n' "$REPO_URI" "$DIGEST" "$DIGEST" > "$CODEBUILD_SRC_DIR/build-record.json"
-        aws s3 cp "$CODEBUILD_SRC_DIR/build-record.json" "s3://$OUTPUT_BUCKET/$OUTPUT_PREFIX/$SERVICE/$SOURCE_ID.json" --sse aws:kms
+        aws s3 cp "$CODEBUILD_SRC_DIR/build-record.json" "s3://$OUTPUT_BUCKET/$OUTPUT_PREFIX/$SERVICE/$SOURCE_ID.json"
         echo "IMAGE=$REPO_URI@$DIGEST"
