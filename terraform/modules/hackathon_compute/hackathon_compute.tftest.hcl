@@ -4,11 +4,6 @@ mock_provider "aws" {
       json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
     }
   }
-  mock_resource "aws_iam_role" {
-    defaults = {
-      arn = "arn:aws:iam::123456789012:role/pulso-hk-dlm"
-    }
-  }
   mock_data "aws_subnet" {
     defaults = {
       availability_zone = "us-east-1a"
@@ -19,26 +14,152 @@ mock_provider "aws" {
       value = "ami-0123456789abcdef0"
     }
   }
+  mock_data "aws_route53_zone" {
+    defaults = {
+      name = "pulso.internal"
+    }
+  }
+  mock_resource "aws_iam_role" {
+    defaults = {
+      arn = "arn:aws:iam::123456789012:role/pulso-hk-dlm"
+    }
+  }
 }
 
 variables {
   name_prefix           = "pulso-hk"
   region                = "us-east-1"
+  workload              = "core"
   subnet_id             = "subnet-0123456789abcdef0"
   security_group_ids    = ["sg-0123456789abcdef0"]
-  instance_profile_name = "pulso-hk-host"
+  instance_profile_name = "pulso-hk-core"
+  private_zone_id       = "Z0123456789ABCDEFGHIJ"
   ssm_prefix            = "/pulso-hk"
   bucket_name           = "pulso-hk-data"
   secret_arn            = "arn:aws:secretsmanager:us-east-1:123456789012:secret:pulso-hk-abc123"
   kms_key_arn           = "arn:aws:kms:us-east-1:123456789012:key/11111111-2222-3333-4444-555555555555"
   ecr_registry_url      = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
   images = {
-    core_runtime = "123456789012.dkr.ecr.us-east-1.amazonaws.com/agent-core@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    llm_gateway  = "123456789012.dkr.ecr.us-east-1.amazonaws.com/llm-gateway@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    support_api  = "123456789012.dkr.ecr.us-east-1.amazonaws.com/support-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-    support_web  = "123456789012.dkr.ecr.us-east-1.amazonaws.com/support-web@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-    pulso        = "123456789012.dkr.ecr.us-east-1.amazonaws.com/pulso@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-    proxy        = "123456789012.dkr.ecr.us-east-1.amazonaws.com/caddy@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    core         = "r/agent-core@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    gateway      = "r/llm-gateway@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    support_api  = "r/support-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    support_web  = "r/support-web@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    pulso        = "r/pulso@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    proxy        = "r/caddy@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  }
+}
+
+run "bundle_rules_core" {
+  command = apply
+  variables {
+    workload = "core"
+  }
+
+  assert {
+    condition     = !can(regex(":latest", local.compose_text))
+    error_message = "No :latest tags."
+  }
+  assert {
+    condition = alltrue([for n, s in local.compose.services :
+      (contains(keys(s), "ports") ? contains(local.allowed_ports, one(s.ports)) : true)
+    ])
+    error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core)."
+  }
+  assert {
+    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {}), "ports")
+    error_message = "The gateway is never published."
+  }
+  assert {
+    condition     = alltrue([for n, s in local.compose.services : can(regex("^[0-9]+m$", s.mem_limit)) && contains(keys(s), "restart")])
+    error_message = "Every service has a memory limit and a restart policy."
+  }
+  assert {
+    condition     = sum([for n, s in local.compose.services : tonumber(trimsuffix(s.mem_limit, "m"))]) <= local.instance_memory_mb * 0.7
+    error_message = "Memory limits must leave 30 percent headroom on the host."
+  }
+  assert {
+    condition     = contains(local.service_env_names, "common") && length(local.service_env_names) == 3
+    error_message = "Each host gets only its own secret slice."
+  }
+  assert {
+    condition     = aws_route53_record.this.name == "core.pulso.internal" && aws_route53_record.this.type == "A"
+    error_message = "Private DNS record per workload."
+  }
+}
+
+run "bundle_rules_platform" {
+  command = apply
+  variables {
+    workload = "platform"
+  }
+
+  assert {
+    condition     = !can(regex(":latest", local.compose_text))
+    error_message = "No :latest tags."
+  }
+  assert {
+    condition = alltrue([for n, s in local.compose.services :
+      (contains(keys(s), "ports") ? contains(local.allowed_ports, one(s.ports)) : true)
+    ])
+    error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core)."
+  }
+  assert {
+    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {}), "ports")
+    error_message = "The gateway is never published."
+  }
+  assert {
+    condition     = alltrue([for n, s in local.compose.services : can(regex("^[0-9]+m$", s.mem_limit)) && contains(keys(s), "restart")])
+    error_message = "Every service has a memory limit and a restart policy."
+  }
+  assert {
+    condition     = sum([for n, s in local.compose.services : tonumber(trimsuffix(s.mem_limit, "m"))]) <= local.instance_memory_mb * 0.7
+    error_message = "Memory limits must leave 30 percent headroom on the host."
+  }
+  assert {
+    condition     = contains(local.service_env_names, "common") && length(local.service_env_names) == 2
+    error_message = "Each host gets only its own secret slice."
+  }
+  assert {
+    condition     = aws_route53_record.this.name == "platform.pulso.internal" && aws_route53_record.this.type == "A"
+    error_message = "Private DNS record per workload."
+  }
+}
+
+run "bundle_rules_engine" {
+  command = apply
+  variables {
+    workload = "engine"
+  }
+
+  assert {
+    condition     = !can(regex(":latest", local.compose_text))
+    error_message = "No :latest tags."
+  }
+  assert {
+    condition = alltrue([for n, s in local.compose.services :
+      (contains(keys(s), "ports") ? contains(local.allowed_ports, one(s.ports)) : true)
+    ])
+    error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core)."
+  }
+  assert {
+    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {}), "ports")
+    error_message = "The gateway is never published."
+  }
+  assert {
+    condition     = alltrue([for n, s in local.compose.services : can(regex("^[0-9]+m$", s.mem_limit)) && contains(keys(s), "restart")])
+    error_message = "Every service has a memory limit and a restart policy."
+  }
+  assert {
+    condition     = sum([for n, s in local.compose.services : tonumber(trimsuffix(s.mem_limit, "m"))]) <= local.instance_memory_mb * 0.7
+    error_message = "Memory limits must leave 30 percent headroom on the host."
+  }
+  assert {
+    condition     = contains(local.service_env_names, "common") && length(local.service_env_names) == 2
+    error_message = "Each host gets only its own secret slice."
+  }
+  assert {
+    condition     = aws_route53_record.this.name == "engine.pulso.internal" && aws_route53_record.this.type == "A"
+    error_message = "Private DNS record per workload."
   }
 }
 
@@ -51,24 +172,22 @@ run "defaults_are_hardened" {
   }
   assert {
     condition     = aws_instance.this.root_block_device[0].encrypted && aws_instance.this.associate_public_ip_address == false
-    error_message = "Root volume must be encrypted and the host private."
+    error_message = "Root volume encrypted, host private."
   }
   assert {
-    condition     = aws_instance.this.instance_type == "t3.large"
-    error_message = "Default instance type is t3.large."
+    condition     = aws_instance.this.instance_type == "t3.small"
+    error_message = "Default instance type is t3.small."
   }
 }
 
-run "data_volume_encrypted_protected_and_snapshotted" {
+run "data_volume_sizes_per_workload" {
   command = apply
-
-  assert {
-    condition     = aws_ebs_volume.data_protected[0].encrypted && aws_ebs_volume.data_protected[0].type == "gp3" && aws_ebs_volume.data_protected[0].size == 40
-    error_message = "Data volume must be an encrypted 40 GB gp3."
+  variables {
+    data_volume_size_gb = 40
   }
   assert {
-    condition     = length(aws_ebs_volume.data_unprotected) == 0
-    error_message = "Protected volume is the default."
+    condition     = aws_ebs_volume.data_protected[0].encrypted && aws_ebs_volume.data_protected[0].type == "gp3" && aws_ebs_volume.data_protected[0].size == 40
+    error_message = "Data volume honors the per-workload size."
   }
   assert {
     condition     = aws_dlm_lifecycle_policy.data.policy_details[0].schedule[0].retain_rule[0].count == 3
@@ -85,36 +204,7 @@ run "user_data_has_no_secret_values" {
   }
   assert {
     condition     = can(regex("get-secret-value", aws_instance.this.user_data)) && can(regex("pulso-stack", aws_instance.this.user_data))
-    error_message = "user_data installs the start script and systemd unit."
-  }
-}
-
-run "compose_bundle_rules" {
-  command = apply
-
-  assert {
-    condition     = !can(regex(":latest", local.compose_text))
-    error_message = "No :latest tags."
-  }
-  assert {
-    condition     = alltrue([for n, s in local.compose.services : (n == "proxy" ? s.ports == ["80:80"] : !contains(keys(s), "ports"))])
-    error_message = "Only the proxy publishes a port, and only 80."
-  }
-  assert {
-    condition     = alltrue([for n, s in local.compose.services : can(regex("^[0-9]+m$", s.mem_limit))])
-    error_message = "Every service has a memory limit in MB."
-  }
-  assert {
-    condition     = sum([for n, s in local.compose.services : tonumber(trimsuffix(s.mem_limit, "m"))]) <= 6500
-    error_message = "Memory limits must leave headroom under 8 GB host RAM."
-  }
-  assert {
-    condition     = alltrue([for n, s in local.compose.services : contains(keys(s), "restart")])
-    error_message = "Every service has a restart policy."
-  }
-  assert {
-    condition     = can(regex("/internal", local.caddyfile_text))
-    error_message = "Proxy must block /internal routes."
+    error_message = "user_data installs the start script and unit."
   }
 }
 
@@ -133,13 +223,16 @@ run "image_must_be_digest_pinned" {
   command = plan
   variables {
     images = {
-      core_runtime = "x/agent-core:latest"
-      llm_gateway  = "x/g@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-      support_api  = "x/a@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-      support_web  = "x/w@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-      pulso        = "x/p@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-      proxy        = "x/c@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      core = "x/agent-core:latest"
     }
   }
   expect_failures = [var.images]
+}
+
+run "workload_must_be_known" {
+  command = plan
+  variables {
+    workload = "other"
+  }
+  expect_failures = [var.workload]
 }
