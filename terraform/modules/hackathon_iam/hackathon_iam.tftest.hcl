@@ -12,6 +12,14 @@ mock_provider "aws" {
   }
 }
 
+override_resource {
+  target          = aws_iam_policy.boundary
+  override_during = plan
+  values = {
+    arn = "arn:aws:iam::123456789012:policy/hk-boundary"
+  }
+}
+
 variables {
   name                         = "hk"
   ssm_parameter_path_prefix    = "/hk"
