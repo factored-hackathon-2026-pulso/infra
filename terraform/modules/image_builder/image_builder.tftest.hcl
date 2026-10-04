@@ -56,7 +56,7 @@ run "enabled_one_privileged_x86_project_per_service" {
   }
 
   assert {
-    condition     = sort(keys(aws_codebuild_project.this)) == ["caddy", "core-runtime", "support-platform-api"]
+    condition     = toset(keys(aws_codebuild_project.this)) == toset(["caddy", "core-runtime", "support-platform-api"])
     error_message = "One project per service."
   }
   assert {
