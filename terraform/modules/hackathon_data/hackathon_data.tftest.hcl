@@ -210,12 +210,16 @@ run "one_secret_holds_every_sensitive_key" {
     error_message = "One secret named <prefix>/hackathon."
   }
   assert {
-    condition     = alltrue([for k in ["RDS_MASTER_PASSWORD", "AGENTCORE_REGISTRY_DSN", "AGENTCORE_EVAL_DSN", "AGENTCORE_LLM_GATEWAY_TOKEN", "GATEWAY_TOKEN_ENGINE", "JEV_API_KEY", "CC_SESSION_SECRET", "CC_TOTP_SECRET_KEY", "CC_DATABASE_URL", "PULSO_DATABASE_URL", "PULSO_ADMIN_TOKEN", "DB_PASSWORD_CORE_OWNER", "DB_PASSWORD_PULSO_LOADER"] : contains(keys(jsondecode(aws_secretsmanager_secret_version.this.secret_string)), k)])
+    condition     = alltrue([for k in ["RDS_MASTER_PASSWORD", "CORE__AGENTCORE_REGISTRY_DSN", "CORE__AGENTCORE_EVAL_DSN", "CORE__AGENTCORE_LLM_GATEWAY_TOKEN", "GATEWAY__GATEWAY_TOKEN_ENGINE", "GATEWAY__JEV_API_KEY", "SUPPORT__CC_SESSION_SECRET", "SUPPORT__CC_TOTP_SECRET_KEY", "SUPPORT__CC_DATABASE_URL", "PULSO__PULSO_DATABASE_URL", "PULSO__PULSO_ADMIN_TOKEN", "DB_PASSWORD_CORE_OWNER", "DB_PASSWORD_PULSO_LOADER"] : contains(keys(jsondecode(aws_secretsmanager_secret_version.this.secret_string)), k)])
     error_message = "Secret JSON is missing a documented key."
   }
   assert {
-    condition     = jsondecode(aws_secretsmanager_secret_version.this.secret_string)["AGENTCORE_REGISTRY_DSN"] == "CHANGE_ME"
+    condition     = jsondecode(aws_secretsmanager_secret_version.this.secret_string)["CORE__AGENTCORE_REGISTRY_DSN"] == "CHANGE_ME"
     error_message = "Non-master values are placeholders."
+  }
+  assert {
+    condition     = alltrue([for k in keys(jsondecode(aws_secretsmanager_secret_version.this.secret_string)) : can(regex("^(CORE|GATEWAY|SUPPORT|PULSO|COMMON)__[A-Z0-9_]+$", k)) || can(regex("^DB_PASSWORD_[A-Z_]+$", k)) || k == "RDS_MASTER_PASSWORD"])
+    error_message = "Host-consumed keys are <SERVICE>__<VAR> (the compute start script splits on the first double underscore); the rest are DB_PASSWORD_* and RDS_MASTER_PASSWORD."
   }
 }
 
@@ -235,7 +239,20 @@ run "ssm_holds_only_non_secret_config_as_plain_strings" {
     error_message = "Secret-looking names must live in the secret, not SSM."
   }
   assert {
+    condition     = alltrue([for p in merge(aws_ssm_parameter.placeholder, aws_ssm_parameter.derived) : can(regex("^/pulso/(core|platform|engine)/(common|core|gateway|support|pulso)/[A-Z0-9_]+$", p.name))])
+    error_message = "Parameters live at /pulso/<workload>/<service>/<VAR>, matching the IAM path grant and the compute start script."
+  }
+  assert {
     condition     = output.ssm_prefix == "/pulso"
     error_message = "ssm_prefix."
+  }
+}
+
+run "deploy_bundle_prefix_is_never_expired" {
+  command = plan
+
+  assert {
+    condition     = alltrue([for r in aws_s3_bucket_lifecycle_configuration.data.rule : length(r.expiration) == 0 || contains(["tmp/", "logs/"], one(r.filter).prefix)])
+    error_message = "Only tmp/ and logs/ may expire current objects; engine/deploy/ (compose bundles) must not."
   }
 }
