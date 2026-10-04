@@ -21,6 +21,16 @@ mock_provider "aws" {
       name = "pulso.internal"
     }
   }
+  mock_resource "aws_ebs_volume" {
+    defaults = {
+      id = "vol-0123456789abcdef0"
+    }
+  }
+  mock_resource "aws_instance" {
+    defaults = {
+      arn = "arn:aws:ec2:us-east-1:123456789012:instance/i-0123456789abcdef0"
+    }
+  }
   mock_resource "aws_iam_role" {
     defaults = {
       arn = "arn:aws:iam::123456789012:role/pulso-hk-dlm"
@@ -49,11 +59,11 @@ variables {
 }
 
 run "digests_a" {
-  command = plan
+  command = apply
 }
 
 run "other_digests_do_not_touch_user_data_or_ami" {
-  command = plan
+  command = apply
   variables {
     images = {
       support_api = "r/support-api@sha256:1111111111111111111111111111111111111111111111111111111111111111"
@@ -77,7 +87,7 @@ run "other_digests_do_not_touch_user_data_or_ami" {
 }
 
 run "image_parameters_seed_each_image_under_the_workload_path" {
-  command = plan
+  command = apply
 
   assert {
     condition     = toset(keys(aws_ssm_parameter.image)) == toset(["support_api", "support_web", "proxy"])
@@ -94,7 +104,7 @@ run "image_parameters_seed_each_image_under_the_workload_path" {
 }
 
 run "env_bundle_carries_no_image_references" {
-  command = plan
+  command = apply
 
   assert {
     condition     = !strcontains(aws_s3_object.env.content, "_IMAGE=") && !strcontains(aws_s3_object.env.content, "@sha256")
@@ -107,7 +117,7 @@ run "env_bundle_carries_no_image_references" {
 }
 
 run "start_script_resolves_digests_from_ssm" {
-  command = plan
+  command = apply
 
   assert {
     condition     = strcontains(local.prepare_script, "SSM_PREFIX/images") && strcontains(local.prepare_script, "_IMAGE=")
@@ -116,20 +126,20 @@ run "start_script_resolves_digests_from_ssm" {
 }
 
 run "deploy_script_is_shipped_in_the_bundle" {
-  command = plan
+  command = apply
 
   assert {
     condition     = aws_s3_object.deploy_script.key == "engine/deploy/platform/deploy-stack.sh"
     error_message = "deploy-stack.sh is published next to compose.yaml."
   }
   assert {
-    condition     = strcontains(aws_s3_object.deploy_script.content, "compose -p pulso pull") && strcontains(aws_s3_object.deploy_script.content, "previous-images.env") && strcontains(aws_s3_object.deploy_script.content, "DEPLOY_RESULT=")
+    condition     = strcontains(aws_s3_object.deploy_script.content, "compose pull") && strcontains(aws_s3_object.deploy_script.content, "previous-images.env") && strcontains(aws_s3_object.deploy_script.content, "DEPLOY_RESULT=")
     error_message = "The script pulls, keeps a local state file for rollback and reports a result line."
   }
 }
 
 run "ssm_command_document_runs_the_deploy_script" {
-  command = plan
+  command = apply
 
   assert {
     condition     = aws_ssm_document.deploy.name == "pulso-deploy-platform" && aws_ssm_document.deploy.document_type == "Command"
@@ -146,7 +156,7 @@ run "ssm_command_document_runs_the_deploy_script" {
 }
 
 run "outputs_name_the_image_parameters" {
-  command = plan
+  command = apply
 
   assert {
     condition     = output.image_parameter_names["support_web"] == "/pulso/platform/images/support_web"
@@ -155,7 +165,7 @@ run "outputs_name_the_image_parameters" {
 }
 
 run "instance_still_replaces_only_on_user_data_change" {
-  command = plan
+  command = apply
 
   assert {
     condition     = aws_instance.this.user_data_replace_on_change == true

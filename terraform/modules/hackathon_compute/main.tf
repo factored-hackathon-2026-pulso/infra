@@ -12,7 +12,9 @@ data "aws_route53_zone" "private" {
 }
 
 locals {
-  bundle_dir     = "${coalesce(var.bundle_dir, "${path.module}/../../../deploy/hackathon")}/${var.workload}"
+  bundle_root    = coalesce(var.bundle_dir, "${path.module}/../../../deploy/hackathon")
+  bundle_dir     = "${local.bundle_root}/${var.workload}"
+  deploy_script  = file("${local.bundle_root}/deploy-stack.sh")
   compose_text   = file("${local.bundle_dir}/compose.yaml")
   caddyfile_text = try(file("${local.bundle_dir}/Caddyfile"), null)
   compose        = yamldecode(local.compose_text)
@@ -53,16 +55,17 @@ locals {
     log_group             = local.log_group
   })
 
-  env_text = join("\n", concat(
-    [for k, v in var.images : "${upper(k)}_IMAGE=${v}"],
-    [
-      "BUCKET_NAME=${var.bucket_name}",
-      "CORE_BLOB_PREFIX=core/blobs/",
-      "PULSO_STORAGE_PREFIX=engine/",
-      "PRIVATE_ZONE_NAME=${trimsuffix(data.aws_route53_zone.private.name, ".")}",
-      "",
-    ],
-  ))
+  # No image references here: the start script resolves <KEY>_IMAGE from SSM (aws_ssm_parameter.image), so a new
+  # digest never changes this object, the start script or the instance.
+  env_text = join("\n", [
+    "BUCKET_NAME=${var.bucket_name}",
+    "CORE_BLOB_PREFIX=core/blobs/",
+    "PULSO_STORAGE_PREFIX=engine/",
+    "PRIVATE_ZONE_NAME=${trimsuffix(data.aws_route53_zone.private.name, ".")}",
+    "",
+  ])
+
+  deploy_document_name = "pulso-deploy-${var.workload}"
 }
 
 resource "aws_instance" "this" {
@@ -189,6 +192,51 @@ resource "aws_s3_object" "env" {
   bucket  = var.bucket_name
   key     = "${local.bundle_key_prefix}.env"
   content = local.env_text
+}
+
+resource "aws_s3_object" "deploy_script" {
+  bucket       = var.bucket_name
+  key          = "${local.bundle_key_prefix}deploy-stack.sh"
+  content      = local.deploy_script
+  content_type = "text/x-shellscript"
+}
+
+# Image digests. Terraform seeds each parameter from var.images and then ignores the value: deployments
+# (scripts/aws-prod.ps1 deploy, or a team's CI) write new digests, and a later apply does not revert them.
+resource "aws_ssm_parameter" "image" {
+  for_each = var.images
+  name     = "${var.ssm_prefix}/${var.workload}/images/${each.key}"
+  type     = "String"
+  value    = each.value
+  tags     = local.tags
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+# Run Command document that deploys the digests currently stored in SSM on this host (target: instance tag Workload).
+resource "aws_ssm_document" "deploy" {
+  name            = local.deploy_document_name
+  document_type   = "Command"
+  document_format = "JSON"
+  tags            = local.tags
+  content = jsonencode({
+    schemaVersion = "2.2"
+    description   = "Deploy the image digests stored in SSM Parameter Store on the ${var.workload} host (no instance replacement)."
+    mainSteps = [{
+      action = "aws:runShellScript"
+      name   = "deployStack"
+      inputs = {
+        timeoutSeconds = "900"
+        runCommand = [
+          "set -eu",
+          "aws s3 cp s3://${var.bucket_name}/${local.bundle_key_prefix}deploy-stack.sh /srv/stack/deploy-stack.sh --region ${var.region} --only-show-errors",
+          "bash /srv/stack/deploy-stack.sh",
+        ]
+      }
+    }]
+  })
 }
 
 resource "aws_route53_record" "this" {
