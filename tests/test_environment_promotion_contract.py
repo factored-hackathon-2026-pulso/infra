@@ -10,9 +10,9 @@ CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 class EnvironmentPromotionContractTests(unittest.TestCase):
-    def test_only_staging_and_production_demo_environments_are_supported(self):  # plus the single-host hackathon env
+    def test_only_staging_and_production_demo_environments_are_supported(self):  # plus the single-host hackathon env and the temporary buildbox root
         environments = {path.name for path in TERRAFORM_ENVS.iterdir() if path.is_dir()}
-        self.assertEqual(environments, {"staging", "prod", "hackathon"})
+        self.assertEqual(environments, {"staging", "prod", "hackathon", "buildbox"})
 
         readme = " ".join(
             (ROOT / "README.md").read_text(encoding="utf-8").lower().split()
@@ -35,3 +35,4 @@ class EnvironmentPromotionContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

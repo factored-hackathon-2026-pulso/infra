@@ -139,5 +139,43 @@ class DocsMatchCode(unittest.TestCase):
         self.assertNotRegex(text, r"[\w.+-]+@[\w-]+\.[\w.]+")
 
 
+class BuildboxDocs(unittest.TestCase):
+    """docs/buildbox.md must match scripts/buildbox.ps1 and terraform/envs/buildbox."""
+
+    SCRIPT = ROOT / "scripts" / "buildbox.ps1"
+    DOC = DOCS / "buildbox.md"
+
+    def test_documented_subcommands_and_flags_exist(self):
+        text = self.SCRIPT.read_text(encoding="utf-8")
+        block = re.search(r"ValidateSet\(([^)]*)\)\]\s*\[string\]\$Command", text, re.S).group(1)
+        known = set(re.findall(r"'([a-z-]+)'", block))
+        param = re.search(r"^param\((.*?)^\)", text, re.S | re.M).group(1)
+        params = {m.lower() for m in re.findall(r"\$([A-Za-z]+)\s*(?:=|,|\n|$)", param)} | {"verbose", "debug"}
+        doc = self.DOC.read_text(encoding="utf-8")
+        used = set(re.findall(r"buildbox\.ps1\s+([a-z][a-z-]+)", doc))
+        self.assertEqual(set(), used - known)
+        self.assertEqual(set(), {s for s in known if s not in used})
+        flags = set()
+        for line in doc.splitlines():
+            if "buildbox.ps1" in line:
+                flags |= {f.lower() for f in re.findall(r"\s-([A-Z][A-Za-z]+)\b", line)}
+        self.assertEqual(set(), flags - params)
+
+    def test_root_is_separate_and_ssm_only(self):
+        env = ROOT / "terraform" / "envs" / "buildbox"
+        self.assertIn("buildbox/terraform.tfstate", (env / "backend.hcl.example").read_text(encoding="utf-8"))
+        self.assertTrue((ROOT / "terraform" / "modules" / "buildbox" / "buildbox.tftest.hcl").exists())
+        main = (ROOT / "terraform" / "modules" / "buildbox" / "main.tf").read_text(encoding="utf-8")
+        self.assertNotIn("key_name", main)
+        self.assertNotRegex(main, r"(?m)^\s*ingress\s*\{")
+        self.assertNotRegex((env / "main.tf").read_text(encoding="utf-8"), r"module\.(network|core_|hackathon_|security)")
+
+    def test_no_access_key_resource(self):
+        for f in (ROOT / "terraform" / "modules" / "buildbox").glob("*.tf"):
+            self.assertNotRegex(f.read_text(encoding="utf-8"), r"(?m)^resource\s+\"aws_iam_access_key\"", f.name)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+

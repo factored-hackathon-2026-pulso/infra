@@ -14,6 +14,9 @@ Start with the quickstart; the rest is reference. These docs are checked against
 | [costs.md](costs.md) | estimate and control the monthly bill |
 | [decisions.md](decisions.md) | ADR index and the simplification decision |
 
+Temporary Linux build host for agents (cargo and tests off the Windows PC): [buildbox.md](buildbox.md).
+
 Supporting references: [secrets-keys.md](secrets-keys.md) (secret key names), [db-bootstrap.md](db-bootstrap.md) (database roles and scripts), [aws-plan-review-checklist.md](aws-plan-review-checklist.md) (offline checker), [aws-asks.md](aws-asks.md) (decision log of asks), module READMEs under `terraform/modules/hackathon_*`, and [deploy/hackathon](../deploy/hackathon/README.md) (compose bundles).
 
 Older pages kept as background, superseded where they differ: [hackathon-deploy.md](hackathon-deploy.md), [hackathon-foundations.md](hackathon-foundations.md), [runbook-new-account.md](runbook-new-account.md).
+
