@@ -280,3 +280,73 @@ run "new_digests_leave_every_start_script_unchanged" {
     error_message = "A digest-only change must not alter any host user_data (instances are never replaced by a deploy)."
   }
 }
+
+# ---- free_plan profile (default) ----
+
+run "free_plan_is_the_default_profile" {
+  command = apply
+
+  assert {
+    condition     = output.profile_effective.profile == "free_plan" && output.profile_effective.database_mode == "container" && !output.profile_effective.nat_gateway && output.profile_effective.edge_origin_mode == "public" && !output.profile_effective.waf
+    error_message = "free_plan = Postgres container, no NAT, public origins, WAF off."
+  }
+  assert {
+    condition     = output.profile_effective.instance_types == tomap({ core = "m7i-flex.large", platform = "t3.small", engine = "t3.small" })
+    error_message = "free_plan sizes: core m7i-flex.large (8 GB, Postgres included), platform and engine t3.small."
+  }
+  assert {
+    condition     = output.profile_effective.image_builder_compute_type == "BUILD_GENERAL1_SMALL" && output.profile_effective.hosts_public_ip
+    error_message = "free_plan: CodeBuild SMALL and hosts with public IPs (outbound-only)."
+  }
+  assert {
+    condition     = output.profile_effective.host_builder
+    error_message = "free_plan enables the on-host image builder fallback."
+  }
+}
+
+run "free_plan_rejects_instance_types_outside_the_free_tier_list" {
+  command = plan
+  variables {
+    instance_types = { core = "m7i.large", platform = "t3.small", engine = "t3.small" }
+  }
+  expect_failures = [var.instance_types]
+}
+
+run "free_plan_accepts_every_eligible_type" {
+  command = plan
+  variables {
+    instance_types = { core = "c7i-flex.large", platform = "t4g.micro", engine = "t8i.small" }
+  }
+}
+
+run "edge_can_be_disabled_so_the_stack_comes_up_without_cloudfront" {
+  command = apply
+  variables {
+    edge_enabled = false
+  }
+
+  assert {
+    condition     = output.cloudfront_domain_name == null && output.cloudfront_distribution_id == null
+    error_message = "edge_enabled=false creates no distribution."
+  }
+  assert {
+    condition     = output.host_public_dns["platform"] != null
+    error_message = "Without CloudFront the public DNS of the hosts is still output (SG keeps them closed)."
+  }
+}
+
+run "database_mode_override_and_validation" {
+  command = plan
+  variables {
+    database_mode = "mysql"
+  }
+  expect_failures = [var.database_mode]
+}
+
+run "profile_is_validated" {
+  command = plan
+  variables {
+    profile = "enterprise"
+  }
+  expect_failures = [var.profile]
+}
