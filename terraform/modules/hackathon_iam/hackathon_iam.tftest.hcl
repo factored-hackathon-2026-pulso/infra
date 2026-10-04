@@ -30,6 +30,8 @@ variables {
   ecr_repository_arns_core     = ["arn:aws:ecr:us-east-1:123456789012:repository/hk/core"]
   ecr_repository_arns_platform = ["arn:aws:ecr:us-east-1:123456789012:repository/hk/platform"]
   ecr_repository_arns_engine   = ["arn:aws:ecr:us-east-1:123456789012:repository/hk/engine"]
+  secret_arn                   = "arn:aws:secretsmanager:us-east-1:123456789012:secret:hk/hackathon-AbCdEf"
+  kms_key_arn                  = "arn:aws:kms:us-east-1:123456789012:key/11111111-2222-3333-4444-555555555555"
   tags                         = { Environment = "hackathon" }
 }
 
@@ -99,8 +101,8 @@ run "s3_scoped_per_workload" {
   }
 
   assert {
-    condition     = length([for s in jsondecode(aws_iam_policy.host["platform"].policy).Statement : s if startswith(tolist(flatten([s.Action]))[0], "s3:")]) == 0
-    error_message = "Platform has no S3 access."
+    condition     = length([for s in jsondecode(aws_iam_policy.host["platform"].policy).Statement : s if startswith(tolist(flatten([s.Action]))[0], "s3:") && !contains(["ListBundle", "ReadBundle"], s.Sid)]) == 0
+    error_message = "Platform has no S3 access beyond its deploy bundle."
   }
 }
 
@@ -147,5 +149,47 @@ run "boundary_denies_iam_and_organizations" {
   assert {
     condition     = contains(flatten([for s in jsondecode(aws_iam_policy.boundary.policy).Statement : s.Effect == "Deny" ? [s.Action] : []]), "organizations:*")
     error_message = "The boundary denies Organizations changes."
+  }
+}
+
+run "each_host_reads_exactly_the_one_secret_and_decrypts_with_the_data_key" {
+  command = plan
+
+  assert {
+    condition     = alltrue([for w in ["core", "platform", "engine"] : jsondecode(aws_iam_policy.host[w].policy).Statement[index([for s in jsondecode(aws_iam_policy.host[w].policy).Statement : s.Sid], "ReadSecret")].Resource == "arn:aws:secretsmanager:us-east-1:123456789012:secret:hk/hackathon-AbCdEf"])
+    error_message = "Each host reads the one secret ARN and nothing else."
+  }
+
+  assert {
+    condition     = alltrue([for w in ["core", "platform", "engine"] : toset(flatten([jsondecode(aws_iam_policy.host[w].policy).Statement[index([for s in jsondecode(aws_iam_policy.host[w].policy).Statement : s.Sid], "ReadSecret")].Action])) == toset(["secretsmanager:GetSecretValue"])])
+    error_message = "Only GetSecretValue on the secret."
+  }
+
+  assert {
+    condition     = alltrue([for w in ["core", "platform", "engine"] : jsondecode(aws_iam_policy.host[w].policy).Statement[index([for s in jsondecode(aws_iam_policy.host[w].policy).Statement : s.Sid], "UseDataKey")].Resource == "arn:aws:kms:us-east-1:123456789012:key/11111111-2222-3333-4444-555555555555"])
+    error_message = "kms:Decrypt on the data key only."
+  }
+}
+
+run "each_host_reads_its_deploy_bundle" {
+  command = plan
+
+  assert {
+    condition     = alltrue([for w in ["core", "platform", "engine"] : jsondecode(aws_iam_policy.host[w].policy).Statement[index([for s in jsondecode(aws_iam_policy.host[w].policy).Statement : s.Sid], "ReadBundle")].Resource == "arn:aws:s3:::hk-data-bucket/engine/deploy/${w}/*"])
+    error_message = "Each host reads engine/deploy/<workload>/* so pulso-stack-prepare can sync it."
+  }
+
+  assert {
+    condition     = alltrue([for w in ["core", "platform", "engine"] : jsondecode(aws_iam_policy.host[w].policy).Statement[index([for s in jsondecode(aws_iam_policy.host[w].policy).Statement : s.Sid], "ListBundle")].Condition.StringLike["s3:prefix"] == ["engine/deploy/${w}/*"]])
+    error_message = "ListBucket only under the bundle prefix."
+  }
+}
+
+run "cloudwatch_agent_may_create_its_log_group" {
+  command = plan
+
+  assert {
+    condition     = jsondecode(aws_iam_policy.host["core"].policy).Statement[index([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s.Sid], "CreateLogGroup")].Resource == "arn:aws:logs:us-east-1:123456789012:log-group:/hk/*"
+    error_message = "CreateLogGroup scoped to the name prefix."
   }
 }
