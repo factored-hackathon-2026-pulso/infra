@@ -1,4 +1,9 @@
 mock_provider "aws" {
+  mock_data "aws_iam_policy_document" {
+    defaults = {
+      json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
+    }
+  }
   mock_data "aws_ec2_managed_prefix_list" {
     defaults = {
       id = "pl-0123456789abcdef0"
@@ -146,7 +151,7 @@ run "no_ssh_anywhere" {
   command = plan
 
   assert {
-    condition     = length([for r in aws_vpc_security_group_ingress_rule.platform_cloudfront : r if r.from_port == 22]) == 0
+    condition     = length([for r in [aws_vpc_security_group_ingress_rule.platform_cloudfront, aws_vpc_security_group_ingress_rule.engine_cloudfront] : r if r.from_port == 22]) == 0
     error_message = "No SSH."
   }
 }
