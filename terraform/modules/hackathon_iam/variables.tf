@@ -1,0 +1,66 @@
+variable "name" {
+  type        = string
+  description = "Name prefix for roles, profiles and policies; also the log-group prefix (/<name>/*)."
+}
+
+variable "region" {
+  type        = string
+  description = "AWS region used in SSM and CloudWatch Logs ARNs."
+  default     = "us-east-1"
+}
+
+variable "ssm_parameter_path_prefix" {
+  type        = string
+  description = "Root SSM Parameter Store path, leading slash and no trailing slash, for example /hk. Each workload reads only <root>/<workload>/*."
+
+  validation {
+    condition     = startswith(var.ssm_parameter_path_prefix, "/") && !endswith(var.ssm_parameter_path_prefix, "/")
+    error_message = "Use a leading slash and no trailing slash."
+  }
+}
+
+variable "s3_bucket_name" {
+  type        = string
+  description = "The single data bucket the hosts may use."
+}
+
+variable "core_s3_prefixes" {
+  type        = list(string)
+  description = "Key prefixes (no slashes at the ends) core may read and write, for example core/blobs."
+  default     = ["core/blobs"]
+}
+
+variable "engine_s3_prefixes" {
+  type        = list(string)
+  description = "Key prefixes the engine may read and write."
+  default     = ["engine"]
+}
+
+variable "engine_lake_read_prefixes" {
+  type        = list(string)
+  description = "Read-only prefixes for the engine's loader (landing zone and lake)."
+  default     = ["landing", "lake"]
+}
+
+variable "ecr_repository_arns_core" {
+  type        = list(string)
+  description = "ECR repositories the core host (core and llm-gateway images) may pull."
+  default     = []
+}
+
+variable "ecr_repository_arns_platform" {
+  type        = list(string)
+  description = "ECR repositories the platform host may pull."
+  default     = []
+}
+
+variable "ecr_repository_arns_engine" {
+  type        = list(string)
+  description = "ECR repositories the engine host may pull."
+  default     = []
+}
+
+variable "tags" {
+  type        = map(string)
+  description = "Tags applied to every resource."
+}
