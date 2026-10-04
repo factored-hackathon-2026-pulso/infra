@@ -32,3 +32,22 @@ output "db_endpoint" {
 output "db_port" {
   value = aws_db_instance.this.port
 }
+
+output "secret_arn" {
+  description = "The single Secrets Manager secret (JSON). Grant the host read on this one ARN."
+  value       = aws_secretsmanager_secret.this.arn
+}
+
+output "db_master_secret_ssm_name" {
+  description = "Interface-contract name. Holds the NAME of the Secrets Manager secret; the master password is its RDS_MASTER_PASSWORD key (not an SSM parameter)."
+  value       = aws_secretsmanager_secret.this.name
+}
+
+output "ssm_prefix" {
+  value = local.ssm_prefix
+}
+
+output "ssm_parameter_arn_prefix" {
+  description = "Grant ssm:GetParameter* on <this>/*."
+  value       = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}"
+}

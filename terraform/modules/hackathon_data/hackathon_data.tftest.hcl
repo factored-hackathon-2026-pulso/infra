@@ -210,7 +210,7 @@ run "one_secret_holds_every_sensitive_key" {
     error_message = "One secret named <prefix>/hackathon."
   }
   assert {
-    condition = alltrue([for k in ["RDS_MASTER_PASSWORD", "AGENTCORE_REGISTRY_DSN", "AGENTCORE_EVAL_DSN", "AGENTCORE_LLM_GATEWAY_TOKEN", "GATEWAY_TOKEN_ENGINE", "JEV_API_KEY", "CC_SESSION_SECRET", "CC_TOTP_SECRET_KEY", "CC_DATABASE_URL", "PULSO_DATABASE_URL", "PULSO_ADMIN_TOKEN", "DB_PASSWORD_CORE_OWNER", "DB_PASSWORD_PULSO_LOADER"] : contains(keys(jsondecode(aws_secretsmanager_secret_version.this.secret_string)), k)])
+    condition     = alltrue([for k in ["RDS_MASTER_PASSWORD", "AGENTCORE_REGISTRY_DSN", "AGENTCORE_EVAL_DSN", "AGENTCORE_LLM_GATEWAY_TOKEN", "GATEWAY_TOKEN_ENGINE", "JEV_API_KEY", "CC_SESSION_SECRET", "CC_TOTP_SECRET_KEY", "CC_DATABASE_URL", "PULSO_DATABASE_URL", "PULSO_ADMIN_TOKEN", "DB_PASSWORD_CORE_OWNER", "DB_PASSWORD_PULSO_LOADER"] : contains(keys(jsondecode(aws_secretsmanager_secret_version.this.secret_string)), k)])
     error_message = "Secret JSON is missing a documented key."
   }
   assert {
@@ -223,15 +223,15 @@ run "ssm_holds_only_non_secret_config_as_plain_strings" {
   command = plan
 
   assert {
-    condition     = alltrue([for p in aws_ssm_parameter.config : p.type == "String" && startswith(p.name, "/pulso/")])
+    condition     = alltrue([for p in merge(aws_ssm_parameter.placeholder, aws_ssm_parameter.derived) : p.type == "String" && startswith(p.name, "/pulso/")])
     error_message = "Config parameters are standard String under /pulso/."
   }
   assert {
-    condition     = length([for p in aws_ssm_parameter.config : p if endswith(p.name, "/AGENTCORE_BLOB_BUCKET")]) == 1 && length([for p in aws_ssm_parameter.config : p if endswith(p.name, "/PIPELINE_ROOT")]) == 1
+    condition     = length([for p in merge(aws_ssm_parameter.placeholder, aws_ssm_parameter.derived) : p if endswith(p.name, "/AGENTCORE_BLOB_BUCKET")]) == 1 && length([for p in merge(aws_ssm_parameter.placeholder, aws_ssm_parameter.derived) : p if endswith(p.name, "/PIPELINE_ROOT")]) == 1
     error_message = "Bucket-derived names expected."
   }
   assert {
-    condition     = length([for p in aws_ssm_parameter.config : p if can(regex("TOKEN|SECRET|PASSWORD|DSN|KEY", p.name))]) == 0
+    condition     = length([for p in merge(aws_ssm_parameter.placeholder, aws_ssm_parameter.derived) : p if can(regex("TOKEN|SECRET|PASSWORD|DSN|KEY", p.name))]) == 0
     error_message = "Secret-looking names must live in the secret, not SSM."
   }
   assert {
