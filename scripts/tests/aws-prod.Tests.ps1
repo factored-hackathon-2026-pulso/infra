@@ -5,11 +5,27 @@ $script:Target = Join-Path (Split-Path $PSScriptRoot -Parent) 'aws-prod.ps1'
 
 function New-FakeBin([string]$Dir) {
     New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+    # Fake aws: logs every call; answers from $env:FAKE_RESP\<service>-<command>[.<n>].txt (n = call counter), optional
+    # <service>-<command>.rc for the exit code. With no response file it prints the caller identity JSON.
     Set-Content -Encoding ascii (Join-Path $Dir 'aws.cmd') @'
 @echo off
+setlocal enabledelayedexpansion
 echo aws %*>>"%FAKE_LOG%"
-echo {"UserId":"AIDAFAKE","Account":"%FAKE_ACCOUNT%","Arn":"%FAKE_ARN%"}
-exit /b 0
+set "SUB=%~1-%~2"
+set "RC=0"
+if exist "%FAKE_RESP%\!SUB!.rc" set /p RC=<"%FAKE_RESP%\!SUB!.rc"
+set "CNT=0"
+if exist "%FAKE_RESP%\!SUB!.cnt" set /p CNT=<"%FAKE_RESP%\!SUB!.cnt"
+set /a CNT+=1
+echo !CNT!>"%FAKE_RESP%\!SUB!.cnt"
+if exist "%FAKE_RESP%\!SUB!.!CNT!.txt" (
+  type "%FAKE_RESP%\!SUB!.!CNT!.txt"
+) else if exist "%FAKE_RESP%\!SUB!.txt" (
+  type "%FAKE_RESP%\!SUB!.txt"
+) else (
+  echo {"UserId":"AIDAFAKE","Account":"%FAKE_ACCOUNT%","Arn":"%FAKE_ARN%"}
+)
+exit /b !RC!
 '@
     Set-Content -Encoding ascii (Join-Path $Dir 'terraform.cmd') @'
 @echo off
@@ -29,11 +45,21 @@ function Use-Fakes([string]$Arn) {
     $env:FAKE_ACCOUNT = '000000000000'
     $env:FAKE_ARN = $Arn
     $env:AWS_PROD_WORKDIR = Join-Path $TestDrive 'work'
+    $env:FAKE_RESP = Join-Path $TestDrive 'resp'
+    New-Item -ItemType Directory -Force -Path $env:FAKE_RESP | Out-Null
+    $env:AWS_PROD_BUILD_ID = 'b1'
     New-Item -ItemType Directory -Force -Path $env:AWS_PROD_WORKDIR | Out-Null
     $script:RootWarned = $false
 }
 
 function Restore-Fakes { $env:PATH = $script:OldPath }
+
+function Set-Resp([string]$Sub, [string]$Text, [int]$N = 0) {
+    $name = if ($N -gt 0) { "$Sub.$N.txt" } else { "$Sub.txt" }
+    Set-Content -Encoding ascii (Join-Path $env:FAKE_RESP $name) $Text
+}
+
+function Set-Rc([string]$Sub, [int]$Rc) { Set-Content -Encoding ascii (Join-Path $env:FAKE_RESP "$Sub.rc") $Rc }
 
 function Get-Calls { if (Test-Path $env:FAKE_LOG) { Get-Content $env:FAKE_LOG -Raw } else { '' } }
 
@@ -200,5 +226,424 @@ Describe 'Set-ImagesInTfvars' {
         $t | Should Match 'enable_waf = false'
         $t | Should Match 'protect_data_volume = true'
         $t | Should Match 'gateway = "r/gateway@sha256:a{64}"'
+    }
+}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Cloud image builds (images -Service) and deploys (deploy): every call is a fake aws call.
+# ---------------------------------------------------------------------------------------------------------------------
+$script:D64 = 'sha256:' + ('a' * 64)
+$script:OLD64 = 'sha256:' + ('0' * 64)
+$script:Registry = '000000000000.dkr.ecr.us-east-1.amazonaws.com'
+
+function New-SrcTree([string]$Root) {
+    foreach ($d in '.git', 'node_modules\pkg', 'target\debug', 'src', 'api') { New-Item -ItemType Directory -Force -Path (Join-Path $Root $d) | Out-Null }
+    $files = @{
+        '.git\config' = 'x'; 'node_modules\pkg\index.js' = 'x'; 'target\debug\app' = 'x'; '.env' = 'SECRET=1'; '.env.local' = 'SECRET=2'
+        '.env.example' = 'KEY='; 'server.pem' = 'x'; 'private.key' = 'x'; 'credentials.json' = 'x'; 'aws_credentials' = 'x'; 'id_rsa' = 'x'
+        'terraform.tfstate' = 'x'; 'prod.tfvars' = 'x'; '.npmrc' = 'x'
+        'src\main.rs' = 'fn main(){}'; 'Dockerfile' = 'FROM scratch'; 'README.md' = 'hi'; 'api\Dockerfile' = 'FROM scratch'
+    }
+    foreach ($k in $files.Keys) { Set-Content -Path (Join-Path $Root $k) -Value $files[$k] }
+}
+
+function Get-ZipEntries([string]$Zip) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $z = [IO.Compression.ZipFile]::OpenRead($Zip)
+    try { @($z.Entries | ForEach-Object { $_.FullName }) } finally { $z.Dispose() }
+}
+
+Describe 'Resolve-Service' {
+    It 'knows the six services and the aliases the teams use' {
+        (Resolve-Service 'support-platform-api').Name | Should Be 'support-platform-api'
+        (Resolve-Service 'agent-core').Name | Should Be 'core-runtime'
+        (Resolve-Service 'engine').Name | Should Be 'pulso-engine'
+        (Resolve-Service 'support-api').Key | Should Be 'support_api'
+    }
+    It 'maps each service to its workload and SSM key' {
+        $s = Resolve-Service 'llm-gateway'
+        $s.Workloads -join ',' | Should Be 'core'
+        $s.Key | Should Be 'gateway'
+        $s.Repository | Should Be 'pulso-prod/llm-gateway'
+    }
+    It 'caddy is shared: it deploys to platform and engine' {
+        (Resolve-Service 'caddy').Workloads -join ',' | Should Be 'platform,engine'
+    }
+    It 'rejects an unknown service and lists the valid ones' {
+        { Resolve-Service 'nope' } | Should Throw 'Unknown service'
+        { Resolve-Service 'nope' } | Should Throw 'core-runtime'
+    }
+}
+
+Describe 'Test-ExcludedPath and New-SourceZip' {
+    It 'excludes secrets, VCS data and build output but keeps .env.example' {
+        foreach ($p in '.git', 'node_modules', 'target', '.env', '.env.local', 'server.pem', 'private.key', 'credentials.json', 'aws_credentials', 'id_rsa', 'terraform.tfstate', 'prod.tfvars', '.npmrc') {
+            Test-ExcludedPath $p | Should Be $true
+        }
+        foreach ($p in '.env.example', 'Dockerfile', 'main.rs', 'README.md') { Test-ExcludedPath $p | Should Be $false }
+    }
+
+    It 'zips only what is allowed, with forward slashes, and reports what it left out' {
+        $src = Join-Path $TestDrive 'src1'; New-SrcTree $src
+        $zip = Join-Path $TestDrive 'out.zip'
+        $r = New-SourceZip -ZipPath $zip -Roots @(@{ Dir = $src; Prefix = '' })
+        $entries = Get-ZipEntries $zip
+        $entries -contains 'src/main.rs' | Should Be $true
+        $entries -contains 'api/Dockerfile' | Should Be $true
+        $entries -contains '.env.example' | Should Be $true
+        ($entries | Where-Object { $_ -match '\\' }).Count | Should Be 0
+        ($entries | Where-Object { $_ -match '(^|/)(\.git|node_modules|target)/|\.env$|\.env\.local|\.pem$|\.key$|credentials|id_rsa|\.tfstate|\.tfvars|\.npmrc' }).Count | Should Be 0
+        ($r.Excluded -join ' ') | Should Match '\.git'
+        ($r.Excluded -join ' ') | Should Match 'node_modules'
+        ($r.Excluded -join ' ') | Should Match 'server\.pem'
+        $r.Files | Should Be $entries.Count
+    }
+
+    It 'places a second root under its prefix (agent-core checkout)' {
+        $a = Join-Path $TestDrive 'a'; New-SrcTree $a
+        $b = Join-Path $TestDrive 'b'; New-SrcTree $b
+        $zip = Join-Path $TestDrive 'two.zip'
+        New-SourceZip -ZipPath $zip -Roots @(@{ Dir = $a; Prefix = '' }, @{ Dir = $b; Prefix = 'agent-core' }) | Out-Null
+        $entries = Get-ZipEntries $zip
+        $entries -contains 'agent-core/src/main.rs' | Should Be $true
+        $entries -contains 'src/main.rs' | Should Be $true
+        ($entries | Where-Object { $_ -match '^agent-core/\.env$' }).Count | Should Be 0
+    }
+}
+
+Describe 'images -Service (cloud build)' {
+    AfterEach { Restore-Fakes; $env:AWS_PROD_BUILD_ID = $null }
+
+    function Set-BuildOk([string]$Svc = 'support-platform-api') {
+        Set-Resp 'codebuild-start-build' "pulso-prod-build-${Svc}:11111111-2222-3333-4444-555555555555"
+        Set-Resp 'codebuild-batch-get-builds' 'IN_PROGRESS' 1
+        Set-Resp 'codebuild-batch-get-builds' 'SUCCEEDED' 2
+        Set-Resp 's3-cp' '' 1
+        Set-Resp 's3-cp' ('{"image":"' + $script:Registry + '/pulso-prod/' + $Svc + '@' + $script:D64 + '","digest":"' + $script:D64 + '"}') 2
+    }
+
+    It 'needs -SourceDir, an existing directory' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api' } } | Should Throw '-SourceDir'
+        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = (Join-Path $TestDrive 'nope') } } | Should Throw '-SourceDir'
+    }
+
+    It 'core-runtime needs -AgentCoreDir and caddy needs -MirrorImage' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        { Run 'images' 'pulso-prod' @{ Service = 'agent-core'; SourceDir = $src; Yes = $true } } | Should Throw '-AgentCoreDir'
+        { Run 'images' 'pulso-prod' @{ Service = 'caddy'; Yes = $true } } | Should Throw '-MirrorImage'
+    }
+
+    It 'rejects an unknown service before any aws call except the identity check' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        { Run 'images' 'pulso-prod' @{ Service = 'nope'; SourceDir = $TestDrive } } | Should Throw 'Unknown service'
+        Get-Calls | Should Not Match 's3 cp'
+    }
+
+    It 'prints the plan and the excluded files, and aborts unless DEPLOY is typed' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        foreach ($wrong in 'yes', 'APPLY', 'deploy', '') {
+            $script:Typed = $wrong
+            Mock Read-Host { $script:Typed }
+            { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src } } | Should Throw 'Aborted'
+        }
+        $calls = Get-Calls
+        $calls | Should Not Match 's3 cp'
+        $calls | Should Not Match 'codebuild'
+    }
+
+    It 'shows what it will do and what it excluded before asking' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        $script:Out = ''
+        Mock Write-Host { $script:Out += ($args -join ' ') + "`
+" }
+        Mock Read-Host { 'nope' }
+        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src } } | Should Throw 'Aborted'
+        $script:Out | Should Match 'Excluded'
+        $script:Out | Should Match 'server\.pem'
+        $script:Out | Should Match 'pulso-prod-data-000000000000'
+        $script:Out | Should Match 'engine/build-src/support-platform-api/b1\.zip'
+        $script:Out | Should Match 'pulso-prod-build-support-platform-api'
+    }
+
+    It 'uploads the zip, starts the build, waits, reads the record and prints repo@sha256' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-BuildOk
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        $vf = Join-Path $TestDrive 'prod.tfvars'
+        $out = Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Yes = $true; VarFile = $vf }
+        $out | Should Match ([regex]::Escape("$($script:Registry)/pulso-prod/support-platform-api@$($script:D64)"))
+        $calls = Get-Calls
+        $iUp = $calls.IndexOf('s3 cp')
+        $iStart = $calls.IndexOf('codebuild start-build')
+        $iWait = $calls.IndexOf('codebuild batch-get-builds')
+        $iRec = $calls.IndexOf('engine/build-out/support-platform-api/b1.json')
+        ($iUp -ge 0) | Should Be $true
+        ($iUp -lt $iStart) | Should Be $true
+        ($iStart -lt $iWait) | Should Be $true
+        ($iWait -lt $iRec) | Should Be $true
+        $calls | Should Match 's3://pulso-prod-data-000000000000/engine/build-src/support-platform-api/b1\.zip'
+        $calls | Should Match '--project-name pulso-prod-build-support-platform-api'
+        $calls | Should Match '--source-location-override pulso-prod-data-000000000000/engine/build-src/support-platform-api/b1\.zip'
+        $calls | Should Match 'name=SOURCE_ID,value=b1'
+        $calls | Should Not Match '--sse'
+    }
+
+    It 'records the image in prod.tfvars (uncommitted) and in the state file, leaving the other entries alone' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-BuildOk
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        $vf = Join-Path $TestDrive 'prod.tfvars'
+        Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Yes = $true; VarFile = $vf } | Out-Null
+        $t = Get-Content -Raw $vf
+        $t | Should Match ('support_api = "' + [regex]::Escape($script:Registry) + '/pulso-prod/support-platform-api@' + $script:D64 + '"')
+        $t | Should Match 'REPLACE_WITH_64_HEX_DIGEST'
+        $state = Get-Content -Raw (Join-Path $env:AWS_PROD_WORKDIR 'images-state.json') | ConvertFrom-Json
+        $state.'support-platform-api'.digest | Should Be $script:D64
+        $state.'support-platform-api'.build_id | Should Be 'b1'
+    }
+
+    It 'a failed build throws with the status and leaves tfvars untouched' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-Resp 'codebuild-start-build' 'pulso-prod-build-support-platform-api:1111'
+        Set-Resp 'codebuild-batch-get-builds' 'FAILED'
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        $vf = Join-Path $TestDrive 'prod.tfvars'; Set-Content $vf 'x = 1'
+        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Yes = $true; VarFile = $vf } } | Should Throw 'FAILED'
+        (Get-Content -Raw $vf).Trim() | Should Be 'x = 1'
+    }
+
+    It 'refuses a build record whose image is not in the expected repository' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-BuildOk
+        Set-Resp 's3-cp' ('{"image":"evil.example.com/other@' + $script:D64 + '","digest":"' + $script:D64 + '"}') 2
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } } | Should Throw 'unexpected'
+    }
+
+    It 'core-runtime puts the agent-core checkout under agent-core/ and passes the Dockerfile and build args' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-BuildOk 'core-runtime'
+        $src = Join-Path $TestDrive 'engine'; New-SrcTree $src
+        $core = Join-Path $TestDrive 'core'; New-SrcTree $core
+        Run 'images' 'pulso-prod' @{ Service = 'agent-core'; SourceDir = $src; AgentCoreDir = $core; Dockerfile = 'core-bridge/Dockerfile.alt'; BuildArg = @('A=1', 'B=2'); Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
+        $entries = Get-ZipEntries (Join-Path $env:AWS_PROD_WORKDIR 'build-src-b1.zip')
+        $entries -contains 'agent-core/src/main.rs' | Should Be $true
+        ($entries | Where-Object { $_ -match '^agent-core/\.env$' }).Count | Should Be 0
+        $calls = Get-Calls
+        $calls | Should Match 'name=DOCKERFILE,value=core-bridge/Dockerfile\.alt'
+        $calls | Should Match 'name=BUILD_ARGS,value=A=1 B=2'
+        $calls | Should Match '--project-name pulso-prod-build-core-runtime'
+    }
+
+    It 'support-platform-web carries VITE_API_URL as a build arg' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-BuildOk 'support-platform-web'
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        Run 'images' 'pulso-prod' @{ Service = 'support-platform-web'; SourceDir = $src; BuildArg = @('VITE_API_URL=https://x.example'); Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
+        Get-Calls | Should Match 'name=BUILD_ARGS,value=VITE_API_URL=https://x\.example'
+    }
+
+    It 'caddy is mirrored: no zip, MIRROR_IMAGE passed, digest recorded' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-BuildOk 'caddy'
+        Set-Resp 's3-cp' ('{"image":"' + $script:Registry + '/pulso-prod/caddy@' + $script:D64 + '","digest":"' + $script:D64 + '"}') 1
+        $out = Run 'images' 'pulso-prod' @{ Service = 'caddy'; MirrorImage = 'docker.io/library/caddy:2.8.4-alpine'; Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') }
+        $calls = Get-Calls
+        $calls | Should Not Match 'build-src'
+        $calls | Should Match 'name=MIRROR_IMAGE,value=docker\.io/library/caddy:2\.8\.4-alpine'
+        $out | Should Match 'pulso-prod/caddy@sha256'
+    }
+}
+
+Describe 'plan -Stage builder' {
+    AfterEach { Restore-Fakes }
+
+    It 'plans only the builder (and what it needs) with throw-away digests, so the images can be built before the hosts exist' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        $out = Run 'plan' 'pulso-prod' @{ Stage = 'builder'; VarFile = (Join-Path $TestDrive 'missing.tfvars') }
+        $calls = Get-Calls
+        $calls | Should Match 'terraform .* plan .*-target=module\.image_builder'
+        $calls | Should Match 'builder-stage\.tfvars'
+        $stage = Get-Content -Raw (Join-Path $env:AWS_PROD_WORKDIR 'builder-stage.tfvars')
+        $stage | Should Match 'sha256:0{64}'
+        $stage | Should Not Match 'REPLACE_WITH'
+    }
+}
+
+Describe 'deploy' {
+    AfterEach { Restore-Fakes }
+
+    function Set-DeployOk([string]$Result = 'ok', [string]$Status = 'Success') {
+        Set-Resp 'ecr-describe-images' $script:D64
+        Set-Resp 'ssm-get-parameter' ($script:Registry + '/pulso-prod/support-platform-api@' + $script:OLD64)
+        Set-Resp 'ssm-send-command' 'cmd-1'
+        Set-Resp 'ssm-list-command-invocations' "i-0abc`t$Status"
+        Set-Resp 'ssm-get-command-invocation' "DEPLOYED SUPPORT_API_IMAGE=x`nDEPLOY_RESULT=$Result"
+    }
+
+    It 'needs exactly one of -Digest, -FromBuild or -Rollback' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        { Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api' } } | Should Throw '-Digest'
+        { Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = $script:D64; FromBuild = 'b1' } } | Should Throw 'only one'
+    }
+
+    It 'needs -Service and a well-formed digest' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        { Run 'deploy' 'pulso-prod' @{ Digest = $script:D64 } } | Should Throw '-Service'
+        { Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = 'latest' } } | Should Throw 'sha256'
+        { Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = 'sha256:abc' } } | Should Throw 'sha256'
+    }
+
+    It 'refuses a digest that is not in ECR and changes nothing' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Set-Rc 'ecr-describe-images' 254
+        { Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = $script:D64; Yes = $true } } | Should Throw 'not found in ECR'
+        $calls = Get-Calls
+        $calls | Should Not Match 'put-parameter'
+        $calls | Should Not Match 'send-command'
+    }
+
+    It 'prints what it will do and aborts unless DEPLOY is typed' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Set-DeployOk
+        foreach ($wrong in 'yes', 'APPLY', 'deploy', '') {
+            $script:Typed = $wrong
+            Mock Read-Host { $script:Typed }
+            { Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = $script:D64 } } | Should Throw 'Aborted'
+        }
+        $calls = Get-Calls
+        $calls | Should Not Match 'put-parameter'
+        $calls | Should Not Match 'send-command'
+    }
+
+    It 'prints the exact steps before asking' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Set-DeployOk
+        $script:Out = ''
+        Mock Write-Host { $script:Out += ($args -join ' ') + "`
+" }
+        Mock Read-Host { 'nope' }
+        { Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = $script:D64 } } | Should Throw 'Aborted'
+        $script:Out | Should Match '/pulso/platform/images/support_api'
+        $script:Out | Should Match 'pulso-deploy-platform'
+        $script:Out | Should Match ([regex]::Escape($script:OLD64))
+    }
+
+    It 'verifies in ECR, reads the old value, writes the parameter, sends the command, then reads the result, in that order' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-DeployOk
+        $out = Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = $script:D64; Wait = $true; Yes = $true }
+        $calls = Get-Calls
+        $order = 'sts get-caller-identity', 'ecr describe-images', 'ssm get-parameter ', 'ssm put-parameter', 'ssm send-command', 'ssm list-command-invocations', 'ssm get-command-invocation'
+        $last = -1
+        foreach ($c in $order) {
+            $i = $calls.IndexOf($c)
+            ($i -gt $last) | Should Be $true
+            $last = $i
+        }
+        $calls | Should Match '--name /pulso/platform/images/support_api'
+        $calls | Should Match ('--value ' + [regex]::Escape("$($script:Registry)/pulso-prod/support-platform-api@$($script:D64)"))
+        $calls | Should Match '--overwrite'
+        $calls | Should Match '--document-name pulso-deploy-platform'
+        $calls | Should Match '--targets Key=tag:Workload,Values=platform'
+        $calls | Should Match '--repository-name pulso-prod/support-platform-api'
+        $calls | Should Match ('imageDigest=' + $script:D64)
+        $out | Should Match 'DEPLOY_RESULT=ok'
+        $out | Should Match 'i-0abc'
+    }
+
+    It 'without -Wait it returns after sending the command and prints how to read the result' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-DeployOk
+        $out = Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = $script:D64; Yes = $true }
+        $calls = Get-Calls
+        $calls | Should Match 'send-command'
+        $calls | Should Not Match 'get-command-invocation'
+        $out | Should Match 'cmd-1'
+    }
+
+    It 'a host that rolled back fails the deploy and restores the previous digest in SSM' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-DeployOk 'rolled_back' 'Failed'
+        { Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = $script:D64; Wait = $true; Yes = $true } } | Should Throw 'rolled back'
+        $puts = @((Get-Calls) -split "`n" | Where-Object { $_ -match 'ssm put-parameter' })
+        $puts.Count | Should Be 2
+        $puts[0] | Should Match $script:D64
+        $puts[1] | Should Match $script:OLD64
+    }
+
+    It 'a successful run that did not report DEPLOY_RESULT=ok is a failure' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-DeployOk 'failed' 'Success'
+        { Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = $script:D64; Wait = $true; Yes = $true } } | Should Throw 'did not report'
+    }
+
+    It '-FromBuild reads the build record for that service and id' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-DeployOk
+        Set-Resp 's3-cp' ('{"image":"' + $script:Registry + '/pulso-prod/support-platform-api@' + $script:D64 + '","digest":"' + $script:D64 + '"}')
+        Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; FromBuild = 'b7'; Yes = $true } | Out-Null
+        $calls = Get-Calls
+        $calls | Should Match 's3://pulso-prod-data-000000000000/engine/build-out/support-platform-api/b7\.json'
+        $calls | Should Match ('--value ' + [regex]::Escape("$($script:Registry)/pulso-prod/support-platform-api@$($script:D64)"))
+    }
+
+    It '-Rollback puts back the previous value from the parameter history' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-DeployOk
+        $cur = "$($script:Registry)/pulso-prod/support-platform-api@$($script:D64)"
+        $prev = "$($script:Registry)/pulso-prod/support-platform-api@$($script:OLD64)"
+        Set-Resp 'ssm-get-parameter' $cur
+        Set-Resp 'ssm-get-parameter-history' ('["' + $prev + '","' + $cur + '"]')
+        Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Rollback = $true; Wait = $true; Yes = $true } | Out-Null
+        $calls = Get-Calls
+        $calls | Should Match 'ssm get-parameter-history --name /pulso/platform/images/support_api'
+        $calls | Should Match ('--value ' + [regex]::Escape($prev))
+        $calls | Should Match ('imageDigest=' + $script:OLD64)
+    }
+
+    It '-Rollback with no earlier value says so and changes nothing' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Set-DeployOk
+        $cur = "$($script:Registry)/pulso-prod/support-platform-api@$($script:D64)"
+        Set-Resp 'ssm-get-parameter' $cur
+        Set-Resp 'ssm-get-parameter-history' ('["' + $cur + '"]')
+        { Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Rollback = $true; Yes = $true } } | Should Throw 'no previous'
+        Get-Calls | Should Not Match 'put-parameter'
+    }
+
+    It 'caddy is shared: both the platform and the engine parameter are written and both documents run' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-DeployOk
+        Run 'deploy' 'pulso-prod' @{ Service = 'caddy'; Digest = $script:D64; Yes = $true } | Out-Null
+        $calls = Get-Calls
+        $calls | Should Match '--name /pulso/platform/images/proxy'
+        $calls | Should Match '--name /pulso/engine/images/proxy'
+        $calls | Should Match 'pulso-deploy-platform'
+        $calls | Should Match 'pulso-deploy-engine'
+    }
+
+    It 'a forbidden profile is refused before any aws call' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        { Run 'deploy' 'standar-prod' @{ Service = 'support-platform-api'; Digest = $script:D64; Yes = $true } } | Should Throw 'Refusing profile'
+        Get-Calls | Should Not Match 'aws'
     }
 }
