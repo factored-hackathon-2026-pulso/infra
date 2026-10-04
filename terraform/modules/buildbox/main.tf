@@ -44,11 +44,12 @@ resource "aws_instance" "this" {
   user_data_replace_on_change          = false
   monitoring                           = false
 
-  user_data = templatefile("${path.module}/user_data.sh.tftpl", {
+  # Normalise CRLF (Windows checkouts) so the shebang line stays valid on Linux.
+  user_data = replace(templatefile("${path.module}/user_data.sh.tftpl", {
     idle_minutes = var.idle_minutes
     bucket       = local.bucket
     region       = var.region
-  })
+  }), "\r\n", "\n")
 
   metadata_options {
     http_endpoint               = "enabled"

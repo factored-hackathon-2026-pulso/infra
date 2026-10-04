@@ -227,7 +227,7 @@ function Invoke-Run([hashtable]$p, [string]$AwsProfile) {
     $bucket = Get-Bucket $AwsProfile
     Confirm-Action "run on $($inst.Id) (lane $($p.Lane), job $id, jobs=$jobs, timeout=${timeout}m): $($p.Cmd)" $p.Yes
     $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($p.Cmd))
-    $line = "aws s3 cp s3://$bucket/runner/buildbox-runner.sh /usr/local/bin/buildbox-runner.sh --quiet && bash /usr/local/bin/buildbox-runner.sh --bucket $bucket --lane $($p.Lane) --id $id --jobs $jobs --timeout $timeout --cmd-b64 $b64"
+    $line = "aws s3 cp s3://$bucket/runner/buildbox-runner.sh /usr/local/bin/buildbox-runner.sh --quiet && sed -i 's/\r$//' /usr/local/bin/buildbox-runner.sh && bash /usr/local/bin/buildbox-runner.sh --bucket $bucket --lane $($p.Lane) --id $id --jobs $jobs --timeout $timeout --cmd-b64 $b64"
     Publish-Runner $AwsProfile $bucket
     Send-RunShell -AwsProfile $AwsProfile -InstanceId $inst.Id -Line $line -TimeoutSeconds ($timeout * 60 + 120) -Comment "buildbox:$($p.Lane):$id" -Wait (-not $p.NoWait) | Out-Null
     Write-Host "Results: s3://$bucket/out/$($p.Lane)/$id/  (buildbox.ps1 fetch -Lane $($p.Lane) -Id $id -Dest <dir>)"
@@ -325,7 +325,7 @@ function Invoke-Buildbox {
             $bucket = Get-Bucket $Profile
             Confirm-Action "delete work dirs older than $hours h under /work on $($inst.Id) (cargo registry and target caches are kept)" $yes
             Publish-Runner $Profile $bucket
-            $line = "aws s3 cp s3://$bucket/runner/buildbox-runner.sh /usr/local/bin/buildbox-runner.sh --quiet && bash /usr/local/bin/buildbox-runner.sh gc --hours $hours"
+            $line = "aws s3 cp s3://$bucket/runner/buildbox-runner.sh /usr/local/bin/buildbox-runner.sh --quiet && sed -i 's/\r$//' /usr/local/bin/buildbox-runner.sh && bash /usr/local/bin/buildbox-runner.sh gc --hours $hours"
             Send-RunShell -AwsProfile $Profile -InstanceId $inst.Id -Line $line -TimeoutSeconds 600 -Comment 'buildbox:gc' -Wait $true | Out-Null
         }
         'verify-gone' { Invoke-VerifyGone $Profile }

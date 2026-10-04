@@ -189,6 +189,10 @@ run "user_data_installs_the_toolchain" {
     error_message = "user_data installs git/gcc/lld/openssl/rustup/node/python/uv/docker/jq/awscli and the idle timer"
   }
   assert {
+    condition     = !strcontains(aws_instance.this.user_data, "\r")
+    error_message = "user_data must be LF only"
+  }
+  assert {
     condition     = strcontains(aws_instance.this.user_data, "/work/.jobs") && strcontains(aws_instance.this.user_data, "30")
     error_message = "idle shutdown watches /work/.jobs with a 30 minute threshold"
   }
