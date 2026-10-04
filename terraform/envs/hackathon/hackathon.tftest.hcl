@@ -186,3 +186,11 @@ run "explicit_principal_lists_replace_the_defaults" {
     error_message = "Explicit lists win over the account defaults."
   }
 }
+run "ecr_pull_arns_strip_the_registry_host_from_full_image_refs" {
+  command = apply
+
+  assert {
+    condition     = contains(output.ecr_repository_arns_effective["core"], "arn:aws:ecr:us-east-1:123456789012:repository/agent-core") && contains(output.ecr_repository_arns_effective["engine"], "arn:aws:ecr:us-east-1:123456789012:repository/pulso")
+    error_message = "Images are full refs <registry>/<repo>@sha256:...; the pull policy must name <repo> only."
+  }
+}

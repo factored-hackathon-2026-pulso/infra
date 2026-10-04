@@ -38,3 +38,4 @@ output "ecr_registry_url_effective" { value = local.ecr_registry_url }
 output "loader_role_arns_effective" { value = local.loader_roles }
 output "uploader_principal_arns_effective" { value = local.uploader_principals }
 output "break_glass_principal_arns_effective" { value = local.break_glass }
+output "ecr_repository_arns_effective" { value = local.ecr_arns }
