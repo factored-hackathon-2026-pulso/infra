@@ -19,6 +19,11 @@ mock_provider "aws" {
       name = "pulso.internal"
     }
   }
+  mock_resource "aws_instance" {
+    defaults = {
+      arn = "arn:aws:ec2:us-east-1:123456789012:instance/i-0123456789abcdef0"
+    }
+  }
   mock_resource "aws_iam_role" {
     defaults = {
       arn = "arn:aws:iam::123456789012:role/pulso-hk-dlm"
@@ -235,4 +240,51 @@ run "workload_must_be_known" {
     workload = "other"
   }
   expect_failures = [var.workload]
+}
+
+run "engine_proxy_listens_on_the_port_the_network_allows" {
+  command = apply
+  variables {
+    workload = "engine"
+  }
+  assert {
+    condition     = local.allowed_ports == ["8080:8080"]
+    error_message = "The network module opens 8080 from CloudFront on the engine host, so the engine proxy publishes 8080."
+  }
+  assert {
+    condition     = can(regex(":8080 \\{", local.caddyfile_text)) && !can(regex("(?m)^:80 \\{", local.caddyfile_text))
+    error_message = "The engine Caddyfile listens on :8080."
+  }
+}
+
+run "ssm_path_is_scoped_to_the_workload" {
+  command = apply
+  variables {
+    workload   = "engine"
+    ssm_prefix = "/pulso"
+  }
+  assert {
+    condition     = can(regex("SSM_PREFIX=\"/pulso/engine\"", aws_instance.this.user_data))
+    error_message = "The start script reads <ssm_prefix>/<workload>/<service>, which is exactly what the host IAM role may read."
+  }
+}
+
+run "cloudwatch_log_group_is_under_the_name_prefix_the_role_allows" {
+  command = apply
+  variables {
+    enable_cloudwatch_agent = true
+    ssm_prefix              = "/pulso"
+  }
+  assert {
+    condition     = can(regex("\"log_group_name\":\"/pulso-hk/docker\"", aws_instance.this.user_data))
+    error_message = "Log group must be /<name_prefix>/docker, covered by the role's /<name>/* grant."
+  }
+}
+
+run "exposes_instance_arn_for_the_cloudfront_vpc_origin" {
+  command = apply
+  assert {
+    condition     = startswith(output.instance_arn, "arn:aws:ec2:")
+    error_message = "instance_arn output is required by the edge module."
+  }
 }
