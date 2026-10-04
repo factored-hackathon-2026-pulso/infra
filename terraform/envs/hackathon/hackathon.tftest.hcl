@@ -233,7 +233,7 @@ run "deployer_policies_are_exposed_per_workload_and_follow_the_repository_prefix
   command = apply
 
   assert {
-    condition     = strcontains(output.deployer_policy_json_core, "parameter/pulso/core/images/core") && strcontains(output.deployer_policy_json_core, "repository/prod/core-runtime") && strcontains(output.deployer_policy_json_core, "repository/prod/llm-gateway")
+    condition     = strcontains(output.deployer_policy_json_core, "parameter/pulso/core/images/core") && strcontains(output.deployer_policy_json_core, "repository/pulso-prod/core-runtime") && strcontains(output.deployer_policy_json_core, "repository/pulso-prod/llm-gateway")
     error_message = "The core deployer may write the core and gateway digests and push their repositories."
   }
   assert {
@@ -241,7 +241,7 @@ run "deployer_policies_are_exposed_per_workload_and_follow_the_repository_prefix
     error_message = "The platform deployer never writes the shared proxy (caddy) digest."
   }
   assert {
-    condition     = strcontains(output.deployer_policy_json_engine, "pulso-deploy-engine") && strcontains(output.deployer_policy_json_engine, "repository/prod/pulso-engine")
+    condition     = strcontains(output.deployer_policy_json_engine, "pulso-deploy-engine") && strcontains(output.deployer_policy_json_engine, "repository/pulso-prod/pulso-engine")
     error_message = "The engine deployer may run only pulso-deploy-engine."
   }
 }

@@ -122,6 +122,6 @@ variable "image_builder_compute_type" {
 
 variable "ecr_repository_prefix" {
   type        = string
-  default     = "prod"
+  default     = "pulso-prod"
   description = "Prefix of the ECR repositories created by terraform/bootstrap (<prefix>/core-runtime, ...). Must match the bootstrap variable of the same name."
 }
