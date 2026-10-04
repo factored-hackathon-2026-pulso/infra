@@ -16,11 +16,24 @@ variable "vpc_id" {
 variable "db_subnet_ids" {
   description = "Isolated database subnets (at least two AZs are required by RDS even for a single-AZ instance)."
   type        = list(string)
+  default     = []
 }
 
 variable "sg_db_id" {
-  description = "Security group of the database (ingress from the host only; owned by the network module)."
+  description = "Security group of the database (ingress from the host only; owned by the network module). Null in container mode."
   type        = string
+  default     = null
+}
+
+variable "database_mode" {
+  description = "rds (RDS PostgreSQL 16 in isolated subnets) or container (Postgres container on the core host, free_plan profile; no RDS resources)."
+  type        = string
+  default     = "rds"
+
+  validation {
+    condition     = contains(["rds", "container"], var.database_mode)
+    error_message = "database_mode must be rds or container."
+  }
 }
 
 variable "db_instance_class" {

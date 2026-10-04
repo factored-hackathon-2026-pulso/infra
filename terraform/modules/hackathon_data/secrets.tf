@@ -7,6 +7,11 @@ resource "random_password" "db_master" {
   special = false
 }
 
+resource "random_password" "origin_verify" {
+  length  = 40
+  special = false
+}
+
 locals {
   db_password_keys = [for r in ["CORE_OWNER", "CORE_APP", "CORE_EVAL_APP", "CORE_EXPORTER_RO", "PULSO_APP", "PULSO_LOADER", "PULSO_RAW_RO", "PULSO_AUGMENTED_RO", "PULSO_PRODUCT_RO"] : "DB_PASSWORD_${r}"]
 
@@ -22,6 +27,10 @@ locals {
     [for k in ["CC_SESSION_SECRET", "CC_TOTP_SECRET_KEY", "CC_DATABASE_URL"] : "SUPPORT__${k}"],
     # engine (service env "pulso")
     [for k in ["PULSO_DATABASE_URL", "PULSO_ADMIN_TOKEN"] : "PULSO__${k}"],
+    # CloudFront -> Caddy shared header value, rendered into common.env on every host
+    ["COMMON__ORIGIN_VERIFY"],
+    # Postgres container (free_plan): superuser password, rendered into db.env on the core host
+    var.database_mode == "container" ? ["DB__POSTGRES_PASSWORD"] : [],
     # database role passwords (used by docs/db-bootstrap.md)
     local.db_password_keys,
   )
@@ -40,7 +49,8 @@ resource "aws_secretsmanager_secret_version" "this" {
   secret_id = aws_secretsmanager_secret.this.id
   secret_string = jsonencode(merge(
     local.secret_placeholders,
-    { RDS_MASTER_PASSWORD = random_password.db_master.result },
+    { RDS_MASTER_PASSWORD = random_password.db_master.result, COMMON__ORIGIN_VERIFY = random_password.origin_verify.result },
+    var.database_mode == "container" ? { DB__POSTGRES_PASSWORD = random_password.db_master.result } : {},
   ))
 
   lifecycle {

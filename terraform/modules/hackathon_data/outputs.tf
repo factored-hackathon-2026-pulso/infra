@@ -26,11 +26,11 @@ output "host_policy_json" {
 }
 
 output "db_endpoint" {
-  value = aws_db_instance.this.address
+  value = one(aws_db_instance.this[*].address)
 }
 
 output "db_port" {
-  value = aws_db_instance.this.port
+  value = one(aws_db_instance.this[*].port)
 }
 
 output "secret_arn" {
@@ -50,4 +50,10 @@ output "ssm_prefix" {
 output "ssm_parameter_arn_prefix" {
   description = "Grant ssm:GetParameter* on <this>/*."
   value       = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}"
+}
+
+output "origin_verify_secret" {
+  description = "Value of the X-Origin-Verify header that CloudFront sends and Caddy enforces (also stored as COMMON__ORIGIN_VERIFY)."
+  value       = random_password.origin_verify.result
+  sensitive   = true
 }

@@ -2,12 +2,14 @@
 # No RDS Proxy, no cache. Databases and roles are created by sql/ (docs/db-bootstrap.md), not by Terraform.
 
 resource "aws_db_subnet_group" "this" {
+  count      = var.database_mode == "rds" ? 1 : 0
   name       = "${var.name_prefix}-db"
   subnet_ids = var.db_subnet_ids
   tags       = var.tags
 }
 
 resource "aws_db_parameter_group" "this" {
+  count  = var.database_mode == "rds" ? 1 : 0
   name   = "${var.name_prefix}-pg16"
   family = "postgres16"
 
@@ -41,6 +43,7 @@ resource "aws_db_parameter_group" "this" {
 }
 
 resource "aws_db_instance" "this" {
+  count          = var.database_mode == "rds" ? 1 : 0
   identifier     = "${var.name_prefix}-pg"
   engine         = "postgres"
   engine_version = "16"
@@ -53,9 +56,9 @@ resource "aws_db_instance" "this" {
   username = "pulso_master"
   password = random_password.db_master.result
 
-  db_subnet_group_name   = aws_db_subnet_group.this.name
+  db_subnet_group_name   = aws_db_subnet_group.this[0].name
   vpc_security_group_ids = [var.sg_db_id]
-  parameter_group_name   = aws_db_parameter_group.this.name
+  parameter_group_name   = aws_db_parameter_group.this[0].name
   publicly_accessible    = false
   multi_az               = false
 
