@@ -15,7 +15,7 @@
    - -Profile is mandatory; the profile names default, payana*, higo*, standar*, management* are refused unless
      -AllowAnyProfile is passed.
    - Nothing is ever applied or destroyed without a saved plan file, a printed plan summary and the typed word
-     APPLY (or DESTROY). There is no auto-approve and no flag that skips the prompt.
+     APPLY (or DESTROY). apply and destroy have no auto-approve and no flag that skips the prompt (deploy -Yes skips only the DEPLOY prompt).
    - The root user is allowed (it is the documented path) but check prints a clear one-time warning with the 3
      safety lines. This script never reads ~/.aws or any credential file; the aws CLI resolves the profile.
    - Secrets are never passed or printed. Account ids appear only on your console and in uncommitted local files.
