@@ -1,0 +1,30 @@
+{
+	auto_https off
+	admin off
+}
+
+:80 {
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	# Core and gateway /internal routes never leave the docker network.
+	@internal path /internal /internal/* /api/internal /api/internal/* /pulso/internal /pulso/internal/*
+	handle @internal {
+		respond "not found" 404
+	}
+
+	# REST and WebSocket (/api/v1/ws) share this upstream; Caddy upgrades WebSockets itself.
+	handle /api/* {
+		reverse_proxy support-platform-api:8000
+	}
+
+	handle /pulso/* {
+		uri strip_prefix /pulso
+		reverse_proxy pulso:8080
+	}
+
+	handle {
+		reverse_proxy support-platform-web:80
+	}
+}

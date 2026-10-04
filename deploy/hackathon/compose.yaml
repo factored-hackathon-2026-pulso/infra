@@ -1,0 +1,155 @@
+# Hackathon single-host stack. Project dir on the host: /srv/stack
+# Images come from variables in .env (digest-pinned, rendered by Terraform).
+# Per-service secrets come from /run/pulso/env/<svc>.env (tmpfs, 0600), generated at
+# start from the single Secrets Manager secret. Only the proxy publishes a port.
+name: pulso
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+networks:
+  internal: {}
+
+services:
+  core-migrate:
+    image: ${CORE_IMAGE:?set}
+    command: ["migrate"]
+    restart: "no"
+    mem_limit: 256m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/core.env]
+    logging: *logging
+    networks: [internal]
+
+  core-runtime:
+    image: ${CORE_IMAGE:?set}
+    command: ["runtime"]
+    restart: unless-stopped
+    mem_limit: 1024m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/core.env]
+    environment:
+      AGENTCORE_BLOB_BUCKET: ${BUCKET_NAME:?set}
+      AGENTCORE_BLOB_PREFIX: ${CORE_BLOB_PREFIX:-core/blobs/}
+    depends_on:
+      core-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+    networks: [internal]
+
+  core-exporter:
+    image: ${CORE_IMAGE:?set}
+    command: ["exporter"]
+    restart: unless-stopped
+    mem_limit: 256m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/core.env]
+    environment:
+      AGENTCORE_BLOB_BUCKET: ${BUCKET_NAME:?set}
+      AGENTCORE_BLOB_PREFIX: ${CORE_BLOB_PREFIX:-core/blobs/}
+    volumes:
+      - /srv/data/exporter:/var/lib/exporter
+    depends_on:
+      core-migrate:
+        condition: service_completed_successfully
+    # No listener: liveness is the restart policy.
+    healthcheck:
+      disable: true
+    logging: *logging
+    networks: [internal]
+
+  llm-gateway:
+    image: ${GATEWAY_IMAGE:?set}
+    restart: unless-stopped
+    mem_limit: 256m
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/gateway.env]
+    # Distroless image has no shell or curl; /healthz :8080 is probed by the proxy-side smoke test.
+    healthcheck:
+      disable: true
+    logging: *logging
+    networks: [internal]
+
+  support-platform-api:
+    image: ${SUPPORT_API_IMAGE:?set}
+    restart: unless-stopped
+    mem_limit: 768m
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/support.env]
+    volumes:
+      - /srv/data/support:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+    networks: [internal]
+
+  support-platform-web:
+    image: ${SUPPORT_WEB_IMAGE:?set}
+    restart: unless-stopped
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:80/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+    networks: [internal]
+
+  pulso:
+    image: ${PULSO_IMAGE:?set}
+    command: ["run"]
+    restart: unless-stopped
+    mem_limit: 1024m
+    stop_grace_period: 70s
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/pulso.env]
+    environment:
+      PULSO_STORAGE_BUCKET: ${BUCKET_NAME:?set}
+      PULSO_STORAGE_PREFIX: ${PULSO_STORAGE_PREFIX:-engine/}
+    volumes:
+      - /srv/data/pulso:/var/lib/pulso
+    depends_on:
+      core-runtime:
+        condition: service_healthy
+      llm-gateway:
+        condition: service_started
+    # Assumes the engine image ships `pulso healthcheck` (probes /healthz); confirm with docker/pulso.Dockerfile.
+    healthcheck:
+      test: ["CMD", "pulso", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    logging: *logging
+    networks: [internal]
+
+  proxy:
+    image: ${PROXY_IMAGE:?set}
+    restart: unless-stopped
+    mem_limit: 128m
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      support-platform-api:
+        condition: service_healthy
+      support-platform-web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+    networks: [internal]
