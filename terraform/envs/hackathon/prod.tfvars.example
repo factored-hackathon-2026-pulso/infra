@@ -21,10 +21,18 @@ images = {
   }
 }
 
+# Profile. free_plan (default for now) is for an AWS Free Plan account: core host m7i-flex.large with Postgres in a
+# container, no NAT gateway, CloudFront with public origins, WAF off, CodeBuild SMALL. prod is the previous design
+# (RDS, NAT, VPC origins, WAF). See docs/costs.md and docs/decisions.md (ADR 0008).
+# profile       = "free_plan"   # or "prod"
+# database_mode = "container"   # container | rds (null = derived from the profile)
+# edge_enabled  = true          # false: come up without CloudFront (staged apply)
+# images.core may carry an optional digest-pinned ECR mirror: postgres = "<registry>/pulso-prod/postgres@sha256:..."
+
 # Optional levers (defaults shown).
-# enable_waf           = true    # about 8 USD per month; false to save it
+# enable_waf           = false   # about 8 USD per month; default false in free_plan, true in prod
 # enabled              = { core = true, platform = true, engine = true }   # per-host kill switch
-# instance_types       = { core = "t3.small", platform = "t3.small", engine = "t3.small" }
+# instance_types       = { core = "m7i-flex.large", platform = "t3.small", engine = "t3.small" }   # free_plan; prod: t3.small x3
 # data_volume_size_gb  = { core = 20, platform = 20, engine = 40 }
 # protect_data_volume  = true
 # engine_host_can_load = true    # the engine host runs the data loader (landing/ -> lake/)

@@ -1,5 +1,5 @@
-output "cloudfront_domain_name" { value = module.edge.cloudfront_domain_name }
-output "cloudfront_distribution_id" { value = module.edge.cloudfront_distribution_id }
+output "cloudfront_domain_name" { value = one(module.edge[*].cloudfront_domain_name) }
+output "cloudfront_distribution_id" { value = one(module.edge[*].cloudfront_distribution_id) }
 
 output "instance_ids" {
   value = {
@@ -17,7 +17,10 @@ output "private_ips" {
   }
 }
 
-output "db_endpoint" { value = module.data.db_endpoint }
+output "db_endpoint" {
+  description = "RDS endpoint, or the core host private DNS name (Postgres container) in container mode. Use it in the DSNs stored in the secret."
+  value       = local.container_db ? module.compute_core.private_zone_record : module.data.db_endpoint
+}
 output "bucket_name" { value = module.data.bucket_name }
 output "ssm_prefix" { value = module.data.ssm_prefix }
 output "secret_arn" { value = module.data.secret_arn }
@@ -74,5 +77,30 @@ output "host_user_data_sha256" {
     core     = module.compute_core.user_data_sha256
     platform = module.compute_platform.user_data_sha256
     engine   = module.compute_engine.user_data_sha256
+  }
+}
+
+output "host_public_dns" {
+  description = "Public DNS names of the hosts (free_plan; inbound is closed by the security groups except the CloudFront prefix list on the proxies)."
+  value = {
+    core     = module.compute_core.public_dns
+    platform = module.compute_platform.public_dns
+    engine   = module.compute_engine.public_dns
+  }
+}
+
+output "profile_effective" {
+  description = "Resolved profile values (what the profile and the overrides produced)."
+  value = {
+    profile                    = var.profile
+    database_mode              = local.db_mode
+    nat_gateway                = local.nat
+    hosts_public_ip            = local.public_hosts
+    edge_origin_mode           = local.origin_mode
+    edge_enabled               = var.edge_enabled
+    waf                        = local.waf
+    host_builder               = local.host_builder
+    instance_types             = local.instance_types
+    image_builder_compute_type = local.compute_type
   }
 }

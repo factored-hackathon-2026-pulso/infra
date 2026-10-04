@@ -33,8 +33,14 @@ variable "enabled" {
 }
 
 variable "instance_types" {
-  type    = map(string)
-  default = { core = "t3.small", platform = "t3.small", engine = "t3.small" }
+  type        = map(string)
+  default     = null
+  description = "Per host instance type. Null derives it from the profile: free_plan = core m7i-flex.large (8 GB, also runs Postgres), platform and engine t3.small; prod = t3.small x3. In the free_plan profile only the Free Tier eligible types are accepted."
+
+  validation {
+    condition     = var.instance_types == null || var.profile != "free_plan" || alltrue([for t in values(var.instance_types) : contains(["c7i-flex.large", "m7i-flex.large", "t3.micro", "t3.small", "t4g.micro", "t4g.small", "t8i.micro", "t8i.small"], t)])
+    error_message = "The free_plan profile accepts only Free Tier eligible instance types: c7i-flex.large, m7i-flex.large, t3.micro, t3.small, t4g.micro, t4g.small, t8i.micro, t8i.small (t4g is arm64 and needs arm64 images and AMI; prefer x86 types)."
+  }
 }
 
 variable "data_volume_size_gb" {
@@ -69,8 +75,8 @@ variable "images" {
 
 variable "enable_waf" {
   type        = bool
-  default     = true
-  description = "WAFv2 web ACL on the distribution (about 8 USD per month plus requests). Set false to save the cost."
+  default     = null
+  description = "WAFv2 web ACL on the distribution (about 8 USD per month plus requests). Null derives it from the profile: on in prod, OFF in free_plan (the free plan may refuse WAF)."
 }
 
 variable "engine_host_can_load" {
@@ -116,12 +122,58 @@ variable "enable_image_builder" {
 
 variable "image_builder_compute_type" {
   type        = string
-  default     = "BUILD_GENERAL1_MEDIUM"
-  description = "CodeBuild compute type for image builds (Linux x86_64). MEDIUM is 4 vCPU and 7 GB; use BUILD_GENERAL1_LARGE for a slow Rust build."
+  default     = null
+  description = "CodeBuild compute type for image builds (Linux x86_64). Null derives it from the profile: BUILD_GENERAL1_SMALL (3 GB, may OOM on the Rust release build: use scripts/aws-prod.ps1 images -Builder host) in free_plan, BUILD_GENERAL1_MEDIUM (7 GB) in prod; BUILD_GENERAL1_LARGE for a slow Rust build."
 }
 
 variable "ecr_repository_prefix" {
   type        = string
   default     = "pulso-prod"
   description = "Prefix of the ECR repositories created by terraform/bootstrap (<prefix>/core-runtime, ...). Must match the bootstrap variable of the same name."
+}
+
+variable "profile" {
+  type        = string
+  default     = "free_plan"
+  description = "free_plan (default for now): AWS Free Plan account. Core host m7i-flex.large with Postgres as a container, no NAT gateway (hosts in public subnets, outbound-only), CloudFront with public origins, WAF off, CodeBuild SMALL. prod: the previous design (RDS, NAT, VPC origins, WAF, t3.small hosts). Every derived value can still be overridden by its own variable."
+
+  validation {
+    condition     = contains(["prod", "free_plan"], var.profile)
+    error_message = "profile must be prod or free_plan."
+  }
+}
+
+variable "database_mode" {
+  type        = string
+  default     = null
+  description = "container (Postgres 16 in the core host compose bundle, own EBS volume, daily snapshots) or rds. Null derives it from the profile: container in free_plan, rds in prod."
+
+  validation {
+    condition     = var.database_mode == null || contains(["container", "rds"], var.database_mode)
+    error_message = "database_mode must be container or rds."
+  }
+}
+
+variable "enable_nat" {
+  type        = bool
+  default     = null
+  description = "NAT gateway for private hosts. Null derives it from the profile: off in free_plan (hosts in public subnets with public IPs, inbound closed), on in prod."
+}
+
+variable "edge_enabled" {
+  type        = bool
+  default     = true
+  description = "Create the CloudFront distribution (and WAF). false brings the stack up without an edge (apply in stages; the hosts stay closed, use SSM for tests)."
+}
+
+variable "enable_host_builder" {
+  type        = bool
+  default     = null
+  description = "Let the core host build and push images (scripts/aws-prod.ps1 images -Builder host). Null derives it from the profile: on in free_plan, off in prod."
+}
+
+variable "db_volume_size_gb" {
+  type        = number
+  default     = 30
+  description = "Postgres container data volume (free_plan, database_mode=container), snapshotted daily."
 }

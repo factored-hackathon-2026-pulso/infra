@@ -19,6 +19,29 @@ locals {
 
   account_id = data.aws_caller_identity.current.account_id
 
+  # Profile (free_plan | prod): every derived value can be overridden by its own variable.
+  free_plan    = var.profile == "free_plan"
+  db_mode      = coalesce(var.database_mode, local.free_plan ? "container" : "rds")
+  nat          = var.enable_nat == null ? !local.free_plan : var.enable_nat
+  waf          = var.enable_waf == null ? !local.free_plan : var.enable_waf
+  host_builder = var.enable_host_builder == null ? local.free_plan : var.enable_host_builder
+  instance_types = coalesce(var.instance_types, local.free_plan ?
+    { core = "m7i-flex.large", platform = "t3.small", engine = "t3.small" } :
+  { core = "t3.small", platform = "t3.small", engine = "t3.small" })
+  compute_type = coalesce(var.image_builder_compute_type, local.free_plan ? "BUILD_GENERAL1_SMALL" : "BUILD_GENERAL1_MEDIUM")
+  container_db = local.db_mode == "container"
+  public_hosts = !local.nat
+  origin_mode  = local.public_hosts ? "public" : "vpc"
+
+  # Postgres container bundle on the core host: compose override and the repository SQL run by the initdb script.
+  core_db_files = local.container_db ? {
+    "compose.postgres.yaml"             = file("${path.module}/../../../deploy/hackathon/core/compose.postgres.yaml")
+    "initdb/10_init.sh"                 = file("${path.module}/../../../deploy/hackathon/core/initdb/10_init.sh")
+    "initdb/sql/00_databases_roles.sql" = file("${path.module}/../../modules/hackathon_data/sql/00_databases_roles.sql")
+    "initdb/sql/10_core_grants.sql"     = file("${path.module}/../../modules/hackathon_data/sql/10_core_grants.sql")
+    "initdb/sql/30_pulso_logins.sql"    = file("${path.module}/../../modules/hackathon_data/sql/30_pulso_logins.sql")
+  } : {}
+
   ecr_registry_url = coalesce(var.ecr_registry_url, "${local.account_id}.dkr.ecr.${var.region}.amazonaws.com")
 
   # Defaults for a single-account prod: the IAM users and the root of THIS account (roles, i.e. the hosts, never
@@ -37,10 +60,12 @@ locals {
 }
 
 module "network" {
-  source = "../../modules/hackathon_network"
-  name   = var.name_prefix
-  region = var.region
-  tags   = local.tags
+  source        = "../../modules/hackathon_network"
+  name          = var.name_prefix
+  region        = var.region
+  enable_nat    = local.nat
+  database_mode = local.db_mode
+  tags          = local.tags
 }
 
 module "data" {
@@ -48,6 +73,7 @@ module "data" {
   name_prefix   = var.name_prefix
   region        = var.region
   vpc_id        = module.network.vpc_id
+  database_mode = local.db_mode
   db_subnet_ids = module.network.db_subnet_ids
   sg_db_id      = module.network.sg_db_id
 
@@ -78,6 +104,8 @@ module "iam" {
   ecr_repository_arns_core     = local.ecr_arns.core
   ecr_repository_arns_platform = local.ecr_arns.platform
   ecr_repository_arns_engine   = local.ecr_arns.engine
+  enable_host_builder          = local.host_builder
+  ecr_push_repository_arns     = distinct(concat(local.ecr_arns.core, local.ecr_arns.platform, local.ecr_arns.engine))
   tags                         = local.tags
 }
 # One EC2 per workload; each reads only its own slice of the one secret.
@@ -87,8 +115,9 @@ module "compute_core" {
   region                  = var.region
   workload                = "core"
   enabled                 = var.enabled["core"]
-  instance_type           = var.instance_types["core"]
-  subnet_id               = module.network.private_subnet_ids[0]
+  instance_type           = local.instance_types["core"]
+  subnet_id               = module.network.host_subnet_ids[0]
+  associate_public_ip     = local.public_hosts
   security_group_ids      = [module.network.sg_core_id]
   instance_profile_name   = module.iam.instance_profile_name_core
   private_zone_id         = module.network.zone_id
@@ -101,6 +130,10 @@ module "compute_core" {
   kms_key_arn             = module.data.kms_key_arn
   ecr_registry_url        = local.ecr_registry_url
   images                  = var.images.core
+  db_volume_size_gb       = local.container_db ? var.db_volume_size_gb : 0
+  extra_service_envs      = local.container_db ? ["db"] : []
+  compose_files           = local.container_db ? ["compose.yaml", "compose.postgres.yaml"] : ["compose.yaml"]
+  extra_bundle_files      = local.core_db_files
   tags                    = local.tags
 }
 
@@ -110,8 +143,9 @@ module "compute_platform" {
   region                  = var.region
   workload                = "platform"
   enabled                 = var.enabled["platform"]
-  instance_type           = var.instance_types["platform"]
-  subnet_id               = module.network.private_subnet_ids[0]
+  instance_type           = local.instance_types["platform"]
+  subnet_id               = module.network.host_subnet_ids[0]
+  associate_public_ip     = local.public_hosts
   security_group_ids      = [module.network.sg_platform_id]
   instance_profile_name   = module.iam.instance_profile_name_platform
   private_zone_id         = module.network.zone_id
@@ -133,8 +167,9 @@ module "compute_engine" {
   region                  = var.region
   workload                = "engine"
   enabled                 = var.enabled["engine"]
-  instance_type           = var.instance_types["engine"]
-  subnet_id               = module.network.private_subnet_ids[0]
+  instance_type           = local.instance_types["engine"]
+  subnet_id               = module.network.host_subnet_ids[0]
+  associate_public_ip     = local.public_hosts
   security_group_ids      = [module.network.sg_engine_id]
   instance_profile_name   = module.iam.instance_profile_name_engine
   private_zone_id         = module.network.zone_id
@@ -151,6 +186,7 @@ module "compute_engine" {
 }
 
 module "edge" {
+  count  = var.edge_enabled ? 1 : 0
   source = "../../modules/hackathon_edge"
   providers = {
     aws           = aws
@@ -159,10 +195,12 @@ module "edge" {
 
   name                 = var.name_prefix
   platform_origin_arn  = module.compute_platform.instance_arn
-  platform_origin_host = module.compute_platform.private_dns
+  origin_mode          = local.origin_mode
+  origin_secret        = module.data.origin_verify_secret
+  platform_origin_host = local.public_hosts ? module.compute_platform.public_dns : module.compute_platform.private_dns
   engine_origin_arn    = module.compute_engine.instance_arn
-  engine_origin_host   = module.compute_engine.private_dns
-  enable_waf           = var.enable_waf
+  engine_origin_host   = local.public_hosts ? module.compute_engine.public_dns : module.compute_engine.private_dns
+  enable_waf           = local.waf
   tags                 = local.tags
 }
 
@@ -190,7 +228,7 @@ module "image_builder" {
   kms_key_arn  = module.data.kms_key_arn
   ecr_registry = local.ecr_registry_url
   services     = local.build_services
-  compute_type = var.image_builder_compute_type
+  compute_type = local.compute_type
   tags         = local.tags
 }
 
