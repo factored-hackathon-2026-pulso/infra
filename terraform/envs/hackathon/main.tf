@@ -2,18 +2,34 @@ provider "aws" {
   region = var.region
 }
 
+# CloudFront-scope WAF web ACLs exist only in us-east-1, whatever the main region is.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
+data "aws_caller_identity" "current" {}
+
 locals {
   tags = {
     ManagedBy   = "terraform"
     Service     = "pulso-hackathon"
     Environment = "hackathon"
   }
+
+  # ECR repositories per host, derived from the digest-pinned image references (repo@sha256:...).
+  ecr_arns = {
+    for w, imgs in var.images : w => distinct([
+      for v in values(imgs) : "arn:aws:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/${split("@", v)[0]}"
+    ])
+  }
 }
 
 module "network" {
-  source      = "../../modules/hackathon_network"
-  name_prefix = var.name_prefix
-  region      = var.region
+  source = "../../modules/hackathon_network"
+  name   = var.name_prefix
+  region = var.region
+  tags   = local.tags
 }
 
 module "data" {
@@ -23,17 +39,33 @@ module "data" {
   vpc_id        = module.network.vpc_id
   db_subnet_ids = module.network.db_subnet_ids
   sg_db_id      = module.network.sg_db_id
+
+  # Deny-only bucket policy: the reads of landing/ are bound to the S3 gateway endpoint of this VPC.
+  s3_vpc_endpoint_id         = module.network.s3_gateway_endpoint_id
+  loader_role_arns           = var.loader_role_arns
+  uploader_principal_arns    = var.uploader_principal_arns
+  break_glass_principal_arns = var.break_glass_principal_arns
+  tags                       = local.tags
 }
 
 module "iam" {
-  source                   = "../../modules/hackathon_iam"
-  name_prefix              = var.name_prefix
-  bucket_arn               = module.data.bucket_arn
-  ssm_parameter_arn_prefix = module.data.ssm_parameter_arn_prefix
-  secret_arn               = module.data.secret_arn
-  kms_key_arn              = module.data.kms_key_arn
-}
+  source                    = "../../modules/hackathon_iam"
+  name                      = var.name_prefix
+  region                    = var.region
+  ssm_parameter_path_prefix = module.data.ssm_prefix
+  s3_bucket_name            = module.data.bucket_name
+  secret_arn                = module.data.secret_arn
+  kms_key_arn               = module.data.kms_key_arn
 
+  # The engine host is not the loader: it reads only the masked and analytics zones (landing/ and lake/bronze/
+  # are denied to it by the bucket policy and must stay so).
+  engine_lake_read_prefixes = ["lake/gold_masked", "lake/gold_analytics"]
+
+  ecr_repository_arns_core     = local.ecr_arns.core
+  ecr_repository_arns_platform = local.ecr_arns.platform
+  ecr_repository_arns_engine   = local.ecr_arns.engine
+  tags                         = local.tags
+}
 # One EC2 per workload; each reads only its own slice of the one secret.
 module "compute_core" {
   source                  = "../../modules/hackathon_compute"
@@ -105,12 +137,17 @@ module "compute_engine" {
 }
 
 module "edge" {
-  source               = "../../modules/hackathon_edge"
-  name_prefix          = var.name_prefix
-  vpc_id               = module.network.vpc_id
-  private_subnet_ids   = module.network.private_subnet_ids
-  platform_instance_id = module.compute_platform.instance_id
-  platform_private_ip  = module.compute_platform.private_ip
-  engine_instance_id   = module.compute_engine.instance_id
-  engine_private_ip    = module.compute_engine.private_ip
+  source = "../../modules/hackathon_edge"
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
+  name                 = var.name_prefix
+  platform_origin_arn  = module.compute_platform.instance_arn
+  platform_origin_host = module.compute_platform.private_dns
+  engine_origin_arn    = module.compute_engine.instance_arn
+  engine_origin_host   = module.compute_engine.private_dns
+  enable_waf           = var.enable_waf
+  tags                 = local.tags
 }

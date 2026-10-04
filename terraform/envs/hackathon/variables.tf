@@ -44,3 +44,27 @@ variable "images" {
   })
   description = "Digest-pinned image refs per host. core: core, gateway. platform: support_api, support_web, proxy. engine: pulso, proxy."
 }
+
+variable "enable_waf" {
+  type        = bool
+  default     = true
+  description = "WAFv2 web ACL on the distribution (about 8 USD per month plus requests). Set false to save the cost."
+}
+
+variable "loader_role_arns" {
+  type        = list(string)
+  default     = []
+  description = "Roles allowed to read landing/ and lake/bronze/ (PII in the clear): the data loader."
+}
+
+variable "uploader_principal_arns" {
+  type        = list(string)
+  default     = []
+  description = "Principals (the human uploading the data) allowed to PUT into landing/."
+}
+
+variable "break_glass_principal_arns" {
+  type        = list(string)
+  default     = []
+  description = "Principals exempt from the landing/ VPC-endpoint restriction and the PII deny (keep to the account admin role)."
+}

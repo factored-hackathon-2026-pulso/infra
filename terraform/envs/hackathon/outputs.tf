@@ -20,3 +20,15 @@ output "private_ips" {
 output "db_endpoint" { value = module.data.db_endpoint }
 output "bucket_name" { value = module.data.bucket_name }
 output "ssm_prefix" { value = module.data.ssm_prefix }
+output "secret_arn" { value = module.data.secret_arn }
+output "kms_key_arn" { value = module.data.kms_key_arn }
+output "instance_role_arns" {
+  value = {
+    core     = module.iam.instance_role_arn_core
+    platform = module.iam.instance_role_arn_platform
+    engine   = module.iam.instance_role_arn_engine
+  }
+}
+output "uploader_policy_json" { value = module.data.uploader_policy_json }
+output "loader_policy_json" { value = module.data.loader_policy_json }
+output "private_zone_name" { value = module.network.zone_name }
