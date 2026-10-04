@@ -100,6 +100,30 @@ locals {
           Resource = ["${local.bucket_arn}/lake/*"]
         },
       ] : [],
+      w == "core" && var.enable_host_builder ? [
+        {
+          Sid      = "EcrPush"
+          Effect   = "Allow"
+          Action   = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:DescribeImages"]
+          Resource = var.ecr_push_repository_arns
+        },
+      ] : [],
+      w == "core" && var.enable_host_builder ? [
+        {
+          Sid      = "BuildSourceRead"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject"]
+          Resource = "${local.bucket_arn}/engine/build-src/*"
+        },
+      ] : [],
+      w == "core" && var.enable_host_builder ? [
+        {
+          Sid      = "BuildRecordWrite"
+          Effect   = "Allow"
+          Action   = ["s3:PutObject"]
+          Resource = "${local.bucket_arn}/engine/build-out/*"
+        },
+      ] : [],
       length(c.ro) == 0 ? [] : [
         {
           Sid      = "ObjectReadOnly"

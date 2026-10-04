@@ -85,3 +85,15 @@ variable "engine_can_load" {
   description = "Let the engine host run the data loader: read landing/ and lake/ and write lake/ (the loader policy). Core and platform never get this."
   default     = false
 }
+
+variable "enable_host_builder" {
+  type        = bool
+  description = "free_plan fallback: the core host builds images itself (scripts/aws-prod.ps1 images -Builder host). Grants the CORE role ECR push on ecr_push_repository_arns, read of engine/build-src/ and write of engine/build-out/."
+  default     = false
+}
+
+variable "ecr_push_repository_arns" {
+  type        = list(string)
+  description = "ECR repositories the core host may push to when enable_host_builder is true."
+  default     = []
+}

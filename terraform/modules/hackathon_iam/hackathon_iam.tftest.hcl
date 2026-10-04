@@ -238,3 +238,39 @@ run "engine_cannot_load_by_default" {
     error_message = "Without engine_can_load the engine has no landing/ access and cannot write lake/."
   }
 }
+
+# ---- free_plan fallback: images are built on the core host (scripts/aws-prod.ps1 images -Builder host) ----
+
+run "host_builder_is_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = !contains([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s.Sid], "EcrPush")
+    error_message = "No ECR push permission on any host unless enable_host_builder."
+  }
+}
+
+run "host_builder_gives_only_the_core_host_push_and_build_object_access" {
+  command = plan
+  variables {
+    enable_host_builder      = true
+    ecr_push_repository_arns = ["arn:aws:ecr:us-east-1:123456789012:repository/hk/core", "arn:aws:ecr:us-east-1:123456789012:repository/hk/platform"]
+  }
+
+  assert {
+    condition     = contains([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s.Sid], "EcrPush") && contains([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s.Sid], "BuildSourceRead") && contains([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s.Sid], "BuildRecordWrite")
+    error_message = "Core host: push to the listed repositories, read engine/build-src/, write engine/build-out/."
+  }
+  assert {
+    condition     = alltrue([for w in ["platform", "engine"] : !contains([for s in jsondecode(aws_iam_policy.host[w].policy).Statement : s.Sid], "EcrPush")])
+    error_message = "Platform and engine never push images."
+  }
+  assert {
+    condition     = toset(flatten([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s.Sid == "BuildSourceRead" ? [s.Resource] : []])) == toset(["arn:aws:s3:::hk-data-bucket/engine/build-src/*"]) && toset(flatten([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s.Sid == "BuildRecordWrite" ? [s.Resource] : []])) == toset(["arn:aws:s3:::hk-data-bucket/engine/build-out/*"])
+    error_message = "Build objects are scoped to engine/build-src/ (read) and engine/build-out/ (write)."
+  }
+  assert {
+    condition     = alltrue([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s.Effect == "Allow" && length([for a in flatten([s.Action]) : a if endswith(a, "*")]) > 0 ? false : true])
+    error_message = "Still no wildcard actions."
+  }
+}
