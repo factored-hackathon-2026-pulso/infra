@@ -15,3 +15,6 @@ data/
 !*.tfvars.example
 release-out/
 backend.hcl
+
+# Nexus hook receipts must never be committed
+.nexus-outbox/
