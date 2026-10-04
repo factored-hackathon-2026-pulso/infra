@@ -75,10 +75,9 @@ mock_provider "aws" {
   alias = "us_east_1"
 }
 
+# region, cloudfront_waf_region, ecr_registry_url, the principal lists and name_prefix are deliberately NOT set:
+# a fresh prod account must plan with defaults only.
 variables {
-  region                = "us-east-1"
-  cloudfront_waf_region = "us-east-1"
-  ecr_registry_url      = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
   images = {
     core = {
       core    = "r/agent-core@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -125,5 +124,65 @@ run "per_host_kill_switch" {
   assert {
     condition     = module.compute_core.instance_id != ""
     error_message = "Core can be stopped independently of the others."
+  }
+}
+
+run "prod_defaults_need_no_region_or_registry_input" {
+  command = apply
+
+  assert {
+    condition     = output.environment == "prod" && output.name_prefix == "pulso-prod"
+    error_message = "One environment called prod with the pulso-prod name prefix."
+  }
+
+  assert {
+    condition     = output.ecr_registry_url_effective == "123456789012.dkr.ecr.us-east-1.amazonaws.com"
+    error_message = "The registry URL is derived from the caller account and region."
+  }
+}
+
+run "engine_host_loads_by_default_and_admins_can_upload" {
+  command = apply
+
+  assert {
+    condition     = contains(output.loader_role_arns_effective, output.instance_role_arns["engine"]) && !contains(output.loader_role_arns_effective, output.instance_role_arns["core"]) && !contains(output.loader_role_arns_effective, output.instance_role_arns["platform"])
+    error_message = "Only the engine host role is a loader by default."
+  }
+
+  assert {
+    condition     = contains(output.uploader_principal_arns_effective, "arn:aws:iam::123456789012:user/*") && contains(output.uploader_principal_arns_effective, "arn:aws:iam::123456789012:root")
+    error_message = "By default the account's IAM users and root may upload to landing/ (hosts are roles and never match)."
+  }
+
+  assert {
+    condition     = contains(output.break_glass_principal_arns_effective, "arn:aws:iam::123456789012:root")
+    error_message = "Break-glass defaults to the account's users and root."
+  }
+}
+
+run "engine_host_can_load_false_removes_the_loader" {
+  command = apply
+
+  variables {
+    engine_host_can_load = false
+  }
+
+  assert {
+    condition     = length(output.loader_role_arns_effective) == 0
+    error_message = "With engine_host_can_load=false only explicit loader_role_arns remain."
+  }
+}
+
+run "explicit_principal_lists_replace_the_defaults" {
+  command = apply
+
+  variables {
+    uploader_principal_arns    = ["arn:aws:iam::123456789012:user/only-me"]
+    break_glass_principal_arns = ["arn:aws:iam::123456789012:user/only-me"]
+  }
+
+  assert {
+    condition     = output.uploader_principal_arns_effective == tolist(["arn:aws:iam::123456789012:user/only-me"])
+    error_message = "Explicit lists win over the account defaults."
   }
 }
