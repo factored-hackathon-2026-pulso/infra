@@ -252,8 +252,8 @@ run "deploy_bundle_prefix_is_never_expired" {
   command = plan
 
   assert {
-    condition     = alltrue([for r in aws_s3_bucket_lifecycle_configuration.data.rule : length(r.expiration) == 0 || contains(["tmp/", "logs/"], one(r.filter).prefix)])
-    error_message = "Only tmp/ and logs/ may expire current objects; engine/deploy/ (compose bundles) must not."
+    condition     = alltrue([for r in aws_s3_bucket_lifecycle_configuration.data.rule : length(r.expiration) == 0 || contains(["tmp/", "logs/", "engine/build-src/", "engine/build-out/"], one(r.filter).prefix)])
+    error_message = "Only tmp/, logs/ and the image-build scratch prefixes may expire current objects; engine/deploy/ (compose bundles) must not."
   }
 }
 run "loader_roles_are_exempt_from_the_vpce_restriction_but_others_are_not" {
@@ -273,5 +273,18 @@ run "loader_roles_are_exempt_from_the_vpce_restriction_but_others_are_not" {
   assert {
     condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Effect == "Allow"]) == 0 && length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyInsecureTransport"]) == 1
     error_message = "The policy stays deny-only and TLS-only."
+  }
+}
+
+run "image_build_prefixes_expire_after_14_days" {
+  command = plan
+
+  assert {
+    condition     = length([for r in aws_s3_bucket_lifecycle_configuration.data.rule : r if r.id == "build-src-14d" && one(r.filter).prefix == "engine/build-src/" && one(r.expiration).days == 14]) == 1
+    error_message = "Source zips under engine/build-src/ expire after 14 days."
+  }
+  assert {
+    condition     = length([for r in aws_s3_bucket_lifecycle_configuration.data.rule : r if r.id == "build-out-14d" && one(r.filter).prefix == "engine/build-out/" && one(r.expiration).days == 14]) == 1
+    error_message = "Build records under engine/build-out/ expire after 14 days."
   }
 }
