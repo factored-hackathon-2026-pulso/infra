@@ -58,3 +58,10 @@ jobs:
             terraform "-chdir=terraform/modules/$module" test
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Test data pipeline lake module without cloud access
+        shell: pwsh
+        run: |
+          terraform -chdir=terraform/modules/data_lake init -backend=false -input=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          terraform -chdir=terraform/modules/data_lake test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
