@@ -44,6 +44,23 @@ variable "flow_logs_retention_days" {
   default     = 7
 }
 
+variable "enable_nat" {
+  type        = bool
+  description = "Create the single NAT gateway (paid hourly). false (free_plan): hosts use the public subnets with public IPs, outbound-only."
+  default     = true
+}
+
+variable "database_mode" {
+  type        = string
+  description = "rds: isolated db subnets and the db SG. container: Postgres runs on the core host (no db subnets; core SG accepts 5432 from platform and engine)."
+  default     = "rds"
+
+  validation {
+    condition     = contains(["rds", "container"], var.database_mode)
+    error_message = "database_mode must be rds or container."
+  }
+}
+
 variable "tags" {
   type        = map(string)
   description = "Tags applied to every resource."

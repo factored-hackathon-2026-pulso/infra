@@ -7,6 +7,15 @@ output "public_subnet_ids" {
   value       = [for k in sort(keys(aws_subnet.public)) : aws_subnet.public[k].id]
 }
 
+output "host_subnet_ids" {
+  description = "Where the hosts live: private subnets behind the NAT, or the public subnets (public IP, outbound-only) without NAT."
+  value       = var.enable_nat ? [for k in sort(keys(aws_subnet.private)) : aws_subnet.private[k].id] : [for k in sort(keys(aws_subnet.public)) : aws_subnet.public[k].id]
+}
+
+output "hosts_get_public_ip" {
+  value = !var.enable_nat
+}
+
 output "private_subnet_ids" {
   description = "Host subnets: no public IP, egress via the single NAT."
   value       = [for k in sort(keys(aws_subnet.private)) : aws_subnet.private[k].id]
@@ -44,7 +53,8 @@ output "zone_name" {
 }
 
 output "sg_db_id" {
-  value = aws_security_group.db.id
+  description = "Null in container database mode."
+  value       = one(aws_security_group.db[*].id)
 }
 
 output "s3_gateway_endpoint_id" {
@@ -52,5 +62,5 @@ output "s3_gateway_endpoint_id" {
 }
 
 output "nat_gateway_id" {
-  value = aws_nat_gateway.this[0].id
+  value = one(aws_nat_gateway.this[*].id)
 }
