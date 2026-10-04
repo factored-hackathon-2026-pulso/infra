@@ -59,3 +59,51 @@ run "unprotected_volume_toggle" {
     error_message = "protect_data_volume=false selects the destroyable volume."
   }
 }
+
+# An inactive host (enabled=false) is created like any other and then stopped; toggling never replaces the instance.
+run "inactive_host_is_created_with_both_attachments" {
+  command = apply
+  variables {
+    enabled             = false
+    associate_public_ip = true
+    db_volume_size_gb   = 20
+  }
+  assert {
+    condition     = aws_ec2_instance_state.this.state == "stopped"
+    error_message = "enabled=false ends stopped."
+  }
+  assert {
+    condition     = aws_volume_attachment.data.device_name == "/dev/sdf" && length(aws_volume_attachment.db) == 1
+    error_message = "the data and the Postgres volumes are attached to an inactive host."
+  }
+}
+
+run "enable_the_same_host" {
+  command = apply
+  variables {
+    enabled             = true
+    associate_public_ip = true
+    db_volume_size_gb   = 20
+  }
+  assert {
+    condition     = aws_ec2_instance_state.this.state == "running"
+    error_message = "enabled=true starts the host."
+  }
+}
+
+run "disable_again_keeps_the_instance" {
+  command = apply
+  variables {
+    enabled             = false
+    associate_public_ip = true
+    db_volume_size_gb   = 20
+  }
+  assert {
+    condition     = aws_ec2_instance_state.this.state == "stopped" && aws_instance.this.id == run.enable_the_same_host.instance_id
+    error_message = "toggling enabled never replaces the instance (same instance id across toggles)."
+  }
+  assert {
+    condition     = aws_volume_attachment.data.instance_id == run.enable_the_same_host.instance_id
+    error_message = "attachments keep pointing at the same instance."
+  }
+}

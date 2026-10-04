@@ -297,10 +297,8 @@ run "public_ip_only_when_asked" {
     associate_public_ip = true
   }
 
-  assert {
-    condition     = aws_instance.this.associate_public_ip_address
-    error_message = "free_plan hosts sit in public subnets and need a public IP for outbound-only egress."
-  }
+  # associate_public_ip_address is in ignore_changes (a stopped host has no public IP), which the mock provider cannot
+  # report; tests/test_compute_inactive_host_contract.py asserts the wiring var.associate_public_ip instead.
   assert {
     condition     = length(aws_ebs_volume.db_protected) == 0 && length(aws_ebs_volume.db_unprotected) == 0
     error_message = "No database volume by default."

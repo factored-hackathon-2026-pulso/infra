@@ -101,6 +101,12 @@ resource "aws_instance" "this" {
   }
 
   tags = merge(local.tags, { Name = "${local.name}-host" })
+
+  # A stopped instance has no public IP, so the provider reads associate_public_ip_address back as false; that attribute
+  # is ForceNew, and without this a re-plan of an inactive (enabled=false) host would REPLACE the instance.
+  lifecycle {
+    ignore_changes = [associate_public_ip_address]
+  }
 }
 
 resource "aws_ebs_volume" "data_protected" {
@@ -161,9 +167,13 @@ resource "aws_volume_attachment" "data" {
   instance_id = aws_instance.this.id
 }
 
+# Inactive hosts are created RUNNING (EBS volumes attach only to a running instance, and user_data needs a boot to be
+# valid) and are stopped here, strictly after both attachments exist.
 resource "aws_ec2_instance_state" "this" {
   instance_id = aws_instance.this.id
   state       = var.enabled ? "running" : "stopped"
+
+  depends_on = [aws_volume_attachment.data, aws_volume_attachment.db]
 }
 
 data "aws_iam_policy_document" "dlm_assume" {
