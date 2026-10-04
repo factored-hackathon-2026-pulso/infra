@@ -178,3 +178,73 @@ run "flow_logs_toggle" {
     error_message = "Toggle creates the flow log."
   }
 }
+
+# ---- free_plan profile: no NAT gateway, hosts in public subnets, database on the core host ----
+
+run "free_plan_has_no_nat_and_hosts_use_public_subnets" {
+  command = plan
+  variables {
+    enable_nat    = false
+    database_mode = "container"
+  }
+
+  assert {
+    condition     = length(aws_nat_gateway.this) == 0 && length(aws_eip.nat) == 0 && length(aws_route.private_default) == 0
+    error_message = "enable_nat=false removes the NAT gateway, its EIP and the private default route."
+  }
+  assert {
+    condition     = length(output.host_subnet_ids) == 2 && output.hosts_get_public_ip
+    error_message = "Without NAT the hosts live in the public subnets (public IP, outbound-only SG)."
+  }
+  assert {
+    condition     = length(aws_route.public_default) == 1
+    error_message = "Public subnets keep the internet gateway default route."
+  }
+}
+
+run "container_database_drops_isolated_subnets_and_db_sg" {
+  command = plan
+  variables {
+    enable_nat    = false
+    database_mode = "container"
+  }
+
+  assert {
+    condition     = length(aws_subnet.db) == 0 && length(aws_security_group.db) == 0 && length(aws_route_table.db) == 0
+    error_message = "Isolated db subnets and the db SG exist only in rds mode."
+  }
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.core_pg_from) == 2
+    error_message = "Core accepts 5432 from the platform and engine SGs only (sibling SGs)."
+  }
+  assert {
+    condition     = length(aws_vpc_security_group_egress_rule.pg_to_core) == 2
+    error_message = "Platform and engine may egress 5432 to the core SG."
+  }
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.platform_cloudfront.prefix_list_id != null && aws_vpc_security_group_ingress_rule.engine_cloudfront.prefix_list_id != null
+    error_message = "Proxies stay reachable only from the CloudFront origin-facing prefix list."
+  }
+}
+
+run "s3_endpoint_covers_public_route_table_without_nat" {
+  command = apply
+  variables {
+    enable_nat    = false
+    database_mode = "container"
+  }
+
+  assert {
+    condition     = length(aws_vpc_endpoint.s3.route_table_ids) == 2
+    error_message = "Hosts in public subnets reach S3 through the gateway endpoint as well."
+  }
+}
+
+run "rds_mode_keeps_the_previous_design" {
+  command = apply
+
+  assert {
+    condition     = length(aws_subnet.db) == 2 && length(aws_security_group.db) == 1 && length(aws_vpc_security_group_ingress_rule.core_pg_from) == 0
+    error_message = "Defaults (nat, rds) are the previous prod design."
+  }
+}
