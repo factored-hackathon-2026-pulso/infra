@@ -64,7 +64,7 @@ variable "images" {
     platform = map(string)
     engine   = map(string)
   })
-  description = "Digest-pinned image refs per host. core: core, gateway. platform: support_api, support_web, proxy. engine: pulso, proxy."
+  description = "Digest-pinned FULL image refs per host (<registry>/<repo>@sha256:...), as printed by scripts/aws-prod.ps1 images. core: core, gateway. platform: support_api, support_web, proxy. engine: pulso, proxy."
 }
 
 variable "enable_waf" {

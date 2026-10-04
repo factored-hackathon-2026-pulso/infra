@@ -31,7 +31,7 @@ locals {
   # ECR repositories per host, derived from the digest-pinned image references (repo@sha256:...).
   ecr_arns = {
     for w, imgs in var.images : w => distinct([
-      for v in values(imgs) : "arn:aws:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/${split("@", v)[0]}"
+      for v in values(imgs) : "arn:aws:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/${join("/", slice(split("/", split("@", v)[0]), 1, length(split("/", split("@", v)[0]))))}"
     ])
   }
 }

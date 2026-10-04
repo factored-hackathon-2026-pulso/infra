@@ -1,0 +1,33 @@
+# Copy to prod.tfvars (ignored by Git) and fill the image digests. `scripts/aws-prod.ps1 images` writes them for you.
+# No secrets belong here: secret values live only in Secrets Manager (docs/secrets-keys.md).
+# Everything else (region us-east-1, environment prod, name_prefix pulso-prod, registry URL, who may upload/load)
+# has a working default.
+
+# Required. Format <registry>/<repo>@sha256:<64 hex>, repos created by terraform/bootstrap (prefix "prod/").
+# Replace <registry> with <account id>.dkr.ecr.us-east-1.amazonaws.com and each digest with the pushed one.
+images = {
+  core = {
+    core    = "<registry>/prod/core-runtime@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    gateway = "<registry>/prod/llm-gateway@sha256:REPLACE_WITH_64_HEX_DIGEST"
+  }
+  platform = {
+    support_api = "<registry>/prod/support-platform-api@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    support_web = "<registry>/prod/support-platform-web@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    proxy       = "<registry>/prod/caddy@sha256:REPLACE_WITH_64_HEX_DIGEST"
+  }
+  engine = {
+    pulso = "<registry>/prod/pulso-engine@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    proxy = "<registry>/prod/caddy@sha256:REPLACE_WITH_64_HEX_DIGEST"
+  }
+}
+
+# Optional levers (defaults shown).
+# enable_waf           = true    # about 8 USD per month; false to save it
+# enabled              = { core = true, platform = true, engine = true }   # per-host kill switch
+# instance_types       = { core = "t3.small", platform = "t3.small", engine = "t3.small" }
+# data_volume_size_gb  = { core = 20, platform = 20, engine = 40 }
+# protect_data_volume  = true
+# engine_host_can_load = true    # the engine host runs the data loader (landing/ -> lake/)
+# uploader_principal_arns    = []   # empty = the account's IAM users and root may upload to landing/
+# break_glass_principal_arns = []
+# loader_role_arns           = []   # extra loader roles; the engine host role is added automatically
