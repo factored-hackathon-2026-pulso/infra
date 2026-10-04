@@ -52,6 +52,7 @@ param(
     [switch]$Rollback,
     [switch]$Yes,
     [string]$Stage = '',
+    [string]$Builder = 'codebuild',
     [switch]$LibraryOnly
 )
 
@@ -363,8 +364,88 @@ function Read-BuildRecord([string]$AwsProfile, [string]$Account, $svc, [string]$
     [pscustomobject]@{ Image = $rec.image; Digest = $Matches[1] }
 }
 
+# Free-plan fallback: build on the core host (images -Builder host). The CodeBuild small compute type may OOM on the Rust
+# release build; the core host (m7i-flex.large, 8 GB) builds with docker buildx through SSM Run Command instead.
+# Same inputs and outputs as the CodeBuild path: the source zip in S3, a build record in engine/build-out/.
+$script:HostBuild = @{
+    'core-runtime'         = @{ Dockerfile = 'core-bridge/Dockerfile'; Context = '.'; CoreContext = 'agent-core' }
+    'llm-gateway'          = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
+    'support-platform-api' = @{ Dockerfile = 'api/Dockerfile'; Context = 'api'; CoreContext = '' }
+    'support-platform-web' = @{ Dockerfile = 'web/Dockerfile'; Context = 'web'; CoreContext = '' }
+    'pulso-engine'         = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
+}
+
+function ConvertTo-BashQuoted([string]$Value) { "'" + ($Value -replace "'", "'\''") + "'" }
+
+function New-HostBuildLines($svc, [string]$Bucket, [string]$Registry, [string]$BuildId, [string]$SrcKey, [string]$Dockerfile, [string[]]$BuildArg, [string]$MirrorImage) {
+    $q = { param($v) ConvertTo-BashQuoted ([string]$v) }
+    $repoUri = "$Registry/$($svc.Repository)"
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add('set -euo pipefail')
+    $lines.Add('export DOCKER_BUILDKIT=1 AWS_DEFAULT_REGION=' + $script:Region)
+    $lines.Add('REGISTRY=' + (& $q $Registry))
+    $lines.Add('REPO=' + (& $q $svc.Repository))
+    $lines.Add('SERVICE=' + (& $q $svc.Name))
+    $lines.Add('BUILD_ID=' + (& $q $BuildId))
+    $lines.Add('REPO_URI="$REGISTRY/$REPO"')
+    $lines.Add('TAG="build-$BUILD_ID"')
+    $lines.Add('W=/srv/build/$BUILD_ID')
+    $lines.Add('mkdir -p "$W"; trap ''rm -rf "$W"'' EXIT; cd "$W"')
+    $lines.Add('# The Rust release build needs more than the stack leaves free: add swap once.')
+    $lines.Add('if ! swapon --show | grep -q .; then fallocate -l 4G /var/build-swap && chmod 600 /var/build-swap && mkswap /var/build-swap && swapon /var/build-swap; fi')
+    $lines.Add('aws ecr get-login-password --region ' + $script:Region + ' | docker login --username AWS --password-stdin "$REGISTRY"')
+    if ($MirrorImage) {
+        $lines.Add('MIRROR=' + (& $q $MirrorImage))
+        $lines.Add('docker pull --platform linux/amd64 "$MIRROR"')
+        $lines.Add('docker tag "$MIRROR" "$REPO_URI:$TAG"')
+    } else {
+        $hb = $script:HostBuild[$svc.Name]
+        $df = if ($Dockerfile) { $Dockerfile } else { $hb.Dockerfile }
+        $lines.Add('command -v unzip >/dev/null 2>&1 || dnf install -y unzip')
+        $lines.Add('docker buildx version >/dev/null 2>&1 || { install -d /usr/local/lib/docker/cli-plugins; curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-buildx https://github.com/docker/buildx/releases/download/v0.17.1/buildx-v0.17.1.linux-amd64; chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx; }')
+        $lines.Add('aws s3 cp ' + (& $q "s3://$Bucket/$SrcKey") + ' src.zip --region ' + $script:Region + ' --only-show-errors')
+        $lines.Add('unzip -q src.zip -d src')
+        $extra = ''
+        if ($hb.CoreContext) { $extra += ' --build-context core="$W/src/' + $hb.CoreContext + '"' }
+        foreach ($a in @($BuildArg)) { if ($a) { $extra += ' --build-arg ' + (& $q $a) } }
+        $lines.Add('docker buildx build --pull --load -f "$W/src/' + $df + '"' + $extra + ' -t "$REPO_URI:$TAG" "$W/src/' + $hb.Context + '"')
+    }
+    $lines.Add('docker push "$REPO_URI:$TAG"')
+    $lines.Add('DIGEST=$(aws ecr describe-images --repository-name "$REPO" --image-ids "imageTag=$TAG" --region ' + $script:Region + ' --query ''imageDetails[0].imageDigest'' --output text)')
+    $lines.Add('[[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest recorded for $TAG"; exit 1; }')
+    $lines.Add('printf ''{"image":"%s@%s","digest":"%s"}\n'' "$REPO_URI" "$DIGEST" "$DIGEST" > build-record.json')
+    $lines.Add('aws s3 cp build-record.json ' + (& $q "s3://$Bucket/engine/build-out/$($svc.Name)/$BuildId.json") + ' --region ' + $script:Region + ' --only-show-errors')
+    $lines.Add('echo "IMAGE=$REPO_URI@$DIGEST"')
+    , $lines.ToArray()
+}
+
+function Invoke-HostBuild([string]$AwsProfile, $svc, [string]$Bucket, [string]$Registry, [string]$BuildId, [string]$SrcKey, $p, [bool]$Mirror) {
+    $found = ((Invoke-Aws -AwsProfile $AwsProfile -CliArgs @('ec2', 'describe-instances', '--filters', 'Name=tag:Workload,Values=core', 'Name=instance-state-name,Values=running',
+                '--query', 'Reservations[].Instances[].InstanceId', '--output', 'text')) -join ' ').Trim()
+    $instance = ($found -split '\s+' | Where-Object { $_ -match '^i-[0-9a-f]{8,17}$' } | Select-Object -First 1)
+    if (-not $instance) { throw 'No running core host found (tag Workload=core). Apply the compute stage first, or use -Builder codebuild.' }
+    Write-Host "Builder       : core host $instance (SSM Run Command + docker buildx; no CodeBuild)"
+    $lines = New-HostBuildLines $svc $Bucket $Registry $BuildId $SrcKey $p.Dockerfile @($p.BuildArg) $(if ($Mirror) { $p.MirrorImage } else { '' })
+    $file = Join-Path (Get-WorkDir) "host-build-$BuildId.json"
+    $doc = [ordered]@{ commands = @($lines); executionTimeout = @('3600') }
+    [IO.File]::WriteAllText($file, ($doc | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
+    $cmdId = ((Invoke-Aws -AwsProfile $AwsProfile -CliArgs @('ssm', 'send-command', '--instance-ids', $instance, '--document-name', 'AWS-RunShellScript',
+                '--parameters', ('file://' + ($file -replace '\\', '/')), '--comment', "pulso image build $($svc.Name) $BuildId", '--query', 'Command.CommandId', '--output', 'text')) -join '').Trim()
+    Write-Host "Started command $cmdId on $instance"
+    $result = @(Wait-DeployCommand $AwsProfile $cmdId)
+    $tail = ''
+    try { $tail = ((Invoke-Aws -AwsProfile $AwsProfile -CliArgs @('ssm', 'get-command-invocation', '--command-id', $cmdId, '--instance-id', $instance, '--query', 'StandardOutputContent', '--output', 'text')) -join "`n") } catch { }
+    if ($tail) { Write-Host ($tail.Split("`n") | Select-Object -Last 15 | ForEach-Object { "  | $_" } | Out-String).TrimEnd() }
+    if ($result.Count -eq 0 -or ($result | Where-Object { $_.Status -ne 'Success' })) {
+        throw "Host build command $cmdId ended with status $(($result | ForEach-Object { $_.Status }) -join ','). Output: aws ssm get-command-invocation --command-id $cmdId --instance-id $instance --profile $AwsProfile --region $($script:Region)"
+    }
+}
+
 function Invoke-ImagesCloud($p, $id) {
     $svc = Resolve-Service $p.Service
+    $builder = if ($p.Builder) { $p.Builder } else { 'codebuild' }
+    if ($builder -notin 'codebuild', 'host') { throw "-Builder must be codebuild (default) or host (build on the core host through SSM), got '$builder'." }
+    $hostBuild = $builder -eq 'host'
     $mirror = $svc.Name -eq 'caddy'
     if ($mirror) {
         if (-not $p.MirrorImage -or $p.MirrorImage -notmatch '^[a-z0-9][a-zA-Z0-9./:_@-]{2,250}$') { throw 'caddy is mirrored from upstream: pass -MirrorImage <docker.io/library/caddy:TAG or docker.io/library/caddy@sha256:DIGEST>.' }
@@ -382,7 +463,7 @@ function Invoke-ImagesCloud($p, $id) {
     $srcKey = "engine/build-src/$($svc.Name)/$buildId.zip"
 
     Write-Host "Service       : $($svc.Name) -> $registry/$($svc.Repository)"
-    Write-Host "Build project : $project (AWS CodeBuild, linux x86_64, privileged docker)"
+    if (-not $hostBuild) { Write-Host "Build project : $project (AWS CodeBuild, linux x86_64, privileged docker)" }
     $zip = $null
     if ($mirror) {
         Write-Host "Mirror        : $($p.MirrorImage) (pulled by CodeBuild, pushed to $($svc.Repository))"
@@ -400,30 +481,34 @@ function Invoke-ImagesCloud($p, $id) {
     if ($p.Dockerfile) { Write-Host "Dockerfile    : $($p.Dockerfile) (inside the zip)" }
     if (@($p.BuildArg).Count) { Write-Host "Build args    : $((@($p.BuildArg) -join ' '))" }
     Write-Host "Build id      : $buildId (the build record goes to s3://$bucket/engine/build-out/$($svc.Name)/$buildId.json)"
-    Write-Host 'This uploads the zip to S3 and starts a paid CodeBuild build. Nothing is deployed.'
+    Write-Host $(if ($hostBuild) { 'This uploads the zip to S3 and runs docker build on the core host (it shares CPU and memory with the stack). Nothing is deployed.' } else { 'This uploads the zip to S3 and starts a paid CodeBuild build. Nothing is deployed.' })
     Confirm-Deploy $p
 
     $prof = $p.Profile
     if ($zip) { Invoke-Aws -AwsProfile $prof -CliArgs @('s3', 'cp', $zip, "s3://$bucket/$srcKey") | Out-Null }
-    $startArgs = @('codebuild', 'start-build', '--project-name', $project)
-    if ($zip) { $startArgs += @('--source-location-override', "$bucket/$srcKey") }
-    $overrides = @("name=SOURCE_ID,value=$buildId,type=PLAINTEXT")
-    if ($p.Dockerfile) { $overrides += "name=DOCKERFILE,value=$($p.Dockerfile),type=PLAINTEXT" }
-    if (@($p.BuildArg).Count) { $overrides += "name=BUILD_ARGS,value=$(@($p.BuildArg) -join ' '),type=PLAINTEXT" }
-    if ($mirror) { $overrides += "name=MIRROR_IMAGE,value=$($p.MirrorImage),type=PLAINTEXT" }
-    $startArgs += @('--environment-variables-override') + $overrides + @('--query', 'build.id', '--output', 'text')
-    $awsBuildId = ((Invoke-Aws -AwsProfile $prof -CliArgs $startArgs) -join '').Trim()
-    Write-Host "Started build $awsBuildId"
+    if ($hostBuild) {
+        Invoke-HostBuild $prof $svc $bucket $registry $buildId $srcKey $p $mirror
+    } else {
+        $startArgs = @('codebuild', 'start-build', '--project-name', $project)
+        if ($zip) { $startArgs += @('--source-location-override', "$bucket/$srcKey") }
+        $overrides = @("name=SOURCE_ID,value=$buildId,type=PLAINTEXT")
+        if ($p.Dockerfile) { $overrides += "name=DOCKERFILE,value=$($p.Dockerfile),type=PLAINTEXT" }
+        if (@($p.BuildArg).Count) { $overrides += "name=BUILD_ARGS,value=$(@($p.BuildArg) -join ' '),type=PLAINTEXT" }
+        if ($mirror) { $overrides += "name=MIRROR_IMAGE,value=$($p.MirrorImage),type=PLAINTEXT" }
+        $startArgs += @('--environment-variables-override') + $overrides + @('--query', 'build.id', '--output', 'text')
+        $awsBuildId = ((Invoke-Aws -AwsProfile $prof -CliArgs $startArgs) -join '').Trim()
+        Write-Host "Started build $awsBuildId"
 
-    $status = ''
-    for ($i = 0; $i -lt 400; $i++) {
-        $now = ((Invoke-Aws -AwsProfile $prof -CliArgs @('codebuild', 'batch-get-builds', '--ids', $awsBuildId, '--query', 'builds[0].buildStatus', '--output', 'text')) -join '').Trim()
-        if ($now -ne $status) { Write-Host "Build status: $now"; $status = $now }
-        if ($status -ne 'IN_PROGRESS') { break }
-        Start-Sleep -Seconds 15
-    }
-    if ($status -ne 'SUCCEEDED') {
-        throw "Build $awsBuildId ended with status $status. Logs: aws logs tail /aws/codebuild/$project --since 2h --profile $prof --region $($script:Region)"
+        $status = ''
+        for ($i = 0; $i -lt 400; $i++) {
+            $now = ((Invoke-Aws -AwsProfile $prof -CliArgs @('codebuild', 'batch-get-builds', '--ids', $awsBuildId, '--query', 'builds[0].buildStatus', '--output', 'text')) -join '').Trim()
+            if ($now -ne $status) { Write-Host "Build status: $now"; $status = $now }
+            if ($status -ne 'IN_PROGRESS') { break }
+            Start-Sleep -Seconds 15
+        }
+        if ($status -ne 'SUCCEEDED') {
+            throw "Build $awsBuildId ended with status $status. Logs: aws logs tail /aws/codebuild/$project --since 2h --profile $prof --region $($script:Region)"
+        }
     }
     $rec = Read-BuildRecord $prof $id.Account $svc $buildId
     Write-Host ''
@@ -666,6 +751,6 @@ $options = @{
     PulsoDir = $PulsoDir; AgentCoreDir = $AgentCoreDir; LlmGatewayDir = $LlmGatewayDir; SupportPlatformDir = $SupportPlatformDir
     CaddyUpstreamDigest = $CaddyUpstreamDigest; Path = $Path; Dataset = $Dataset; VarFile = $VarFile; DryRun = [bool]$DryRun
     Service = $Service; SourceDir = $SourceDir; Dockerfile = $Dockerfile; BuildArg = $BuildArg; MirrorImage = $MirrorImage
-    Digest = $Digest; FromBuild = $FromBuild; Wait = [bool]$Wait; Rollback = [bool]$Rollback; Yes = [bool]$Yes; Stage = $Stage
+    Digest = $Digest; FromBuild = $FromBuild; Wait = [bool]$Wait; Rollback = [bool]$Rollback; Yes = [bool]$Yes; Stage = $Stage; Builder = $Builder
 }
 Invoke-AwsProd -Command $Command -Profile $Profile -AllowAnyProfile ([bool]$AllowAnyProfile) -Options $options

@@ -584,7 +584,7 @@ Describe 'images -Service -Builder host (free_plan fallback: build on the core h
         Set-Resp 'ssm-list-command-invocations' 'i-0123456789abcdef0 Failed'
         Set-Resp 'ssm-get-command-invocation' 'Killed'
         $src = Join-Path $TestDrive 'src'; New-SrcTree $src
-        $vf = Join-Path $TestDrive 'p.tfvars'
+        $vf = Join-Path $TestDrive 'hostfail.tfvars'
         { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Builder = 'host'; Yes = $true; VarFile = $vf } } | Should Throw 'cmd-0002'
         (Test-Path $vf) | Should Be $false
     }
