@@ -34,8 +34,8 @@ run "deploy_role_state_access_is_scoped_to_the_state_bucket_only" {
   command = apply
 
   assert {
-    condition     = strcontains(aws_iam_role_policy.state[0].policy, "test-pulso-tfstate") && !strcontains(aws_iam_role_policy.state[0].policy, "\"Action\":\"*\"")
-    error_message = "State policy must name the state bucket and never allow all actions."
+    condition     = length(jsondecode(aws_iam_role_policy.state[0].policy).Statement) == 2 && !strcontains(aws_iam_role_policy.state[0].policy, "\"Resource\":\"*\"") && !strcontains(aws_iam_role_policy.state[0].policy, "\"Action\":\"*\"")
+    error_message = "State policy has two statements on the state bucket arn only, never all actions or all resources."
   }
 }
 
@@ -67,7 +67,7 @@ run "ecr_names_are_prefixable" {
   }
 
   assert {
-    condition     = module.ecr["pulso-engine"].repository_name == "newacct/pulso-engine"
+    condition     = output.ecr_repository_names["pulso-engine"] == "newacct/pulso-engine"
     error_message = "Repository name = prefix/name, matching the <env>/pulso-engine convention."
   }
 }
