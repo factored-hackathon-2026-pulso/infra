@@ -256,3 +256,22 @@ run "deploy_bundle_prefix_is_never_expired" {
     error_message = "Only tmp/ and logs/ may expire current objects; engine/deploy/ (compose bundles) must not."
   }
 }
+run "loader_roles_are_exempt_from_the_vpce_restriction_but_others_are_not" {
+  command = plan
+
+  variables {
+    loader_role_arns           = ["arn:aws:iam::111111111111:role/loader"]
+    break_glass_principal_arns = ["arn:aws:iam::111111111111:user/admin"]
+    s3_vpc_endpoint_id         = "vpce-0123456789abcdef0"
+  }
+
+  assert {
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyLandingReadOutsideVpce" && contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:role/loader") && contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:user/admin")]) == 1
+    error_message = "Loader and break-glass principals are exempt from the endpoint-only landing/ read."
+  }
+
+  assert {
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Effect == "Allow"]) == 0 && length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyInsecureTransport"]) == 1
+    error_message = "The policy stays deny-only and TLS-only."
+  }
+}

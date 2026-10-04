@@ -202,3 +202,39 @@ run "boundary_allow_is_not_a_star_action" {
     error_message = "The boundary's Allow lists service families, never the star action."
   }
 }
+run "engine_can_load_adds_loader_access_to_the_engine_role_only" {
+  command = plan
+
+  variables {
+    engine_can_load           = true
+    engine_lake_read_prefixes = ["lake/gold_masked", "lake/gold_analytics"]
+  }
+
+  assert {
+    condition     = toset(flatten([for s in jsondecode(aws_iam_policy.host["engine"].policy).Statement : s.Sid == "ObjectReadOnly" ? tolist([s.Resource]) : []])) == toset(["arn:aws:s3:::hk-data-bucket/landing/*", "arn:aws:s3:::hk-data-bucket/lake/*"])
+    error_message = "With engine_can_load the engine reads landing/ and lake/."
+  }
+
+  assert {
+    condition     = toset(flatten([for s in jsondecode(aws_iam_policy.host["engine"].policy).Statement : s.Sid == "LoaderWriteLake" ? tolist([s.Resource]) : []])) == toset(["arn:aws:s3:::hk-data-bucket/lake/*"])
+    error_message = "The engine loader writes lake/ only."
+  }
+
+  assert {
+    condition     = alltrue([for w in ["core", "platform"] : !strcontains(jsondecode(aws_iam_policy.host[w].policy) == null ? "" : aws_iam_policy.host[w].policy, "/landing/")])
+    error_message = "Core and platform never get landing/ or bronze access."
+  }
+}
+
+run "engine_cannot_load_by_default" {
+  command = plan
+
+  variables {
+    engine_lake_read_prefixes = ["lake/gold_masked", "lake/gold_analytics"]
+  }
+
+  assert {
+    condition     = length([for s in jsondecode(aws_iam_policy.host["engine"].policy).Statement : s if s.Sid == "LoaderWriteLake"]) == 0 && !strcontains(aws_iam_policy.host["engine"].policy, "/landing/")
+    error_message = "Without engine_can_load the engine has no landing/ access and cannot write lake/."
+  }
+}
