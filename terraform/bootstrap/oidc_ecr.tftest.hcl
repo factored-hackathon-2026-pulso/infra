@@ -54,8 +54,8 @@ run "ecr_has_the_engine_repository_only_by_default" {
   command = apply
 
   assert {
-    condition     = toset(keys(module.ecr)) == toset(["pulso-engine"])
-    error_message = "Only pulso-engine is created by default (console is not needed)."
+    condition     = toset(keys(module.ecr)) == toset(["pulso-engine", "core-runtime", "llm-gateway", "support-platform-api", "support-platform-web", "caddy"])
+    error_message = "Default repositories are exactly the images the hackathon compose bundles pull (console is not needed; caddy is a digest-pinned mirror)."
   }
 }
 
