@@ -102,11 +102,6 @@ variable "enable_cloudwatch_agent" {
   description = "Ship docker json logs to CloudWatch. Needs logs permissions on the instance role."
 }
 
-variable "log_retention_days" {
-  type    = number
-  default = 7
-}
-
 variable "bundle_dir" {
   type    = string
   default = null

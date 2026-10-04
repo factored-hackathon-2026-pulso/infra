@@ -170,10 +170,3 @@ resource "aws_s3_object" "env" {
   key     = "${var.bundle_prefix}.env"
   content = local.env_text
 }
-
-resource "aws_cloudwatch_log_group" "docker" {
-  count             = var.enable_cloudwatch_agent ? 1 : 0
-  name              = local.log_group
-  retention_in_days = var.log_retention_days
-  tags              = local.tags
-}
