@@ -1,6 +1,16 @@
 variable "region" {
-  type    = string
-  default = "us-east-1"
+  type        = string
+  description = "AWS region of the whole stack (human decision; there is no default)."
+}
+
+variable "cloudfront_waf_region" {
+  type        = string
+  description = "Region of the provider alias that hosts the CLOUDFRONT-scope WAF web ACL. CloudFront accepts only the N. Virginia region here."
+
+  validation {
+    condition     = can(regex("^us-east-1$", var.cloudfront_waf_region))
+    error_message = "CloudFront-scope WAF web ACLs exist only in the N. Virginia region."
+  }
 }
 
 variable "name_prefix" {

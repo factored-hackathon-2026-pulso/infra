@@ -76,7 +76,9 @@ mock_provider "aws" {
 }
 
 variables {
-  ecr_registry_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
+  region                = "us-east-1"
+  cloudfront_waf_region = "us-east-1"
+  ecr_registry_url      = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
   images = {
     core = {
       core    = "r/agent-core@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

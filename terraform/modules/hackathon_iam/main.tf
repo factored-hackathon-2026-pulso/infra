@@ -114,7 +114,7 @@ resource "aws_iam_policy" "boundary" {
       {
         Sid      = "AllowWithinIdentityPolicy"
         Effect   = "Allow"
-        Action   = "*"
+        Action   = ["s3:*", "ssm:*", "ssmmessages:*", "ec2messages:*", "secretsmanager:GetSecretValue", "kms:*", "ecr:*", "logs:*", "cloudwatch:PutMetricData", "ec2:Describe*"]
         Resource = "*"
       },
       {

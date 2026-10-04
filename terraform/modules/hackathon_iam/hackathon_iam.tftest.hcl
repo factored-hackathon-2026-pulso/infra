@@ -22,6 +22,7 @@ override_resource {
 
 variables {
   name                         = "hk"
+  region                       = "us-east-1"
   ssm_parameter_path_prefix    = "/hk"
   s3_bucket_name               = "hk-data-bucket"
   core_s3_prefixes             = ["core/blobs"]

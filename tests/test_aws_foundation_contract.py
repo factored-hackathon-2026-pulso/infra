@@ -56,7 +56,15 @@ class AwsFoundationContractTests(unittest.TestCase):
         database = "\n".join(path.read_text(encoding="utf-8") for path in (MODULES / "database").glob("*.tf"))
         compute = (MODULES / "compute" / "main.tf").read_text(encoding="utf-8")
         identity = (MODULES / "identity" / "main.tf").read_text(encoding="utf-8")
-        all_terraform = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "terraform").rglob("*.tf"))
+        hackathon_data = MODULES / "hackathon_data"
+        all_terraform = "\n".join(
+            path.read_text(encoding="utf-8") for path in (ROOT / "terraform").rglob("*.tf")
+            if hackathon_data not in path.parents
+        )
+        # Documented exception (ADR 0007 hackathon profile): the single-secret profile seeds placeholders plus a random
+        # RDS master password and ignores every later change, so no real value is ever written by Terraform.
+        seeded = (hackathon_data / "secrets.tf").read_text(encoding="utf-8")
+        self.assertIn("ignore_changes = [secret_string]", seeded)
 
         self.assertIn("manage_master_user_password", database)
         self.assertIn("master_user_secret_kms_key_id", database)

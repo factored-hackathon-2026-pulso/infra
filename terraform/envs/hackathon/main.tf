@@ -5,7 +5,7 @@ provider "aws" {
 # CloudFront-scope WAF web ACLs exist only in us-east-1, whatever the main region is.
 provider "aws" {
   alias  = "us_east_1"
-  region = "us-east-1"
+  region = var.cloudfront_waf_region
 }
 
 data "aws_caller_identity" "current" {}

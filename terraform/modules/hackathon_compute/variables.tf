@@ -86,7 +86,7 @@ variable "kms_key_arn" {
 
 variable "ecr_registry_url" {
   type        = string
-  description = "ECR registry host, e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com"
+  description = "ECR registry host, e.g. <account>.dkr.ecr.<region>.amazonaws.com"
 }
 
 variable "images" {

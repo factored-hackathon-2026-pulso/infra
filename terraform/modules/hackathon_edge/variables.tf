@@ -73,7 +73,7 @@ variable "price_class" {
 
 variable "enable_waf" {
   type        = bool
-  description = "Create and attach a WAFv2 web ACL (scope CLOUDFRONT, in us-east-1). Not free: about 5 USD/month ACL, 1 USD per rule (3 rules), 0.60 USD per million requests."
+  description = "Create and attach a WAFv2 web ACL (scope CLOUDFRONT, created through the aws.us_east_1 provider alias). Not free: about 5 USD/month ACL, 1 USD per rule (3 rules), 0.60 USD per million requests."
   default     = true
 }
 

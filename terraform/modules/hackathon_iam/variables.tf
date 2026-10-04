@@ -6,7 +6,6 @@ variable "name" {
 variable "region" {
   type        = string
   description = "AWS region used in SSM and CloudWatch Logs ARNs."
-  default     = "us-east-1"
 }
 
 variable "ssm_parameter_path_prefix" {

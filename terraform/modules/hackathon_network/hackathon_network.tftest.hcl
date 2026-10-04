@@ -12,8 +12,9 @@ mock_provider "aws" {
 }
 
 variables {
-  name = "hk"
-  tags = { Environment = "hackathon" }
+  name   = "hk"
+  region = "us-east-1"
+  tags   = { Environment = "hackathon" }
 }
 
 run "two_az_public_private_and_isolated_db_subnets" {

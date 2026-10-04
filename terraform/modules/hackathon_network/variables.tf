@@ -6,7 +6,6 @@ variable "name" {
 variable "region" {
   type        = string
   description = "AWS region; used for the AZ names and the S3 endpoint service name. Must match the provider region."
-  default     = "us-east-1"
 }
 
 variable "vpc_cidr" {
