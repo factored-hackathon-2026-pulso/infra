@@ -52,6 +52,8 @@ module "data" {
   sg_db_id      = module.network.sg_db_id
 
   # Deny-only bucket policy: the reads of landing/ are bound to the S3 gateway endpoint of this VPC.
+  db_deletion_protection     = var.db_deletion_protection
+  db_skip_final_snapshot     = var.db_skip_final_snapshot
   s3_vpc_endpoint_id         = module.network.s3_gateway_endpoint_id
   loader_role_arns           = local.loader_roles
   uploader_principal_arns    = local.uploader_principals

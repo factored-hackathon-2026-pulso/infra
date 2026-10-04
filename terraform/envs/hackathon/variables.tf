@@ -96,3 +96,14 @@ variable "break_glass_principal_arns" {
   default     = []
   description = "Principals exempt from the PII deny. Empty (default) means the account's IAM users and root user."
 }
+variable "db_deletion_protection" {
+  type        = bool
+  default     = true
+  description = "RDS deletion protection. Set false (and apply) before a deliberate teardown."
+}
+
+variable "db_skip_final_snapshot" {
+  type        = bool
+  default     = false
+  description = "false keeps a final RDS snapshot on destroy. true skips it (throwaway teardown only)."
+}
