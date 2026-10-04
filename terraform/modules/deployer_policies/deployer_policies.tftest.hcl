@@ -191,3 +191,17 @@ run "command_results_can_be_listed_and_read" {
     error_message = "A deployer that targets by tag finds the instance with ListCommandInvocations, then reads its output."
   }
 }
+run "build_logs_are_readable_for_the_workloads_projects_only" {
+  command = plan
+
+  assert {
+    condition = toset(flatten([one([for s in jsondecode(output.deployer_policy_json_engine).Statement : s if s.Sid == "ReadBuildLogs"]).Resource])) == toset([
+      "arn:aws:logs:us-east-1:123456789012:log-group:/aws/codebuild/pulso-prod-build-pulso-engine:*",
+    ])
+    error_message = "A failed build is debugged from its own CodeBuild log group, nothing else."
+  }
+  assert {
+    condition     = toset(flatten([one([for s in jsondecode(output.deployer_policy_json_engine).Statement : s if s.Sid == "ReadBuildLogs"]).Action])) == toset(["logs:GetLogEvents", "logs:FilterLogEvents", "logs:DescribeLogStreams"])
+    error_message = "Read-only log actions."
+  }
+}
