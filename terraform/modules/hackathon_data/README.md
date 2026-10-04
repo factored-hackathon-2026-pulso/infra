@@ -24,7 +24,7 @@ See `docs/db-bootstrap.md` and `docs/secrets-keys.md`.
 Controls: BucketOwnerEnforced, all public access blocked, versioning, default SSE-KMS with one customer-managed key
 (rotation on, bucket key on), TLS-only Deny, noncurrent versions expire after 30 days, incomplete multipart uploads abort
 after 7. The bucket policy contains Deny statements only (it cannot widen access); grants are identity policies from the
-`*_policy_json` outputs, attached by the iam lane. Optional: `bronze_glacier_ir_days`, `enable_eventbridge` (off).
+`*_policy_json` outputs. In the hackathon composition the hosts use the tighter per-workload policies of `hackathon_iam`; `host_policy_json` is not attached. Optional: `bronze_glacier_ir_days`, `enable_eventbridge` (off).
 
 Caveats. The VPC-endpoint Deny applies to reads of `landing/` (the human uploads from outside, PUT only). Principal lists
 fail closed: with empty `loader_role_arns` and `break_glass_principal_arns` nobody can read `landing/` or `lake/bronze/`.
@@ -35,7 +35,7 @@ data lake) must not be written under `lake/` of this bucket: the loader policy c
 
 Those modules are unchanged. `data_lake` creates its own bucket with per-zone Deny policies, `bronze/`, `bronze_eval/`
 and `publish/`. The hackathon profile does not instantiate `data_lake`; the pipeline runs with
-`PIPELINE_ROOT=s3://<bucket>/lake` (SSM `/pulso/engine/PIPELINE_ROOT`), with `loader_policy_json` and the host policy as
+`PIPELINE_ROOT=s3://<bucket>/lake` (SSM `/pulso/engine/pulso/PIPELINE_ROOT`), with `loader_policy_json` and the host policy as
 its roles. Zone separation here is coarser (PII versus masked) than the five-zone model; the production path remains
 `data_lake`/`data_pipeline` with their own bucket.
 

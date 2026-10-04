@@ -70,7 +70,7 @@ jobs:
       - name: Test hackathon single-host compute and composition without cloud access
         shell: pwsh
         run: |
-          foreach ($dir in "modules/hackathon_compute", "envs/hackathon") {
+          foreach ($dir in "modules/hackathon_network", "modules/hackathon_iam", "modules/hackathon_data", "modules/hackathon_compute", "modules/engine_task", "bootstrap", "envs/hackathon") {
             terraform "-chdir=terraform/$dir" init -backend=false -input=false
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             terraform "-chdir=terraform/$dir" validate
@@ -78,3 +78,9 @@ jobs:
             terraform "-chdir=terraform/$dir" test
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Test hackathon edge module (validated through the env composition, which supplies the us_east_1 alias)
+        shell: pwsh
+        run: |
+          terraform -chdir=terraform/modules/hackathon_edge init -backend=false -input=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          terraform -chdir=terraform/modules/hackathon_edge test

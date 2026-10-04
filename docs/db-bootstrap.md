@@ -38,7 +38,7 @@ psql -d pulso        -f sql/30_pulso_logins.sql
 ```
 
 Then compose the DSNs (`postgresql://core_app:<pw>@<db_endpoint>:5432/core_runtime?sslmode=require`, and so on) and write
-them to the secret keys `AGENTCORE_REGISTRY_DSN`, `AGENTCORE_EVAL_DSN`, `CC_DATABASE_URL`, `PULSO_DATABASE_URL`.
+them to the secret keys `CORE__AGENTCORE_REGISTRY_DSN`, `CORE__AGENTCORE_EVAL_DSN`, `SUPPORT__CC_DATABASE_URL`, `PULSO__PULSO_DATABASE_URL`.
 
 ## Limits (not verified)
 
