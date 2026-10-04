@@ -288,3 +288,78 @@ run "exposes_instance_arn_for_the_cloudfront_vpc_origin" {
     error_message = "instance_arn output is required by the edge module."
   }
 }
+# ---- free_plan: public IP, Postgres data volume, extra bundle files ----
+
+run "public_ip_only_when_asked" {
+  command = plan
+  variables {
+    workload            = "platform"
+    associate_public_ip = true
+  }
+
+  assert {
+    condition     = aws_instance.this.associate_public_ip_address
+    error_message = "free_plan hosts sit in public subnets and need a public IP for outbound-only egress."
+  }
+  assert {
+    condition     = length(aws_ebs_volume.db_protected) == 0 && length(aws_ebs_volume.db_unprotected) == 0
+    error_message = "No database volume by default."
+  }
+}
+
+run "database_volume_is_snapshotted_by_the_same_dlm_policy" {
+  command = apply
+  variables {
+    workload           = "core"
+    instance_type      = "m7i-flex.large"
+    db_volume_size_gb  = 30
+    extra_service_envs = ["db"]
+    compose_files      = ["compose.yaml", "compose.postgres.yaml"]
+    extra_bundle_files = { "compose.postgres.yaml" = "services: {}\n", "initdb/00_init.sh" = "#!/bin/bash\n" }
+  }
+
+  assert {
+    condition     = length(aws_ebs_volume.db_protected) == 1 && aws_ebs_volume.db_protected[0].size == 30 && aws_ebs_volume.db_protected[0].encrypted
+    error_message = "Dedicated encrypted EBS volume for Postgres."
+  }
+  assert {
+    condition     = aws_ebs_volume.db_protected[0].tags["Snapshot"] == "pulso-hk-core-daily"
+    error_message = "The DLM daily snapshot policy targets the database volume too."
+  }
+  assert {
+    condition     = aws_volume_attachment.db[0].device_name == "/dev/sdg"
+    error_message = "Database volume on /dev/sdg."
+  }
+  assert {
+    condition     = strcontains(local.user_data, "/srv/pgdata") && strcontains(local.env_text, "COMPOSE_FILE=compose.yaml:compose.postgres.yaml")
+    error_message = "user_data mounts the database volume and .env selects the Postgres compose override."
+  }
+  assert {
+    condition     = contains(local.service_env_names, "db") && strcontains(local.prepare_script, "DB")
+    error_message = "A db service env (db.env) is rendered from the DB__* secret keys."
+  }
+  assert {
+    condition     = toset(keys(aws_s3_object.extra)) == toset(["compose.postgres.yaml", "initdb/00_init.sh"])
+    error_message = "Extra bundle files are published next to compose.yaml."
+  }
+  assert {
+    condition     = contains(local.allowed_ports, "5432:5432")
+    error_message = "Postgres is published on the core host only when the db volume exists."
+  }
+  assert {
+    condition     = local.instance_memory_mb == 8192
+    error_message = "m7i-flex.large is 8 GB."
+  }
+}
+
+run "no_database_volume_keeps_user_data_without_pgdata" {
+  command = plan
+  variables {
+    workload = "engine"
+  }
+
+  assert {
+    condition     = !strcontains(local.user_data, "pgdata") && !strcontains(local.env_text, "COMPOSE_FILE")
+    error_message = "Hosts without a database volume are unchanged."
+  }
+}
