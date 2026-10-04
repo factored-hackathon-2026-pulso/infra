@@ -47,6 +47,7 @@ function Use-Fakes([string]$Arn) {
     $env:AWS_PROD_WORKDIR = Join-Path $TestDrive 'work'
     $env:FAKE_RESP = Join-Path $TestDrive 'resp'
     New-Item -ItemType Directory -Force -Path $env:FAKE_RESP | Out-Null
+    Get-ChildItem $env:FAKE_RESP | Remove-Item -Force
     $env:AWS_PROD_BUILD_ID = 'b1'
     New-Item -ItemType Directory -Force -Path $env:AWS_PROD_WORKDIR | Out-Null
     $script:RootWarned = $false
@@ -66,6 +67,12 @@ function Get-Calls { if (Test-Path $env:FAKE_LOG) { Get-Content $env:FAKE_LOG -R
 function Run([string]$Command, [string]$Profile = 'pulso-prod', [hashtable]$Options = @{}, [bool]$AllowAny = $false) {
     $script:RootWarned = $false
     & { Invoke-AwsProd -Command $Command -Profile $Profile -AllowAnyProfile $AllowAny -Options $Options } 6>&1 | Out-String
+}
+
+# Like Run, but a throw is caught inside the capture so the text printed before it is kept (plus the message).
+function RunTry([string]$Command, [string]$Profile = 'pulso-prod', [hashtable]$Options = @{}) {
+    $script:RootWarned = $false
+    & { try { Invoke-AwsProd -Command $Command -Profile $Profile -AllowAnyProfile $false -Options $Options } catch { "THROWN: $($_.Exception.Message)" } } 6>&1 | Out-String
 }
 
 Describe 'Assert-Profile' {
@@ -357,16 +364,14 @@ Describe 'images -Service (cloud build)' {
     It 'shows what it will do and what it excluded before asking' {
         Use-Fakes 'arn:aws:iam::000000000000:user/x'
         $src = Join-Path $TestDrive 'src'; New-SrcTree $src
-        $script:Out = ''
-        Mock Write-Host { $script:Out += ($args -join ' ') + "`
-" }
         Mock Read-Host { 'nope' }
-        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src } } | Should Throw 'Aborted'
-        $script:Out | Should Match 'Excluded'
-        $script:Out | Should Match 'server\.pem'
-        $script:Out | Should Match 'pulso-prod-data-000000000000'
-        $script:Out | Should Match 'engine/build-src/support-platform-api/b1\.zip'
-        $script:Out | Should Match 'pulso-prod-build-support-platform-api'
+        $out = RunTry 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src }
+        $out | Should Match 'Excluded'
+        $out | Should Match 'server\.pem'
+        $out | Should Match 'pulso-prod-data-000000000000'
+        $out | Should Match 'engine/build-src/support-platform-api/b1\.zip'
+        $out | Should Match 'pulso-prod-build-support-platform-api'
+        $out | Should Match 'THROWN: Aborted'
     }
 
     It 'uploads the zip, starts the build, waits, reads the record and prints repo@sha256' {
@@ -530,14 +535,12 @@ Describe 'deploy' {
     It 'prints the exact steps before asking' {
         Use-Fakes 'arn:aws:iam::000000000000:user/x'
         Set-DeployOk
-        $script:Out = ''
-        Mock Write-Host { $script:Out += ($args -join ' ') + "`
-" }
         Mock Read-Host { 'nope' }
-        { Run 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = $script:D64 } } | Should Throw 'Aborted'
-        $script:Out | Should Match '/pulso/platform/images/support_api'
-        $script:Out | Should Match 'pulso-deploy-platform'
-        $script:Out | Should Match ([regex]::Escape($script:OLD64))
+        $out = RunTry 'deploy' 'pulso-prod' @{ Service = 'support-platform-api'; Digest = $script:D64 }
+        $out | Should Match '/pulso/platform/images/support_api'
+        $out | Should Match 'pulso-deploy-platform'
+        $out | Should Match ([regex]::Escape($script:OLD64))
+        $out | Should Match 'THROWN: Aborted'
     }
 
     It 'verifies in ECR, reads the old value, writes the parameter, sends the command, then reads the result, in that order' {

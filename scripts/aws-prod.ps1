@@ -3,7 +3,13 @@
   One helper to create and operate the single "prod" AWS environment from your machine (docs/aws-prod-quickstart.md).
 .DESCRIPTION
   Subcommands: check, root-keys-reminder, bootstrap-plan, bootstrap-apply, images, plan, apply, status,
-  upload, destroy-plan, destroy.
+  upload, destroy-plan, destroy, deploy.
+
+  images -Service <name> -SourceDir <dir> builds one image in AWS CodeBuild (no local Docker needed): it zips the
+  source (never .git, node_modules, target, .env, keys or credentials; the excluded paths are printed), uploads it to
+  the data bucket, starts the build, waits and prints the resulting repo@sha256 digest. deploy -Service <name>
+  (-Digest sha256:... | -FromBuild <id> | -Rollback) writes the digest to SSM Parameter Store and runs the
+  pulso-deploy-<workload> command on the host: no instance is replaced and no terraform apply is needed.
 
   Safety properties (asserted by scripts/tests/aws-prod.Tests.ps1):
    - -Profile is mandatory; the profile names default, payana*, higo*, standar*, management* are refused unless
@@ -22,7 +28,7 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('check', 'root-keys-reminder', 'bootstrap-plan', 'bootstrap-apply', 'images', 'plan', 'apply',
-        'status', 'upload', 'destroy-plan', 'destroy')]
+        'status', 'upload', 'destroy-plan', 'destroy', 'deploy')]
     [string]$Command,
     [string]$Profile = '',
     [switch]$AllowAnyProfile,
@@ -35,6 +41,17 @@ param(
     [string]$Dataset = '',
     [string]$VarFile = '',
     [switch]$DryRun,
+    [string]$Service = '',
+    [string]$SourceDir = '',
+    [string]$Dockerfile = '',
+    [string[]]$BuildArg = @(),
+    [string]$MirrorImage = '',
+    [string]$Digest = '',
+    [string]$FromBuild = '',
+    [switch]$Wait,
+    [switch]$Rollback,
+    [switch]$Yes,
+    [string]$Stage = '',
     [switch]$LibraryOnly
 )
 
@@ -180,6 +197,7 @@ images = {
     if (-not (Test-Path -LiteralPath $File)) { Copy-Item (Join-Path (Get-EnvDir) 'prod.tfvars.example') $File }
     $text = Get-Content -Raw $File
     $new = [regex]::Replace($text, '(?ms)^images\s*=\s*\{.*?^\}\s*$', { param($m) $block.TrimEnd() })
+    if ($new -eq $text -and $text -notmatch '(?m)^images\s*=') { $new = $text.TrimEnd() + "`n`n" + $block + "`n" }
     [IO.File]::WriteAllText($File, $new, (New-Object Text.UTF8Encoding($false)))
 }
 
@@ -227,6 +245,329 @@ function Invoke-Images($p, $id) {
     Write-Host "Wrote image digests to $file (uncommitted, ignored by Git)."
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Cloud image builds (images -Service) and deploys (deploy). docs/service-deployment.md
+# ---------------------------------------------------------------------------------------------------------------------
+$script:EcrPrefix = 'pulso-prod'
+$script:SsmPrefix = '/pulso'
+$script:Services = [ordered]@{
+    'core-runtime'         = @{ Key = 'core'; Workloads = @('core'); Aliases = @('agent-core', 'core') }
+    'llm-gateway'          = @{ Key = 'gateway'; Workloads = @('core'); Aliases = @('gateway') }
+    'support-platform-api' = @{ Key = 'support_api'; Workloads = @('platform'); Aliases = @('support-api', 'support_api') }
+    'support-platform-web' = @{ Key = 'support_web'; Workloads = @('platform'); Aliases = @('support-web', 'support_web') }
+    'pulso-engine'         = @{ Key = 'pulso'; Workloads = @('engine'); Aliases = @('engine', 'pulso') }
+    'caddy'                = @{ Key = 'proxy'; Workloads = @('platform', 'engine'); Aliases = @('proxy') }
+}
+
+function Resolve-Service([string]$Name) {
+    $n = $Name.Trim().ToLowerInvariant()
+    foreach ($canonical in $script:Services.Keys) {
+        $s = $script:Services[$canonical]
+        if ($n -eq $canonical -or $s.Aliases -contains $n) {
+            return [pscustomobject]@{ Name = $canonical; Key = $s.Key; Workloads = @($s.Workloads); Repository = "$($script:EcrPrefix)/$canonical" }
+        }
+    }
+    throw "Unknown service '$Name'. Valid services: $($script:Services.Keys -join ', ') (aliases: agent-core, engine, support-api, support-web)."
+}
+
+function Get-DataBucket([string]$Account) { "pulso-prod-data-$Account" }
+function Get-Registry([string]$Account) { "$Account.dkr.ecr.$($script:Region).amazonaws.com" }
+
+$script:ExcludedNames = @('.git', 'node_modules', 'target', '.venv', 'venv', '__pycache__', '.terraform', '.scratch', '.idea', '.vscode', '.aws', '.ssh')
+$script:ExcludedPatterns = @('.env', '.env.*', '*.pem', '*.key', '*.p12', '*.pfx', '*.jks', '*.keystore', '*credentials*', 'id_rsa*', 'id_ed25519*', 'id_ecdsa*',
+    '*.tfstate', '*.tfstate.*', '*.tfvars', '.npmrc', '.pypirc', '.netrc', '.dockercfg', 'secrets.*', '*.secret', '*.secrets')
+$script:KeptNames = @('.env.example', '.env.sample', '.env.template')
+
+function Test-ExcludedPath([string]$RelativePath) {
+    $name = ($RelativePath -replace '\\', '/').TrimEnd('/').Split('/')[-1]
+    if ($script:KeptNames -contains $name.ToLowerInvariant()) { return $false }
+    if ($script:ExcludedNames -contains $name) { return $true }
+    foreach ($pattern in $script:ExcludedPatterns) { if ($name -like $pattern) { return $true } }
+    $false
+}
+
+function New-SourceZip([string]$ZipPath, [object[]]$Roots) {
+    # Zips the roots with forward-slash entry names (Linux unzip in CodeBuild), pruning excluded directories without
+    # walking them. Returns the file count, the size and the list of excluded paths.
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
+    $excluded = New-Object System.Collections.Generic.List[string]
+    $count = 0
+    $zip = [IO.Compression.ZipFile]::Open($ZipPath, 'Create')
+    try {
+        foreach ($root in $Roots) {
+            $base = (Resolve-Path -LiteralPath $root.Dir).ProviderPath.TrimEnd('\', '/')
+            $prefix = if ($root.Prefix) { $root.Prefix.Trim('/') + '/' } else { '' }
+            $pending = New-Object System.Collections.Generic.Stack[string]
+            $pending.Push($base)
+            while ($pending.Count -gt 0) {
+                $dir = $pending.Pop()
+                foreach ($item in (Get-ChildItem -LiteralPath $dir -Force)) {
+                    $rel = $item.FullName.Substring($base.Length + 1).Replace('\', '/')
+                    $suffix = if ($item.PSIsContainer) { '/' } else { '' }
+                    if ((Test-ExcludedPath $rel) -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $excluded.Add("$prefix$rel$suffix"); continue }
+                    if ($item.PSIsContainer) { $pending.Push($item.FullName); continue }
+                    [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $item.FullName, "$prefix$rel", [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+                    $count++
+                }
+            }
+        }
+    } finally { $zip.Dispose() }
+    [pscustomobject]@{ Files = $count; Bytes = (Get-Item -LiteralPath $ZipPath).Length; Excluded = $excluded.ToArray() }
+}
+
+function New-BuildId {
+    if ($env:AWS_PROD_BUILD_ID) { return $env:AWS_PROD_BUILD_ID }
+    (Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6)
+}
+
+function Confirm-Deploy($p) {
+    if ($p.Yes) { Write-Host 'Confirmation skipped because -Yes was passed.'; return }
+    Read-TypedWord 'DEPLOY'
+}
+
+function Get-ImageRefsFromTfvars([string]$File) {
+    $src = if (Test-Path -LiteralPath $File) { $File } else { Join-Path (Get-EnvDir) 'prod.tfvars.example' }
+    $m = [regex]::Match((Get-Content -Raw $src), '(?ms)^images\s*=\s*\{.*?^\}\s*$')
+    $refs = @{}
+    foreach ($k in 'core', 'gateway', 'support_api', 'support_web', 'pulso', 'proxy') {
+        $mm = if ($m.Success) { [regex]::Match($m.Value, "(?m)^\s*$k\s*=\s*`"([^`"]*)`"") } else { $null }
+        $refs[$k] = if ($mm -and $mm.Success) { $mm.Groups[1].Value } else { "<registry>/$($script:EcrPrefix)/REPLACE_WITH_64_HEX_DIGEST" }
+    }
+    $refs
+}
+
+function Save-ImageRecord($p, $svc, [string]$Ref, [string]$Digest, [string]$BuildId) {
+    $file = if ($p.VarFile) { $p.VarFile } else { Join-Path (Get-EnvDir) 'prod.tfvars' }
+    $refs = Get-ImageRefsFromTfvars $file
+    $refs[$svc.Key] = $Ref
+    Set-ImagesInTfvars $file $refs
+    $stateFile = Join-Path (Get-WorkDir) 'images-state.json'
+    $state = [ordered]@{}
+    if (Test-Path -LiteralPath $stateFile) {
+        $old = Get-Content -Raw $stateFile | ConvertFrom-Json
+        foreach ($prop in $old.PSObject.Properties) { $state[$prop.Name] = $prop.Value }
+    }
+    $state[$svc.Name] = [ordered]@{ image = $Ref; digest = $Digest; build_id = $BuildId; recorded_utc = (Get-Date).ToUniversalTime().ToString('o') }
+    [IO.File]::WriteAllText($stateFile, ($state | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
+    Write-Host "Recorded $($svc.Name) in $file (uncommitted, ignored by Git) and in $stateFile."
+}
+
+function Read-BuildRecord([string]$AwsProfile, [string]$Account, $svc, [string]$BuildId) {
+    $key = "engine/build-out/$($svc.Name)/$BuildId.json"
+    $json = (Invoke-Aws -AwsProfile $AwsProfile -CliArgs @('s3', 'cp', "s3://$(Get-DataBucket $Account)/$key", '-')) -join "`n"
+    $rec = $json | ConvertFrom-Json
+    $pattern = '^' + [regex]::Escape("$(Get-Registry $Account)/$($svc.Repository)") + '@(sha256:[0-9a-f]{64})$'
+    if (-not $rec.image -or $rec.image -notmatch $pattern) { throw "The build record $key holds an unexpected image '$($rec.image)'; expected $(Get-Registry $Account)/$($svc.Repository)@sha256:<64 hex>." }
+    [pscustomobject]@{ Image = $rec.image; Digest = $Matches[1] }
+}
+
+function Invoke-ImagesCloud($p, $id) {
+    $svc = Resolve-Service $p.Service
+    $mirror = $svc.Name -eq 'caddy'
+    if ($mirror) {
+        if (-not $p.MirrorImage -or $p.MirrorImage -notmatch '^[a-z0-9][a-zA-Z0-9./:_@-]{2,250}$') { throw 'caddy is mirrored from upstream: pass -MirrorImage <docker.io/library/caddy:TAG or docker.io/library/caddy@sha256:DIGEST>.' }
+    } else {
+        if (-not $p.SourceDir -or -not (Test-Path -LiteralPath $p.SourceDir -PathType Container)) { throw "images -Service $($svc.Name) needs -SourceDir <existing directory>." }
+        if ($svc.Name -eq 'core-runtime' -and (-not $p.AgentCoreDir -or -not (Test-Path -LiteralPath $p.AgentCoreDir -PathType Container))) { throw 'images -Service core-runtime needs -AgentCoreDir <the pinned agent-core checkout>.' }
+    }
+    foreach ($a in @($p.BuildArg)) { if ($a -and ($a -notmatch '^[A-Za-z_][A-Za-z0-9_]*=[^,\s]*$')) { throw "-BuildArg must be KEY=VALUE without spaces or commas, got '$a'." } }
+
+    $buildId = New-BuildId
+    if ($buildId -notmatch '^[A-Za-z0-9._-]{1,64}$') { throw "Invalid build id '$buildId'." }
+    $bucket = Get-DataBucket $id.Account
+    $registry = Get-Registry $id.Account
+    $project = "pulso-prod-build-$($svc.Name)"
+    $srcKey = "engine/build-src/$($svc.Name)/$buildId.zip"
+
+    Write-Host "Service       : $($svc.Name) -> $registry/$($svc.Repository)"
+    Write-Host "Build project : $project (AWS CodeBuild, linux x86_64, privileged docker)"
+    $zip = $null
+    if ($mirror) {
+        Write-Host "Mirror        : $($p.MirrorImage) (pulled by CodeBuild, pushed to $($svc.Repository))"
+    } else {
+        $roots = @(@{ Dir = $p.SourceDir; Prefix = '' })
+        if ($svc.Name -eq 'core-runtime') { $roots += @{ Dir = $p.AgentCoreDir; Prefix = 'agent-core' } }
+        $zip = Join-Path (Get-WorkDir) "build-src-$buildId.zip"
+        $r = New-SourceZip -ZipPath $zip -Roots $roots
+        Write-Host ("Source upload : s3://$bucket/$srcKey ({0} files, {1:N1} MB)" -f $r.Files, ($r.Bytes / 1MB))
+        Write-Host "Excluded ($($r.Excluded.Count) paths, never uploaded):"
+        $r.Excluded | Select-Object -First 60 | ForEach-Object { Write-Host "  - $_" }
+        if ($r.Excluded.Count -gt 60) { Write-Host "  ... and $($r.Excluded.Count - 60) more" }
+        if ($r.Bytes -gt 1GB) { throw 'The source zip is larger than 1 GB: exclude build output or large data from the source directory.' }
+    }
+    if ($p.Dockerfile) { Write-Host "Dockerfile    : $($p.Dockerfile) (inside the zip)" }
+    if (@($p.BuildArg).Count) { Write-Host "Build args    : $((@($p.BuildArg) -join ' '))" }
+    Write-Host "Build id      : $buildId (the build record goes to s3://$bucket/engine/build-out/$($svc.Name)/$buildId.json)"
+    Write-Host 'This uploads the zip to S3 and starts a paid CodeBuild build. Nothing is deployed.'
+    Confirm-Deploy $p
+
+    $prof = $p.Profile
+    if ($zip) { Invoke-Aws -AwsProfile $prof -CliArgs @('s3', 'cp', $zip, "s3://$bucket/$srcKey") | Out-Null }
+    $startArgs = @('codebuild', 'start-build', '--project-name', $project)
+    if ($zip) { $startArgs += @('--source-location-override', "$bucket/$srcKey") }
+    $overrides = @("name=SOURCE_ID,value=$buildId,type=PLAINTEXT")
+    if ($p.Dockerfile) { $overrides += "name=DOCKERFILE,value=$($p.Dockerfile),type=PLAINTEXT" }
+    if (@($p.BuildArg).Count) { $overrides += "name=BUILD_ARGS,value=$(@($p.BuildArg) -join ' '),type=PLAINTEXT" }
+    if ($mirror) { $overrides += "name=MIRROR_IMAGE,value=$($p.MirrorImage),type=PLAINTEXT" }
+    $startArgs += @('--environment-variables-override') + $overrides + @('--query', 'build.id', '--output', 'text')
+    $awsBuildId = ((Invoke-Aws -AwsProfile $prof -CliArgs $startArgs) -join '').Trim()
+    Write-Host "Started build $awsBuildId"
+
+    $status = ''
+    for ($i = 0; $i -lt 400; $i++) {
+        $now = ((Invoke-Aws -AwsProfile $prof -CliArgs @('codebuild', 'batch-get-builds', '--ids', $awsBuildId, '--query', 'builds[0].buildStatus', '--output', 'text')) -join '').Trim()
+        if ($now -ne $status) { Write-Host "Build status: $now"; $status = $now }
+        if ($status -ne 'IN_PROGRESS') { break }
+        Start-Sleep -Seconds 15
+    }
+    if ($status -ne 'SUCCEEDED') {
+        throw "Build $awsBuildId ended with status $status. Logs: aws logs tail /aws/codebuild/$project --since 2h --profile $prof --region $($script:Region)"
+    }
+    $rec = Read-BuildRecord $prof $id.Account $svc $buildId
+    Write-Host ''
+    Write-Host "IMAGE $($rec.Image)"
+    Save-ImageRecord $p $svc $rec.Image $rec.Digest $buildId
+    Write-Host "Deploy it with: aws-prod.ps1 deploy -Profile $prof -Service $($svc.Name) -FromBuild $buildId -Wait"
+}
+
+function Get-SsmParameterName([string]$Workload, [string]$Key) { "$($script:SsmPrefix)/$Workload/images/$Key" }
+
+function Assert-DigestInEcr([string]$AwsProfile, $svc, [string]$Digest) {
+    try {
+        Invoke-Aws -AwsProfile $AwsProfile -CliArgs @('ecr', 'describe-images', '--repository-name', $svc.Repository, '--image-ids', "imageDigest=$Digest",
+            '--query', 'imageDetails[0].imageDigest', '--output', 'text') | Out-Null
+    } catch { throw "Digest $Digest not found in ECR repository $($svc.Repository). Build and push it first (aws-prod.ps1 images -Service $($svc.Name) ...)." }
+}
+
+function Wait-DeployCommand([string]$AwsProfile, [string]$CommandId) {
+    $terminal = 'Success', 'Failed', 'TimedOut', 'Cancelled', 'Cancelling'
+    $rows = @()
+    for ($i = 0; $i -lt 200; $i++) {
+        $rows = @(Invoke-Aws -AwsProfile $AwsProfile -CliArgs @('ssm', 'list-command-invocations', '--command-id', $CommandId,
+                '--query', 'CommandInvocations[].[InstanceId,Status]', '--output', 'text') | Where-Object { $_ -and $_.Trim() })
+        $parsed = @($rows | ForEach-Object { $f = $_.Trim() -split '\s+'; [pscustomobject]@{ Instance = $f[0]; Status = $f[1] } })
+        if ($parsed.Count -gt 0 -and -not ($parsed | Where-Object { $terminal -notcontains $_.Status })) { return $parsed }
+        Start-Sleep -Seconds 5
+    }
+    throw "Command $CommandId did not finish in time. Read it later: aws ssm list-command-invocations --command-id $CommandId --profile $AwsProfile --region $($script:Region)"
+}
+
+function Invoke-Deploy($p, $id) {
+    if (-not $p.Service) { throw 'deploy needs -Service <name>.' }
+    $svc = Resolve-Service $p.Service
+    $modes = @(@($p.Digest, $p.FromBuild) | Where-Object { $_ }).Count + [int][bool]$p.Rollback
+    if ($modes -eq 0) { throw 'deploy needs one of -Digest sha256:<64 hex>, -FromBuild <build id> or -Rollback.' }
+    if ($modes -gt 1) { throw 'deploy takes only one of -Digest, -FromBuild and -Rollback.' }
+    $prof = $p.Profile
+    $registry = Get-Registry $id.Account
+
+    $newDigest = ''
+    if ($p.Digest) {
+        if ($p.Digest -notmatch '^sha256:[0-9a-f]{64}$') { throw "A sha256 digest is required (sha256:<64 hex>), got '$($p.Digest)'." }
+        $newDigest = $p.Digest
+    } elseif ($p.FromBuild) {
+        if ($p.FromBuild -notmatch '^[A-Za-z0-9._-]{1,64}$') { throw "Invalid build id '$($p.FromBuild)'." }
+        $newDigest = (Read-BuildRecord $prof $id.Account $svc $p.FromBuild).Digest
+    }
+    if ($newDigest) { Assert-DigestInEcr $prof $svc $newDigest }
+
+    $plan = @()
+    foreach ($w in $svc.Workloads) {
+        $name = Get-SsmParameterName $w $svc.Key
+        $current = ((Invoke-Aws -AwsProfile $prof -CliArgs @('ssm', 'get-parameter', '--name', $name, '--query', 'Parameter.Value', '--output', 'text')) -join '').Trim()
+        if ($p.Rollback) {
+            $hist = @((Invoke-Aws -AwsProfile $prof -CliArgs @('ssm', 'get-parameter-history', '--name', $name, '--query', 'Parameters[].Value', '--output', 'json')) -join "`n" | ConvertFrom-Json)
+            $earlier = @($hist | Where-Object { $_ -and $_ -ne $current })
+            if ($earlier.Count -eq 0) { throw "There is no previous value in the history of $name to roll back to." }
+            $ref = $earlier[-1]
+            if ($ref -notmatch '@(sha256:[0-9a-f]{64})$') { throw "The previous value '$ref' of $name is not a digest-pinned image." }
+            Assert-DigestInEcr $prof $svc $Matches[1]
+        } else {
+            $ref = "$registry/$($svc.Repository)@$newDigest"
+        }
+        $plan += [pscustomobject]@{ Workload = $w; Parameter = $name; Current = $current; New = $ref; Document = "pulso-deploy-$w" }
+    }
+
+    Write-Host "Deploy $($svc.Name)$(if ($p.Rollback) { ' (ROLLBACK to the previous digest)' }):"
+    foreach ($s in $plan) {
+        Write-Host "  1. ssm put-parameter $($s.Parameter)"
+        Write-Host "       from $($s.Current)"
+        Write-Host "       to   $($s.New)"
+        Write-Host "  2. ssm send-command document $($s.Document) to the instance tagged Workload=$($s.Workload) (pull, up -d, wait healthy, restore on failure)"
+    }
+    Write-Host $(if ($p.Wait) { '  3. wait for the result and print the health; if the host rolls back, the SSM parameter is restored.' } else { '  3. do not wait (add -Wait to wait, print the health and restore the parameter on failure).' })
+    Confirm-Deploy $p
+
+    foreach ($s in $plan) {
+        Invoke-Aws -AwsProfile $prof -CliArgs @('ssm', 'put-parameter', '--name', $s.Parameter, '--value', $s.New, '--type', 'String', '--overwrite') | Out-Null
+        $cmd = ((Invoke-Aws -AwsProfile $prof -CliArgs @('ssm', 'send-command', '--document-name', $s.Document, '--targets', "Key=tag:Workload,Values=$($s.Workload)",
+                    '--query', 'Command.CommandId', '--output', 'text')) -join '').Trim()
+        Write-Host "Sent $($s.Document) as command $cmd."
+        if (-not $p.Wait) {
+            Write-Host "Read the result: aws ssm list-command-invocations --command-id $cmd --details --profile $prof --region $($script:Region)"
+            continue
+        }
+        $results = Wait-DeployCommand $prof $cmd
+        $problem = ''
+        foreach ($r in $results) {
+            $out = (Invoke-Aws -AwsProfile $prof -CliArgs @('ssm', 'get-command-invocation', '--command-id', $cmd, '--instance-id', $r.Instance,
+                    '--query', 'StandardOutputContent', '--output', 'text')) -join "`n"
+            Write-Host "--- $($r.Instance) ($($r.Status)) ---"
+            $out -split "`n" | ForEach-Object { Write-Host $_ }
+            if ($r.Status -ne 'Success') {
+                $problem = if ($out -match 'DEPLOY_RESULT=rolled_back') { "Deploy failed on $($r.Instance) and the host rolled back to the previous digests." } else { "Deploy command ended with status $($r.Status) on $($r.Instance)." }
+            } elseif ($out -notmatch '(?m)^DEPLOY_RESULT=ok\s*$') {
+                $problem = "The command succeeded on $($r.Instance) but did not report DEPLOY_RESULT=ok."
+            }
+        }
+        if ($problem) {
+            if ($s.Current) {
+                Invoke-Aws -AwsProfile $prof -CliArgs @('ssm', 'put-parameter', '--name', $s.Parameter, '--value', $s.Current, '--type', 'String', '--overwrite') | Out-Null
+                Write-Host "Restored $($s.Parameter) to its previous value so a reboot does not pull the failed digest."
+            }
+            throw "$problem Investigate with: docker compose -p pulso ps / logs on the host (SSM session)."
+        }
+        Write-Host "OK: $($svc.Name) on $($s.Workload) runs $($s.New)"
+    }
+}
+
+function Invoke-PlanBuilderStage($p, $id, [string]$Work) {
+    # Stage 1 of a brand-new account: network + data + the CodeBuild builder, with throw-away digests, so the images
+    # can be built before the hosts exist. Run plan without -Stage afterwards for everything else.
+    $registry = Get-Registry $id.Account
+    $zero = 'sha256:' + ('0' * 64)
+    $px = $script:EcrPrefix
+    $stageFile = Join-Path $Work 'builder-stage.tfvars'
+    @"
+# Generated by aws-prod.ps1 plan -Stage builder: throw-away digests, never applied to the hosts.
+images = {
+  core = {
+    core    = "$registry/$px/core-runtime@$zero"
+    gateway = "$registry/$px/llm-gateway@$zero"
+  }
+  platform = {
+    support_api = "$registry/$px/support-platform-api@$zero"
+    support_web = "$registry/$px/support-platform-web@$zero"
+    proxy       = "$registry/$px/caddy@$zero"
+  }
+  engine = {
+    pulso = "$registry/$px/pulso-engine@$zero"
+    proxy = "$registry/$px/caddy@$zero"
+  }
+}
+"@ | Set-Content -Encoding utf8 $stageFile
+    $user = if ($p.VarFile) { $p.VarFile } else { Join-Path (Get-EnvDir) 'prod.tfvars' }
+    $varArgs = @()
+    if (Test-Path -LiteralPath $user) { $varArgs += "-var-file=$user" }
+    $varArgs += "-var-file=$stageFile"
+    Initialize-Env $id.Account
+    Invoke-Tf (Get-EnvDir) (@('plan', '-input=false') + $varArgs + @('-target=module.image_builder', "-out=$(Join-Path $Work 'prod.tfplan')"))
+    Show-PlanSummary (Get-EnvDir) (Join-Path $Work 'prod.tfplan')
+    Write-Host 'Stage "builder" creates the network, the database, the bucket and the CodeBuild projects, not the hosts. Next: apply, then images -Service ..., then plan (without -Stage) and apply.'
+}
+
 function Invoke-Status($id, [string]$AwsProfile) {
     $rows = Invoke-Aws -AwsProfile $AwsProfile -CliArgs @('ec2', 'describe-instances', '--filters', 'Name=tag:Environment,Values=prod',
         '--query', 'Reservations[].Instances[].[InstanceId,State.Name,InstanceType,Tags[?Key==`Name`]|[0].Value]', '--output', 'text')
@@ -258,7 +599,7 @@ function Invoke-AwsProd {
     [CmdletBinding()]
     param([string]$Command, [string]$Profile, [bool]$AllowAnyProfile = $false, [hashtable]$Options = @{})
     $p = @{} + $Options; $p.Profile = $Profile
-    if (-not $Command) { throw 'Usage: aws-prod.ps1 <check|root-keys-reminder|bootstrap-plan|bootstrap-apply|images|plan|apply|status|upload|destroy-plan|destroy> -Profile <name>' }
+    if (-not $Command) { throw 'Usage: aws-prod.ps1 <check|root-keys-reminder|bootstrap-plan|bootstrap-apply|images|plan|apply|status|upload|destroy-plan|destroy|deploy> -Profile <name>' }
 
     if ($Command -eq 'root-keys-reminder') { $script:RootWarned = $false; Show-RootWarning; return }
 
@@ -286,8 +627,14 @@ function Invoke-AwsProd {
             Invoke-GuardedApply (Get-BootstrapDir) (Join-Path $work 'bootstrap.tfplan') 'APPLY' 'bootstrap-plan'
             Write-Host "State bucket: $(Get-StateBucket $id.Account). The bootstrap state itself stays local in terraform/bootstrap (back it up)."
         }
-        'images' { Invoke-Images $p $id }
+        'images' { if ($p.Service) { Invoke-ImagesCloud $p $id } else { Invoke-Images $p $id } }
+        'deploy' { Invoke-Deploy $p $id }
         'plan' {
+            if ($p.Stage) {
+                if ($p.Stage -ne 'builder') { throw "Unknown -Stage '$($p.Stage)'. The only stage is: builder." }
+                Invoke-PlanBuilderStage $p $id $work
+                return
+            }
             $vf = Resolve-VarFile $p.VarFile
             Initialize-Env $id.Account
             Invoke-Tf (Get-EnvDir) @('plan', '-input=false', "-var-file=$vf", "-out=$(Join-Path $work 'prod.tfplan')")
@@ -318,5 +665,7 @@ if ($LibraryOnly) { return }
 $options = @{
     PulsoDir = $PulsoDir; AgentCoreDir = $AgentCoreDir; LlmGatewayDir = $LlmGatewayDir; SupportPlatformDir = $SupportPlatformDir
     CaddyUpstreamDigest = $CaddyUpstreamDigest; Path = $Path; Dataset = $Dataset; VarFile = $VarFile; DryRun = [bool]$DryRun
+    Service = $Service; SourceDir = $SourceDir; Dockerfile = $Dockerfile; BuildArg = $BuildArg; MirrorImage = $MirrorImage
+    Digest = $Digest; FromBuild = $FromBuild; Wait = [bool]$Wait; Rollback = [bool]$Rollback; Yes = [bool]$Yes; Stage = $Stage
 }
 Invoke-AwsProd -Command $Command -Profile $Profile -AllowAnyProfile ([bool]$AllowAnyProfile) -Options $options
