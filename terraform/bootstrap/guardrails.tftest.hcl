@@ -59,6 +59,10 @@ run "account_alias_only_when_set" {
 run "cloudtrail_is_private_validated_and_multi_region" {
   command = apply
 
+  variables {
+    cloudtrail_enabled = true
+  }
+
   assert {
     condition     = aws_cloudtrail.main[0].enable_log_file_validation && aws_cloudtrail.main[0].is_multi_region_trail
     error_message = "Trail needs log file validation and multi-region coverage."
