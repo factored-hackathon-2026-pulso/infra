@@ -211,10 +211,10 @@ locals {
   # One build project per repository created by terraform/bootstrap. core-runtime is built from the improvement-engine
   # repo (core-bridge/) with the pinned agent-core checkout as the named build context "core".
   build_services = {
-    "core-runtime"         = { repository = "${var.ecr_repository_prefix}/core-runtime", dockerfile = "core-bridge/Dockerfile", core_context_dir = "agent-core" }
+    "core-runtime"         = { repository = "${var.ecr_repository_prefix}/core-runtime", dockerfile = "core-bridge/Dockerfile", context_dir = "core-bridge", core_context_dir = "agent-core" }
     "llm-gateway"          = { repository = "${var.ecr_repository_prefix}/llm-gateway" }
-    "support-platform-api" = { repository = "${var.ecr_repository_prefix}/support-platform-api", dockerfile = "api/Dockerfile", context_dir = "api" }
-    "support-platform-web" = { repository = "${var.ecr_repository_prefix}/support-platform-web", dockerfile = "web/Dockerfile", context_dir = "web" }
+    "support-platform-api" = { repository = "${var.ecr_repository_prefix}/support-platform-api", dockerfile = "backend/Dockerfile", context_dir = "backend" }
+    "support-platform-web" = { repository = "${var.ecr_repository_prefix}/support-platform-web", dockerfile = "frontend/Dockerfile", context_dir = "frontend" }
     "pulso-engine"         = { repository = "${var.ecr_repository_prefix}/pulso-engine" }
     "caddy"                = { repository = "${var.ecr_repository_prefix}/caddy", mode = "mirror" }
   }

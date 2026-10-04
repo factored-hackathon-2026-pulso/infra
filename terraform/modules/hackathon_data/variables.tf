@@ -134,7 +134,7 @@ variable "gateway_consumers" {
 variable "llm_provider_key_names" {
   description = "Provider API key names stored in the secret (ASSUMED defaults; confirm with llm-gateway)."
   type        = list(string)
-  default     = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"]
+  default     = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY"]
 }
 
 variable "bridge_signer_names" {

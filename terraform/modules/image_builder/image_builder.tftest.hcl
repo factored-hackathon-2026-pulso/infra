@@ -22,12 +22,13 @@ variables {
     "core-runtime" = {
       repository       = "pulso-prod/core-runtime"
       dockerfile       = "core-bridge/Dockerfile"
+      context_dir      = "core-bridge"
       core_context_dir = "agent-core"
     }
     "support-platform-api" = {
       repository  = "pulso-prod/support-platform-api"
-      dockerfile  = "api/Dockerfile"
-      context_dir = "api"
+      dockerfile  = "backend/Dockerfile"
+      context_dir = "backend"
     }
     "caddy" = {
       repository = "pulso-prod/caddy"

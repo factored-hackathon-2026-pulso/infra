@@ -522,7 +522,8 @@ Describe 'images -Service -Builder host (free_plan fallback: build on the core h
         $s = Get-HostScript
         $s | Should Match 's3://pulso-prod-data-000000000000/engine/build-src/support-platform-api/b1\.zip'
         $s | Should Match 'docker buildx build'
-        $s | Should Match 'api/Dockerfile'
+        $s | Should Match 'backend/Dockerfile'
+        $s | Should Match 'src/backend'
         $s | Should Match 'ecr get-login-password'
         $s | Should Match 'docker push'
         $s | Should Match 'ecr describe-images'
@@ -540,7 +541,9 @@ Describe 'images -Service -Builder host (free_plan fallback: build on the core h
         Run 'images' 'pulso-prod' @{ Service = 'agent-core'; SourceDir = $src; AgentCoreDir = $core; Builder = 'host'; BuildArg = @('A=1'); Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
         $s = Get-HostScript
         $s | Should Match '--build-context core='
-        $s | Should Match 'core-bridge/Dockerfile'
+        $s | Should Match 'src/core-bridge/Dockerfile'
+        $s | Should Match 'src/agent-core'
+        $s | Should Match 'src/core-bridge\\"'
         $s | Should Match '--build-arg'
         $s | Should Match 'A=1'
     }
@@ -769,3 +772,145 @@ Describe 'deploy' {
         Get-Calls | Should Not Match 'aws'
     }
 }
+
+Describe 'staged build contexts and VITE_API_URL' {
+    AfterEach { Restore-Fakes; $env:AWS_PROD_BUILD_ID = $null }
+
+    It 'the backend state key is pulso/prod/hackathon/terraform.tfstate' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        $file = Write-BackendHcl '000000000000'
+        $text = Get-Content -Raw $file
+        $text | Should Match 'key\s+= "pulso/prod/hackathon/terraform\.tfstate"'
+        $text | Should Not Match 'pulso/prod/terraform'
+        Restore-Fakes
+    }
+
+    It 'maps support-platform to backend/ and frontend/, core-runtime to the core-bridge context' {
+        $script:HostBuild['support-platform-api'].Context | Should Be 'backend'
+        $script:HostBuild['support-platform-api'].Dockerfile | Should Be 'backend/Dockerfile'
+        $script:HostBuild['support-platform-web'].Context | Should Be 'frontend'
+        $script:HostBuild['support-platform-web'].Dockerfile | Should Be 'frontend/Dockerfile'
+        $script:HostBuild['core-runtime'].Context | Should Be 'core-bridge'
+        $script:HostBuild['core-runtime'].Dockerfile | Should Be 'core-bridge/Dockerfile'
+        $script:HostBuild['core-runtime'].CoreContext | Should Be 'agent-core'
+    }
+
+    It 'the staged agent-core .dockerignore no longer excludes contracts, and keeps its other lines' {
+        $core = Join-Path $TestDrive 'ac'; New-Item -ItemType Directory -Force -Path (Join-Path $core 'contracts') | Out-Null
+        Set-Content (Join-Path $core 'contracts\VERSION') '1.3.0'
+        Set-Content (Join-Path $core '.dockerignore') "tests`ncontracts`n/contracts/`ncontracts/`n.venv`n"
+        $zip = Join-Path $TestDrive 'ac.zip'
+        New-SourceZip -ZipPath $zip -Roots @(@{ Dir = $core; Prefix = 'agent-core'; AllowInDockerignore = @('contracts') }) | Out-Null
+        (Get-ZipEntries $zip) -contains 'agent-core/contracts/VERSION' | Should Be $true
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $z = [IO.Compression.ZipFile]::OpenRead($zip)
+        try { $r = New-Object IO.StreamReader(($z.GetEntry('agent-core/.dockerignore')).Open()); $di = $r.ReadToEnd(); $r.Dispose() } finally { $z.Dispose() }
+        $di | Should Not Match '(?m)^\s*/?contracts/?\s*$'
+        $di | Should Match '(?m)^tests\s*$'
+        $di | Should Match '(?m)^\.venv\s*$'
+    }
+
+    It 'core-runtime stages agent-core with its .dockerignore patched' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-Resp 'ec2-describe-instances' 'i-0123456789abcdef0'
+        Set-Resp 'ssm-send-command' 'cmd-0001'
+        Set-Resp 'ssm-list-command-invocations' 'i-0123456789abcdef0 Success'
+        Set-Resp 'ssm-get-command-invocation' 'IMAGE=built'
+        Set-Resp 's3-cp' '' 1
+        Set-Resp 's3-cp' ('{"image":"' + $script:Registry + '/pulso-prod/core-runtime@' + $script:D64 + '","digest":"' + $script:D64 + '"}') 2
+        $src = Join-Path $TestDrive 'engine'; New-SrcTree $src
+        $core = Join-Path $TestDrive 'core'; New-SrcTree $core
+        New-Item -ItemType Directory -Force -Path (Join-Path $core 'contracts') | Out-Null
+        Set-Content (Join-Path $core 'contracts\VERSION') '1.3.0'
+        Set-Content (Join-Path $core '.dockerignore') "contracts`n"
+        Run 'images' 'pulso-prod' @{ Service = 'core-runtime'; SourceDir = $src; AgentCoreDir = $core; Builder = 'host'; Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
+        $entries = Get-ZipEntries (Join-Path $env:AWS_PROD_WORKDIR 'build-src-b1.zip')
+        $entries -contains 'agent-core/contracts/VERSION' | Should Be $true
+    }
+
+    It '-ViteApiUrl becomes the VITE_API_URL build arg of the web image only' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-Resp 'codebuild-start-build' 'pulso-prod-build-support-platform-web:11111111-2222-3333-4444-555555555555'
+        Set-Resp 'codebuild-batch-get-builds' 'SUCCEEDED'
+        Set-Resp 's3-cp' '' 1
+        Set-Resp 's3-cp' ('{"image":"' + $script:Registry + '/pulso-prod/support-platform-web@' + $script:D64 + '","digest":"' + $script:D64 + '"}') 2
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        Run 'images' 'pulso-prod' @{ Service = 'support-platform-web'; SourceDir = $src; ViteApiUrl = 'https://d111.cloudfront.net'; Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
+        Get-Calls | Should Match 'name=BUILD_ARGS,value=VITE_API_URL=https://d111\.cloudfront\.net'
+    }
+
+    It '-ViteApiUrl is refused for other services and for a malformed URL' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; ViteApiUrl = 'https://x.example'; Yes = $true } } | Should Throw 'ViteApiUrl'
+        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-web'; SourceDir = $src; ViteApiUrl = 'javascript:alert(1)'; Yes = $true } } | Should Throw 'ViteApiUrl'
+        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-web'; SourceDir = $src; ViteApiUrl = 'https://x.example'; BuildArg = @('VITE_API_URL=https://y.example'); Yes = $true } } | Should Throw 'VITE_API_URL'
+    }
+}
+
+Describe 'set-secret' {
+    AfterEach { Restore-Fakes }
+    BeforeEach {
+        $script:Plain = 'sk-test-' + 'Z9q8w7e6r5t4y3'
+        Mock Read-SecretValue { $script:Plain }
+        Mock Read-TypedWord {}
+    }
+
+    It 'refuses a key outside <SERVICE>__<VAR> before any secrets call' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        { Run 'set-secret' 'pulso-prod' @{ SecretKey = 'openrouter' } } | Should Throw 'SecretKey'
+        { Run 'set-secret' 'pulso-prod' @{ SecretKey = 'OTHER__X' } } | Should Throw 'SecretKey'
+        { Run 'set-secret' 'pulso-prod' @{} } | Should Throw 'SecretKey'
+        Get-Calls | Should Not Match 'secretsmanager'
+    }
+
+    It 'sets only that key of pulso-prod/hackathon from the prompt and never prints or logs the value' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Set-Resp 'secretsmanager-get-secret-value' '{"GATEWAY__OPENROUTER_API_KEY":"CHANGE_ME","CORE__AGENTCORE_REGISTRY_DSN":"postgres://keep"}'
+        $out = Run 'set-secret' 'pulso-prod' @{ SecretKey = 'GATEWAY__OPENROUTER_API_KEY' }
+        $calls = Get-Calls
+        $calls | Should Match 'secretsmanager get-secret-value --secret-id pulso-prod/hackathon'
+        $calls | Should Match 'secretsmanager put-secret-value --secret-id pulso-prod/hackathon --secret-string file://'
+        $calls | Should Not Match ([regex]::Escape($script:Plain))
+        $out | Should Not Match ([regex]::Escape($script:Plain))
+        $out | Should Match 'GATEWAY__OPENROUTER_API_KEY'
+    }
+
+    It 'writes the merged JSON through a temp file outside the repo and deletes it' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        $script:Captured = $null; $script:CapturedPath = $null
+        Mock Invoke-Aws {
+            if ($CliArgs[0] -eq 'secretsmanager' -and $CliArgs[1] -eq 'get-secret-value') { return '{"GATEWAY__OPENROUTER_API_KEY":"CHANGE_ME","CORE__AGENTCORE_REGISTRY_DSN":"postgres://keep"}' }
+            if ($CliArgs[1] -eq 'put-secret-value') {
+                $f = ($CliArgs | Where-Object { $_ -like 'file://*' }) -replace '^file://', ''
+                $script:CapturedPath = $f; $script:Captured = Get-Content -Raw $f
+                return
+            }
+            '{"UserId":"x","Account":"000000000000","Arn":"arn:aws:iam::000000000000:user/x"}'
+        }
+        Run 'set-secret' 'pulso-prod' @{ SecretKey = 'GATEWAY__OPENROUTER_API_KEY' } | Out-Null
+        $j = $script:Captured | ConvertFrom-Json
+        $j.GATEWAY__OPENROUTER_API_KEY | Should Be $script:Plain
+        $j.CORE__AGENTCORE_REGISTRY_DSN | Should Be 'postgres://keep'
+        $script:CapturedPath.StartsWith($script:RepoRoot, [StringComparison]::OrdinalIgnoreCase) | Should Be $false
+        Test-Path $script:CapturedPath | Should Be $false
+    }
+
+    It 'rejects an empty value and the CHANGE_ME placeholder, and writes nothing' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Set-Resp 'secretsmanager-get-secret-value' '{"GATEWAY__OPENROUTER_API_KEY":"CHANGE_ME"}'
+        $script:Plain = ''
+        { Run 'set-secret' 'pulso-prod' @{ SecretKey = 'GATEWAY__OPENROUTER_API_KEY' } } | Should Throw 'empty'
+        $script:Plain = 'CHANGE_ME'
+        { Run 'set-secret' 'pulso-prod' @{ SecretKey = 'GATEWAY__OPENROUTER_API_KEY' } } | Should Throw 'placeholder'
+        Get-Calls | Should Not Match 'put-secret-value'
+    }
+
+    It 'has no parameter that carries the value' {
+        $names = (Get-Command $script:Target).Parameters.Keys
+        foreach ($bad in 'Value', 'SecretValue', 'Secret', 'Password', 'ValueFile', 'FromFile') { ($names -contains $bad) | Should Be $false }
+    }
+}
+
