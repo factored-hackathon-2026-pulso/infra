@@ -32,6 +32,7 @@ locals {
   container_db = local.db_mode == "container"
   public_hosts = !local.nat
   origin_mode  = local.public_hosts ? "public" : "vpc"
+  edge         = var.edge_enabled == null ? true : var.edge_enabled
 
   # Postgres container bundle on the core host: compose override and the repository SQL run by the initdb script.
   core_db_files = local.container_db ? {
@@ -186,7 +187,7 @@ module "compute_engine" {
 }
 
 module "edge" {
-  count  = var.edge_enabled ? 1 : 0
+  count  = local.edge ? 1 : 0
   source = "../../modules/hackathon_edge"
   providers = {
     aws           = aws

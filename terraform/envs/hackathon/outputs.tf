@@ -97,7 +97,7 @@ output "profile_effective" {
     nat_gateway                = local.nat
     hosts_public_ip            = local.public_hosts
     edge_origin_mode           = local.origin_mode
-    edge_enabled               = var.edge_enabled
+    edge_enabled               = local.edge
     waf                        = local.waf
     host_builder               = local.host_builder
     instance_types             = local.instance_types

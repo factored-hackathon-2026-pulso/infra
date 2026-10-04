@@ -162,8 +162,8 @@ variable "enable_nat" {
 
 variable "edge_enabled" {
   type        = bool
-  default     = true
-  description = "Create the CloudFront distribution (and WAF). false brings the stack up without an edge (apply in stages; the hosts stay closed, use SSM for tests)."
+  default     = null
+  description = "Create the CloudFront distribution (and WAF). Null means on; false brings the stack up without an edge (apply in stages; the hosts stay closed, use SSM for tests)."
 }
 
 variable "enable_host_builder" {
