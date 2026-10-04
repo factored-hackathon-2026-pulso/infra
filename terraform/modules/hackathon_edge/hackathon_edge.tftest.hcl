@@ -16,6 +16,30 @@ mock_provider "aws" {
   alias = "us_east_1"
 }
 
+override_resource {
+  target          = aws_cloudfront_vpc_origin.this["platform"]
+  override_during = plan
+  values = {
+    id = "vo-platform"
+  }
+}
+
+override_resource {
+  target          = aws_cloudfront_vpc_origin.this["engine"]
+  override_during = plan
+  values = {
+    id = "vo-engine"
+  }
+}
+
+override_resource {
+  target          = aws_cloudfront_response_headers_policy.security
+  override_during = plan
+  values = {
+    id = "rhp-security"
+  }
+}
+
 variables {
   name                 = "hk"
   platform_origin_arn  = "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaaaaaaaaaaaaaaa"
