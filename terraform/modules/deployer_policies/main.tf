@@ -98,6 +98,12 @@ locals {
         ],
         length([for s in c.build_services : s if contains(keys(var.project_arns), s)]) == 0 ? [] : [
           {
+            Sid      = "ReadBuildLogs"
+            Effect   = "Allow"
+            Action   = ["logs:GetLogEvents", "logs:FilterLogEvents", "logs:DescribeLogStreams"]
+            Resource = [for s in c.build_services : "arn:${local.partition}:logs:${var.region}:${local.account_id}:log-group:/aws/codebuild/${element(split("/", var.project_arns[s]), 1)}:*" if contains(keys(var.project_arns), s)]
+          },
+          {
             Sid      = "Build"
             Effect   = "Allow"
             Action   = ["codebuild:StartBuild", "codebuild:BatchGetBuilds"]
