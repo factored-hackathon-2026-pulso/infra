@@ -13,7 +13,10 @@ resource "random_password" "origin_verify" {
 }
 
 locals {
-  db_password_keys = [for r in ["CORE_OWNER", "CORE_APP", "CORE_EVAL_APP", "CORE_EXPORTER_RO", "PULSO_APP", "PULSO_LOADER", "PULSO_RAW_RO", "PULSO_AUGMENTED_RO", "PULSO_PRODUCT_RO"] : "DB_PASSWORD_${r}"]
+  # Container mode renders the role passwords into db.env on the core host (DB__DB_PASSWORD_<ROLE> -> DB_PASSWORD_<ROLE>,
+  # read by the initdb script); RDS mode keeps the unprefixed keys used by docs/db-bootstrap.md.
+  db_password_prefix = var.database_mode == "container" ? "DB__" : ""
+  db_password_keys   = [for r in ["CORE_OWNER", "CORE_APP", "CORE_EVAL_APP", "CORE_EXPORTER_RO", "PULSO_APP", "PULSO_LOADER", "PULSO_RAW_RO", "PULSO_AUGMENTED_RO", "PULSO_PRODUCT_RO"] : "${local.db_password_prefix}DB_PASSWORD_${r}"]
 
   # Host-consumed keys are <SERVICE>__<VAR>: the compute start script (pulso-stack-prepare) writes VAR into
   # /run/pulso/env/<service>.env for the services of its own host. DB_PASSWORD_* and RDS_MASTER_PASSWORD are for

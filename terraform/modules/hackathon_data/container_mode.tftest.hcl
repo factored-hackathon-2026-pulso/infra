@@ -31,5 +31,8 @@ run "container_mode_creates_no_rds_and_keeps_the_password_in_the_secret" {
     condition     = output.db_endpoint == null
     error_message = "No RDS endpoint in container mode."
   }
+  assert {
+    condition     = contains(keys(nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))), "DB__DB_PASSWORD_CORE_OWNER") && !contains(keys(nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))), "DB_PASSWORD_CORE_OWNER")
+    error_message = "Role passwords are DB__DB_PASSWORD_* in container mode (rendered into db.env for the initdb script)."
+  }
 }
-
