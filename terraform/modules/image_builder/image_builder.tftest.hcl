@@ -252,3 +252,18 @@ run "rejects_unknown_mode" {
   }
   expect_failures = [var.services]
 }
+run "build_args_are_passed_to_docker_build" {
+  command = plan
+  variables {
+    enabled = true
+  }
+
+  assert {
+    condition     = one([for v in one(aws_codebuild_project.this["support-platform-api"].environment).environment_variable : v.value if v.name == "BUILD_ARGS"]) == ""
+    error_message = "BUILD_ARGS (space separated KEY=VALUE, set per build, for example VITE_API_URL) defaults to empty."
+  }
+  assert {
+    condition     = strcontains(one(aws_codebuild_project.this["support-platform-api"].source).buildspec, "--build-arg")
+    error_message = "The buildspec forwards BUILD_ARGS as --build-arg."
+  }
+}
