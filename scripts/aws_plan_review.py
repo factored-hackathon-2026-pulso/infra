@@ -153,8 +153,14 @@ def check_modules(root: Path) -> list[Finding]:
     return out
 
 
+def scan_extra_roots(root: Path) -> list[Finding]:
+    """Standalone root modules outside modules/ and envs/ (the new-account bootstrap)."""
+    boot = root / "terraform" / "bootstrap"
+    return scan_tf_dir(boot) if boot.is_dir() else []
+
+
 def run_all(root: Path) -> list[Finding]:
-    out = scan_tf_dir(root / "terraform" / "modules") + scan_tf_dir(root / "terraform" / "envs")
+    out = scan_tf_dir(root / "terraform" / "modules") + scan_tf_dir(root / "terraform" / "envs") + scan_extra_roots(root)
     for env in ENVS:
         out += check_env(root, env)
     return out + check_modules(root)

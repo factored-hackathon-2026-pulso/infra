@@ -74,6 +74,17 @@ class CurrentTree(unittest.TestCase):
         gaps = {f.rule for f in review.run_all(ROOT) if f.severity == "GAP"}
         self.assertIn("switch-missing", gaps)  # data_pipeline switch not wired in envs yet
 
+    def test_new_account_bootstrap_and_engine_task_are_scanned(self):
+        """TA0 checker must cover terraform/bootstrap, not only modules and envs."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            boot = root / "terraform" / "bootstrap"
+            boot.mkdir(parents=True)
+            (boot / "a.tf").write_text('variable "r" { default = "us-east-1" }', encoding="utf-8")
+            rules = {f.rule for f in review.scan_extra_roots(root)}
+            self.assertIn("hardcoded-region", rules)
+
 
 if __name__ == "__main__":
     unittest.main()

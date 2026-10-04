@@ -11,3 +11,7 @@ output/
 data/
 !terraform/modules/data/
 !terraform/modules/data/*.tf
+*.tfvars
+!*.tfvars.example
+release-out/
+backend.hcl
