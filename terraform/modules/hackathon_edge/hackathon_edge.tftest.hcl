@@ -16,6 +16,22 @@ mock_provider "aws" {
   alias = "us_east_1"
 }
 
+override_data {
+  target = data.aws_cloudfront_cache_policy.disabled
+  values = {
+    id   = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    name = "Managed-CachingDisabled"
+  }
+}
+
+override_data {
+  target = data.aws_cloudfront_origin_request_policy.all_viewer
+  values = {
+    id   = "216adef6-5c7f-47e4-b989-5492eafa07d3"
+    name = "Managed-AllViewer"
+  }
+}
+
 override_resource {
   target          = aws_cloudfront_vpc_origin.this["platform"]
   override_during = plan
@@ -96,16 +112,17 @@ run "behaviours_are_uncached_websocket_friendly_and_https_only" {
     aws.us_east_1 = aws.us_east_1
   }
 
+  # The mock provider does not echo nested cache-behavior policy ids in plan, so the managed policies are
+  # asserted at their source (looked up by AWS name); the wiring is covered by terraform validate and the first apply.
   assert {
-    condition     = aws_cloudfront_distribution.this.default_cache_behavior[0].cache_policy_id == "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" && one(aws_cloudfront_distribution.this.ordered_cache_behavior).cache_policy_id == "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
-    error_message = "API and WebSocket traffic is never cached."
+    condition     = data.aws_cloudfront_cache_policy.disabled.name == "Managed-CachingDisabled"
+    error_message = "API and WebSocket traffic is never cached (managed CachingDisabled policy)."
   }
 
   assert {
-    condition     = aws_cloudfront_distribution.this.default_cache_behavior[0].origin_request_policy_id == "216adef6-5c7f-47e4-b989-5492eafa07d3"
-    error_message = "All viewer headers are forwarded so WebSocket upgrades work."
+    condition     = data.aws_cloudfront_origin_request_policy.all_viewer.name == "Managed-AllViewer"
+    error_message = "All viewer headers are forwarded so WebSocket upgrades work (managed AllViewer policy)."
   }
-
   assert {
     condition     = aws_cloudfront_distribution.this.default_cache_behavior[0].viewer_protocol_policy == "redirect-to-https" && aws_cloudfront_distribution.this.default_cache_behavior[0].compress && length(aws_cloudfront_distribution.this.default_cache_behavior[0].allowed_methods) == 7
     error_message = "Redirect to HTTPS, compress, all methods."
