@@ -44,6 +44,11 @@ mock_provider "aws" {
       name = "pulso.internal"
     }
   }
+  mock_resource "aws_ebs_volume" {
+    defaults = {
+      id = "vol-0123456789abcdef0"
+    }
+  }
   mock_resource "aws_iam_policy" {
     defaults = {
       arn = "arn:aws:iam::123456789012:policy/pulso-hk-boundary"
@@ -245,7 +250,7 @@ run "ssm_command_documents_are_one_per_host" {
   command = apply
 
   assert {
-    condition     = output.deploy_documents == tomap({ core = "pulso-deploy-core", platform = "pulso-deploy-platform", engine = "pulso-deploy-engine" })
+    condition     = output.deploy_documents["core"] == "pulso-deploy-core" && output.deploy_documents["platform"] == "pulso-deploy-platform" && output.deploy_documents["engine"] == "pulso-deploy-engine"
     error_message = "pulso-deploy-<workload> per host."
   }
 }

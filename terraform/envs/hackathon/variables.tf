@@ -107,3 +107,21 @@ variable "db_skip_final_snapshot" {
   default     = false
   description = "false keeps a final RDS snapshot on destroy. true skips it (throwaway teardown only)."
 }
+
+variable "enable_image_builder" {
+  type        = bool
+  default     = true
+  description = "AWS CodeBuild projects that build (or mirror) the service images from a source zip in the bucket and push them to ECR (scripts/aws-prod.ps1 images -Service ...). No cost while idle; false removes them."
+}
+
+variable "image_builder_compute_type" {
+  type        = string
+  default     = "BUILD_GENERAL1_MEDIUM"
+  description = "CodeBuild compute type for image builds (Linux x86_64). MEDIUM is 4 vCPU and 7 GB; use BUILD_GENERAL1_LARGE for a slow Rust build."
+}
+
+variable "ecr_repository_prefix" {
+  type        = string
+  default     = "prod"
+  description = "Prefix of the ECR repositories created by terraform/bootstrap (<prefix>/core-runtime, ...). Must match the bootstrap variable of the same name."
+}

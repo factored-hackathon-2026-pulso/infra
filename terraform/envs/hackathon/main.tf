@@ -165,3 +165,57 @@ module "edge" {
   enable_waf           = var.enable_waf
   tags                 = local.tags
 }
+
+# Cloud image builds and the deploy mechanism. Digests are changed by deployments (SSM), never by an apply;
+# the deployer policies below are for the IAM users or roles the human creates for the service teams.
+locals {
+  # One build project per repository created by terraform/bootstrap. core-runtime is built from the improvement-engine
+  # repo (core-bridge/) with the pinned agent-core checkout as the named build context "core".
+  build_services = {
+    "core-runtime"         = { repository = "${var.ecr_repository_prefix}/core-runtime", dockerfile = "core-bridge/Dockerfile", core_context_dir = "agent-core" }
+    "llm-gateway"          = { repository = "${var.ecr_repository_prefix}/llm-gateway" }
+    "support-platform-api" = { repository = "${var.ecr_repository_prefix}/support-platform-api", dockerfile = "api/Dockerfile", context_dir = "api" }
+    "support-platform-web" = { repository = "${var.ecr_repository_prefix}/support-platform-web", dockerfile = "web/Dockerfile", context_dir = "web" }
+    "pulso-engine"         = { repository = "${var.ecr_repository_prefix}/pulso-engine" }
+    "caddy"                = { repository = "${var.ecr_repository_prefix}/caddy", mode = "mirror" }
+  }
+}
+
+module "image_builder" {
+  source       = "../../modules/image_builder"
+  name         = var.name_prefix
+  enabled      = var.enable_image_builder
+  region       = var.region
+  bucket_name  = module.data.bucket_name
+  kms_key_arn  = module.data.kms_key_arn
+  ecr_registry = local.ecr_registry_url
+  services     = local.build_services
+  compute_type = var.image_builder_compute_type
+  tags         = local.tags
+}
+
+module "deployers" {
+  source      = "../../modules/deployer_policies"
+  region      = var.region
+  ssm_prefix  = module.data.ssm_prefix
+  bucket_name = module.data.bucket_name
+  kms_key_arn = module.data.kms_key_arn
+  workloads = {
+    core = {
+      image_keys     = ["core", "gateway"]
+      repositories   = ["${var.ecr_repository_prefix}/core-runtime", "${var.ecr_repository_prefix}/llm-gateway"]
+      build_services = ["core-runtime", "llm-gateway"]
+    }
+    platform = {
+      image_keys     = ["support_api", "support_web"]
+      repositories   = ["${var.ecr_repository_prefix}/support-platform-api", "${var.ecr_repository_prefix}/support-platform-web"]
+      build_services = ["support-platform-api", "support-platform-web"]
+    }
+    engine = {
+      image_keys     = ["pulso"]
+      repositories   = ["${var.ecr_repository_prefix}/pulso-engine"]
+      build_services = ["pulso-engine"]
+    }
+  }
+  project_arns = module.image_builder.project_arns
+}

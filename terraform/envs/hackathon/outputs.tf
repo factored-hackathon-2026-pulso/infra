@@ -39,3 +39,40 @@ output "loader_role_arns_effective" { value = local.loader_roles }
 output "uploader_principal_arns_effective" { value = local.uploader_principals }
 output "break_glass_principal_arns_effective" { value = local.break_glass }
 output "ecr_repository_arns_effective" { value = local.ecr_arns }
+output "image_build_projects" {
+  description = "CodeBuild project per service (empty when enable_image_builder is false)."
+  value       = module.image_builder.project_names
+}
+
+output "deployer_policy_json_core" {
+  description = "Identity policy for the agent-core and llm-gateway teams (core host). The human attaches it to the IAM users or roles he creates."
+  value       = module.deployers.deployer_policy_json_core
+}
+
+output "deployer_policy_json_platform" {
+  description = "Identity policy for the support-platform team (platform host)."
+  value       = module.deployers.deployer_policy_json_platform
+}
+
+output "deployer_policy_json_engine" {
+  description = "Identity policy for the engine team (engine host)."
+  value       = module.deployers.deployer_policy_json_engine
+}
+
+output "deploy_documents" {
+  description = "SSM Command document that deploys the digests stored in SSM, per host."
+  value = {
+    core     = module.compute_core.deploy_document_name
+    platform = module.compute_platform.deploy_document_name
+    engine   = module.compute_engine.deploy_document_name
+  }
+}
+
+output "host_user_data_sha256" {
+  description = "Hash of each host start script. A digest-only deploy never changes it; a change means the instance would be replaced."
+  value = {
+    core     = module.compute_core.user_data_sha256
+    platform = module.compute_platform.user_data_sha256
+    engine   = module.compute_engine.user_data_sha256
+  }
+}
