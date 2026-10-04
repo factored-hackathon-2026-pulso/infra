@@ -58,10 +58,33 @@ Core topology: an ECR repository and a data plane (registry blob bucket, SNS eve
 DLQs) wired into `envs/*`, plus `rds_proxy`, `scheduled_task` and `core_alarms` modules awaiting the Core
 workload slice. Nothing is applied.
 
-Modules `workload`, `workload_iam`, `ci_roles` and `auxiliary_roles` are declared with
-mock-provider tests but are not yet wired into `envs/*`. Releases are manual and offline-validated:
+Modules `ci_roles` and `auxiliary_roles` are declared with mock-provider tests but are not wired into
+`envs/*`. `workload` and `workload_iam` are consumed only through `engine_platform` and `bridge_services`
+(below). Releases are manual and offline-validated:
 see `release/` (deploy-manifest schema, `validate_manifest.py`, `validate_plan.py`, `deploy_plan.py --dry-run`)
 and the [deploy and rollback runbook](docs/runbooks/deploy-core-and-engine.md).
+
+## Engine platform workloads
+
+Module `engine_platform` (control-api, worker, migrate, sandbox-lab) is wired into `staging` and `prod` and
+plans zero resources by default. Switches in `engine_platform_variables.tf`: `engine_platform_enabled` (default
+`false`), `engine_ecr_enabled` (default `false`, creates the engine and sandbox ECR repositories independently of the
+workloads) and `private_endpoints_enabled` (default `false`, shared AWS-API VPC endpoints through
+`core_vpc_endpoints`; enabling the workloads without it is flagged by a `check`). The image, sandbox image, Core
+runtime URL, security groups and Cloud Map namespace are inputs that default to empty. Nothing is applied.
+
+## Bridge and exporter services
+
+Module `bridge_services` (`core-runtime`, `core-exporter`, `platform-exporter`) is wired into `staging` and `prod`
+and plans zero resources by default. Switches in `bridge_services_variables.tf`: `bridge_services_enabled` (default
+`false`; it requires `engine_platform_enabled` and `private_endpoints_enabled`), `bridge_ecr_enabled` (default
+`false`, platform-exporter repository only) and the per-service desired counts
+(`bridge_core_runtime_desired_count`, `bridge_core_exporter_desired_count`,
+`bridge_platform_exporter_desired_count`, all default `0`). Image digests, secret ARNs, database security groups,
+tenant and binding references are inputs that default to empty. Keys follow improvement-engine ADR 0009: secrets
+arrive as environment variables and the image entrypoint writes them to the ephemeral volume `/run/pulso-keys`.
+Nothing is applied; see the [deployment-status contract](docs/architecture/deployment-status.md) and
+[open gaps](docs/gaps/OPEN_GAPS.md).
 
 ## LLM gateway workload
 
