@@ -1,0 +1,21 @@
+version: 0.2
+env:
+  shell: bash
+phases:
+  build:
+    commands:
+      - |
+        set -euo pipefail
+        [[ "${SOURCE_ID:-}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || { echo "SOURCE_ID is required (letters, digits, . _ -)"; exit 1; }
+        : "${MIRROR_IMAGE:?MIRROR_IMAGE is required, for example docker.io/library/caddy:2.8.4-alpine or an image pinned by @sha256 digest}"
+        REPO_URI="$ECR_REGISTRY/$ECR_REPOSITORY"
+        TAG="build-$SOURCE_ID"
+        aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+        docker pull --platform linux/amd64 "$MIRROR_IMAGE"
+        docker tag "$MIRROR_IMAGE" "$REPO_URI:$TAG"
+        docker push "$REPO_URI:$TAG"
+        DIGEST=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$TAG" --query 'imageDetails[0].imageDigest' --output text)
+        [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest recorded for $TAG"; exit 1; }
+        printf '{"image":"%s@%s","digest":"%s"}\n' "$REPO_URI" "$DIGEST" "$DIGEST" > build-record.json
+        aws s3 cp build-record.json "s3://$OUTPUT_BUCKET/$OUTPUT_PREFIX/$SERVICE/$SOURCE_ID.json"
+        echo "IMAGE=$REPO_URI@$DIGEST"

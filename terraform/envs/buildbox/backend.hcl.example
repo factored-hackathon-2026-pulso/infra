@@ -1,0 +1,7 @@
+# Copy outside Git. Never add credentials here.
+# Own state key: nothing in prod depends on this root and it depends on nothing of prod.
+bucket       = "pulso-prod-tfstate-replace-with-account-id"
+key          = "buildbox/terraform.tfstate"
+region       = "us-east-1"
+use_lockfile = true
+encrypt      = true

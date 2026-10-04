@@ -1,0 +1,71 @@
+#!/bin/bash
+# Non-secret bootstrap. No secret values: they are fetched at start by pulso-stack-prepare.
+set -euxo pipefail
+dnf install -y docker jq xfsprogs
+%{ if cloudwatch ~}
+dnf install -y amazon-cloudwatch-agent
+%{ endif ~}
+install -d /usr/local/lib/docker/cli-plugins
+curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-x86_64"
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<'JSON'
+{"log-driver":"json-file","log-opts":{"max-size":"10m","max-file":"3"}}
+JSON
+systemctl enable --now docker
+
+# Data volume (stable by-id path on Nitro)
+DEV=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${data_volume_id_nodash}
+for i in $(seq 1 60); do [ -e "$DEV" ] && break; sleep 2; done
+blkid "$DEV" || mkfs.xfs "$DEV"
+mkdir -p /srv
+UUID=$(blkid -s UUID -o value "$DEV")
+grep -q "$UUID" /etc/fstab || echo "UUID=$UUID /srv xfs defaults,nofail 0 2" >> /etc/fstab
+mount -a
+mkdir -p /srv/stack
+%{ if db_volume_id_nodash != "" ~}
+
+# Postgres data volume (own EBS volume, own daily snapshots); the container runs as uid 999
+DBDEV=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${db_volume_id_nodash}
+for i in $(seq 1 60); do [ -e "$DBDEV" ] && break; sleep 2; done
+blkid "$DBDEV" || mkfs.xfs "$DBDEV"
+mkdir -p /srv/pgdata
+DBUUID=$(blkid -s UUID -o value "$DBDEV")
+grep -q "$DBUUID" /etc/fstab || echo "UUID=$DBUUID /srv/pgdata xfs defaults,nofail 0 2" >> /etc/fstab
+mount -a
+chown 999:999 /srv/pgdata
+%{ endif ~}
+
+cat > /usr/local/bin/pulso-stack-prepare <<'PREPARE'
+${prepare_script}
+PREPARE
+chmod 755 /usr/local/bin/pulso-stack-prepare
+
+cat > /etc/systemd/system/pulso-stack.service <<'UNIT'
+[Unit]
+Description=Pulso hackathon compose stack
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/srv/stack
+ExecStartPre=/usr/local/bin/pulso-stack-prepare
+ExecStart=/usr/bin/docker compose -p pulso up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -p pulso down
+TimeoutStartSec=600
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now pulso-stack
+%{ if cloudwatch ~}
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CW'
+{"logs":{"logs_collected":{"files":{"collect_list":[{"file_path":"/var/lib/docker/containers/*/*-json.log","log_group_name":"${log_group}","log_stream_name":"{instance_id}"}]}}}}
+CW
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+%{ endif ~}

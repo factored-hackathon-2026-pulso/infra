@@ -1,0 +1,41 @@
+# Copy to prod.tfvars (ignored by Git) and fill the image digests. `scripts/aws-prod.ps1 images` writes them for you.
+# No secrets belong here: secret values live only in Secrets Manager (docs/secrets-keys.md).
+# Everything else (region us-east-1, environment prod, name_prefix pulso-prod, registry URL, who may upload/load)
+# has a working default.
+
+# Required. Format <registry>/<repo>@sha256:<64 hex>, repos created by terraform/bootstrap (prefix "pulso-prod/").
+# Replace <registry> with <account id>.dkr.ecr.us-east-1.amazonaws.com and each digest with the pushed one.
+images = {
+  core = {
+    core    = "<registry>/pulso-prod/core-runtime@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    gateway = "<registry>/pulso-prod/llm-gateway@sha256:REPLACE_WITH_64_HEX_DIGEST"
+  }
+  platform = {
+    support_api = "<registry>/pulso-prod/support-platform-api@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    support_web = "<registry>/pulso-prod/support-platform-web@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    proxy       = "<registry>/pulso-prod/caddy@sha256:REPLACE_WITH_64_HEX_DIGEST"
+  }
+  engine = {
+    pulso = "<registry>/pulso-prod/pulso-engine@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    proxy = "<registry>/pulso-prod/caddy@sha256:REPLACE_WITH_64_HEX_DIGEST"
+  }
+}
+
+# Profile. free_plan (default for now) is for an AWS Free Plan account: core host m7i-flex.large with Postgres in a
+# container, no NAT gateway, CloudFront with public origins, WAF off, CodeBuild SMALL. prod is the previous design
+# (RDS, NAT, VPC origins, WAF). See docs/costs.md and docs/decisions.md (ADR 0008).
+# profile       = "free_plan"   # or "prod"
+# database_mode = "container"   # container | rds (null = derived from the profile)
+# edge_enabled  = true          # false: come up without CloudFront (staged apply)
+# images.core may carry an optional digest-pinned ECR mirror: postgres = "<registry>/pulso-prod/postgres@sha256:..."
+
+# Optional levers (defaults shown).
+# enable_waf           = false   # about 8 USD per month; default false in free_plan, true in prod
+# enabled              = { core = true, platform = true, engine = true }   # per-host kill switch
+# instance_types       = { core = "m7i-flex.large", platform = "t3.small", engine = "t3.small" }   # free_plan; prod: t3.small x3
+# data_volume_size_gb  = { core = 20, platform = 20, engine = 40 }
+# protect_data_volume  = true
+# engine_host_can_load = true    # the engine host runs the data loader (landing/ -> lake/)
+# uploader_principal_arns    = []   # empty = the account's IAM users and root may upload to landing/
+# break_glass_principal_arns = []
+# loader_role_arns           = []   # extra loader roles; the engine host role is added automatically

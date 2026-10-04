@@ -15,13 +15,22 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: Test portable infrastructure contracts (not stack readiness)
         run: python -m unittest discover -s tests -v
+      - name: Documentation matches the code (subcommands, flags, variables, modules, links)
+        run: python -m unittest tests.test_docs_consistency -v
+      - name: Test aws-prod.ps1 and release-engine.ps1 guards (Pester 3.4, fake aws and terraform)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Install-Module Pester -RequiredVersion 3.4.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          Import-Module Pester -RequiredVersion 3.4.0
+          Invoke-Pester scripts/tests -EnableExit
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.10.5
@@ -67,3 +76,20 @@ jobs:
             terraform "-chdir=terraform/modules/$module" test
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Test hackathon single-host compute and composition without cloud access
+        shell: pwsh
+        run: |
+          foreach ($dir in "modules/hackathon_network", "modules/hackathon_iam", "modules/hackathon_data", "modules/hackathon_compute", "modules/image_builder", "modules/deployer_policies", "modules/engine_task", "bootstrap", "envs/hackathon") {
+            terraform "-chdir=terraform/$dir" init -backend=false -input=false
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            terraform "-chdir=terraform/$dir" validate
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            terraform "-chdir=terraform/$dir" test
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Test hackathon edge module (validated through the env composition, which supplies the us_east_1 alias)
+        shell: pwsh
+        run: |
+          terraform -chdir=terraform/modules/hackathon_edge init -backend=false -input=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          terraform -chdir=terraform/modules/hackathon_edge test

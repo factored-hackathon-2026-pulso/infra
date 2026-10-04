@@ -1,0 +1,57 @@
+# Hackathon engine host. Project dir on the host: /srv/stack (synced from S3 by pulso-stack-prepare).
+# Images are digest variables in .env; secrets come from /run/pulso/env/<svc>.env (tmpfs, 0600),
+# rendered from this host's slice of the one Secrets Manager secret.
+name: pulso
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+networks:
+  internal: {}
+
+services:
+  pulso:
+    image: ${PULSO_IMAGE:?set}
+    command: ["run"]
+    restart: unless-stopped
+    mem_limit: 512m
+    stop_grace_period: 70s
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/pulso.env]
+    environment:
+      PULSO_STORAGE_BUCKET: ${BUCKET_NAME:?set}
+      PULSO_STORAGE_PREFIX: ${PULSO_STORAGE_PREFIX:-engine/}
+      PULSO_CORE_URL: http://core.${PRIVATE_ZONE_NAME:?set}:8000
+    volumes:
+      - /srv/data/pulso:/var/lib/pulso
+    # Assumes the engine image ships `pulso healthcheck` (probes /healthz).
+    healthcheck:
+      test: ["CMD", "pulso", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    logging: *logging
+    networks: [internal]
+
+  proxy:
+    image: ${PROXY_IMAGE:?set}
+    restart: unless-stopped
+    mem_limit: 64m
+    ports:
+      - "8080:8080"
+    env_file: [/run/pulso/env/common.env]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      pulso:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+    networks: [internal]

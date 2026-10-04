@@ -16,6 +16,14 @@ from pathlib import Path
 ACCOUNT_ARN = re.compile(r"arn:aws[a-z-]*:[a-z0-9-]*:[a-z0-9-]*:(\d{12}):")
 REGION = re.compile(r"\b(?:us|eu|ap|sa|ca|me|af)-(?:east|west|north|south|central|northeast|southeast)-\d\b")
 PLACEHOLDER_ACCOUNT = "000000000000"
+# Region literals allowed ONLY as the `default` of these variables. Single-region prod runs in us-east-1 and the
+# CloudFront-scope WAF exists only there; the challenge dataset lives in us-east-2 (external fact, not our region).
+ALLOWED_REGION_DEFAULTS = {
+    "region": "us-east-1",
+    "aws_region": "us-east-1",
+    "cloudfront_waf_region": "us-east-1",
+    "dataset_region": "us-east-2",
+}
 SWITCHES_OFF = ("bridge_services_enabled", "bridge_ecr_enabled", "engine_platform_enabled",
                 "private_endpoints_enabled", "engine_ecr_enabled")
 SWITCHES_EXPECTED_BUT_ABSENT = ("data_pipeline_enabled",)
@@ -71,6 +79,14 @@ def scan_tf_dir(directory: Path, skip_tests: bool = True) -> list[Finding]:
         text = path.read_text(encoding="utf-8")
         where = lambda n: f"{path.relative_to(directory.parent) if directory.parent in path.parents else path.name}:{n}"
         lines = text.splitlines()
+        allowed_region_lines: set[int] = set()
+        for m, body in _blocks(text, r'variable\s+"(?:%s)"' % "|".join(ALLOWED_REGION_DEFAULTS)):
+            name = re.search(r'variable\s+"([^"]+)"', m.group(0)).group(1)
+            start = text.count("\n", 0, m.end()) + 1
+            for off, bl in enumerate(body.split("\n")):
+                d = re.match(r'\s*default\s*=\s*"([^"]+)"\s*$', bl)
+                if d and d.group(1) == ALLOWED_REGION_DEFAULTS[name]:
+                    allowed_region_lines.add(start + off)
         for no, line in _code_lines(path):
             validation = "regex(" in line
             m = ACCOUNT_ARN.search(line)
@@ -81,7 +97,7 @@ def scan_tf_dir(directory: Path, skip_tests: bool = True) -> list[Finding]:
                 out.append(Finding("FAIL", "bare-account-id", where(no), line.strip()))
             if WILDCARD_ARN.search(line):
                 out.append(Finding("FAIL", "wildcard-account-arn", where(no), line.strip()))
-            if REGION.search(line) and not validation:
+            if REGION.search(line) and not validation and no not in allowed_region_lines:
                 out.append(Finding("FAIL", "hardcoded-region", where(no), line.strip()))
             if "AdministratorAccess" in line or STAR_ACTION.search(line):
                 out.append(Finding("FAIL", "admin-policy", where(no), line.strip()))
@@ -153,8 +169,14 @@ def check_modules(root: Path) -> list[Finding]:
     return out
 
 
+def scan_extra_roots(root: Path) -> list[Finding]:
+    """Standalone root modules outside modules/ and envs/ (the new-account bootstrap)."""
+    boot = root / "terraform" / "bootstrap"
+    return scan_tf_dir(boot) if boot.is_dir() else []
+
+
 def run_all(root: Path) -> list[Finding]:
-    out = scan_tf_dir(root / "terraform" / "modules") + scan_tf_dir(root / "terraform" / "envs")
+    out = scan_tf_dir(root / "terraform" / "modules") + scan_tf_dir(root / "terraform" / "envs") + scan_extra_roots(root)
     for env in ENVS:
         out += check_env(root, env)
     return out + check_modules(root)

@@ -1,0 +1,89 @@
+#!/bin/bash
+# buildbox bootstrap (Amazon Linux 2023, x86_64). Idempotent enough to re-run by hand.
+set -uxo pipefail
+exec > >(tee -a /var/log/buildbox-init.log) 2>&1
+
+# --- data volume mounted at /work (cargo registry, target caches, job dirs) ---
+ROOT_DISK=$(lsblk -no PKNAME "$(findmnt -no SOURCE /)" | head -n1)
+DATA_DEV=""
+for d in $(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}'); do
+  if [ "$d" != "$ROOT_DISK" ]; then DATA_DEV="/dev/$d"; fi
+done
+if [ -n "$DATA_DEV" ]; then
+  blkid "$DATA_DEV" >/dev/null 2>&1 || mkfs.xfs -L work "$DATA_DEV"
+  mkdir -p /work
+  grep -q ' /work ' /etc/fstab || echo "LABEL=work /work xfs defaults,nofail 0 2" >> /etc/fstab
+  mount -a
+fi
+mkdir -p /work/.jobs /work/target /work/cargo /work/.locks /work/.tmp
+touch /work/.last_active
+
+# --- packages ---
+dnf -y update --security || true
+dnf -y install git gcc gcc-c++ clang lld make cmake pkgconf-pkg-config openssl-devel \
+  tar gzip zstd unzip jq docker nodejs22 python3.12 python3.12-pip util-linux awscli-2 || \
+  dnf -y install git gcc gcc-c++ clang lld make cmake pkgconf-pkg-config openssl-devel \
+  tar gzip zstd unzip jq docker nodejs python3.12 python3.12-pip util-linux awscli-2
+python3.12 -m pip install --quiet uv || true
+systemctl enable --now docker || true
+systemctl enable --now amazon-ssm-agent || true
+
+# --- environment shared by every job (rustup toolchains stay off the data volume root disk) ---
+cat > /etc/profile.d/buildbox.sh <<'ENV'
+export RUSTUP_HOME=/opt/rustup
+export CARGO_HOME=/work/cargo
+export PATH=/work/cargo/bin:/usr/local/bin:$PATH
+export TMPDIR=/work/.tmp
+export CARGO_TERM_COLOR=never
+export CARGO_INCREMENTAL=0
+export RUSTFLAGS="$${RUSTFLAGS:-} -C link-arg=-fuse-ld=lld"
+ENV
+. /etc/profile.d/buildbox.sh
+
+# --- rustup: the actual toolchain is read from the job's rust-toolchain.toml at run time ---
+if [ ! -x /work/cargo/bin/rustup ]; then
+  curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path
+fi
+echo "buildbox ready" > /work/.ready
+
+# --- idle auto-stop: no marker in /work/.jobs for ${idle_minutes} minutes => shutdown (behavior is "stop") ---
+cat > /usr/local/bin/buildbox-idle <<'IDLE'
+#!/bin/bash
+IDLE_MIN=${idle_minutes}
+mkdir -p /work/.jobs
+if [ -n "$(ls -A /work/.jobs 2>/dev/null)" ]; then
+  touch /work/.last_active
+  exit 0
+fi
+last=$(stat -c %Y /work/.last_active 2>/dev/null || date +%s)
+now=$(date +%s)
+if [ $(( (now - last) / 60 )) -ge "$IDLE_MIN" ]; then
+  logger "buildbox-idle: no jobs for $IDLE_MIN minutes, stopping"
+  /sbin/shutdown -h now
+fi
+IDLE
+chmod +x /usr/local/bin/buildbox-idle
+
+cat > /etc/systemd/system/buildbox-idle.service <<'UNIT'
+[Unit]
+Description=Stop the buildbox when idle
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/buildbox-idle
+UNIT
+
+cat > /etc/systemd/system/buildbox-idle.timer <<'TIMER'
+[Unit]
+Description=Check buildbox idleness every 5 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+TIMER
+systemctl daemon-reload
+systemctl enable --now buildbox-idle.timer
+

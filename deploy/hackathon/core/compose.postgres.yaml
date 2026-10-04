@@ -1,0 +1,53 @@
+# Postgres 16 container on the core host (free_plan profile, database_mode=container). Merged over compose.yaml through
+# COMPOSE_FILE in .env (written by Terraform). Data lives on its own EBS volume (/srv/pgdata, daily DLM snapshots).
+# POSTGRES_IMAGE is optional: a digest-pinned ECR mirror may be set as images.core.postgres (SSM), else the pinned tag.
+# The password is never in this file: db.env (tmpfs) comes from the secret keys DB__*. No TLS inside the VPC: only the
+# platform and engine security groups reach 5432.
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16.4}
+    restart: unless-stopped
+    mem_limit: 1536m
+    shm_size: 256m
+    env_file: [/run/pulso/env/db.env]
+    environment:
+      POSTGRES_USER: pulso_master
+      POSTGRES_DB: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - postgres
+      - -c
+      - max_connections=40
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - log_min_duration_statement=1000
+      - -c
+      - log_connections=on
+      - -c
+      - log_disconnections=on
+      - -c
+      - log_lock_waits=on
+    # Other hosts reach it as core.<private zone>:5432 (security group limited).
+    ports:
+      - "5432:5432"
+    volumes:
+      - /srv/pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulso_master -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [internal]
+
+  core-migrate:
+    depends_on:
+      postgres:
+        condition: service_healthy

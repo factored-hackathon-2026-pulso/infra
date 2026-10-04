@@ -1,0 +1,64 @@
+# Hackathon platform host. Project dir on the host: /srv/stack (synced from S3 by pulso-stack-prepare).
+# Images are digest variables in .env; secrets come from /run/pulso/env/<svc>.env (tmpfs, 0600),
+# rendered from this host's slice of the one Secrets Manager secret.
+name: pulso
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+networks:
+  internal: {}
+
+services:
+  support-platform-api:
+    image: ${SUPPORT_API_IMAGE:?set}
+    restart: unless-stopped
+    mem_limit: 512m
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/support.env]
+    volumes:
+      - /srv/data/support:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+    networks: [internal]
+
+  support-platform-web:
+    image: ${SUPPORT_WEB_IMAGE:?set}
+    restart: unless-stopped
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:80/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+    networks: [internal]
+
+  proxy:
+    image: ${PROXY_IMAGE:?set}
+    restart: unless-stopped
+    mem_limit: 64m
+    ports:
+      - "80:80"
+    env_file: [/run/pulso/env/common.env]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      support-platform-api:
+        condition: service_healthy
+      support-platform-web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+    networks: [internal]

@@ -5,6 +5,10 @@ service. This repository does not own the engine's local runtime or test
 harness: `improvement-engine` owns Compose/Podman, fixtures, PostgreSQL,
 LocalStack and integration CI.
 
+## AWS prod (start here)
+
+One account, one environment (`prod`, us-east-1), deployed from your machine with `scripts/aws-prod.ps1`. Start at [docs/README.md](docs/README.md) and the one-page [docs/aws-prod-quickstart.md](docs/aws-prod-quickstart.md).
+
 ## Terraform baseline
 
 `terraform/envs/{staging,prod}` declares credential-free provider, backend and
