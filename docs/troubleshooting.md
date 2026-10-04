@@ -47,3 +47,19 @@ Symptom: "Error acquiring the state lock" after an interrupted run. First confir
 ## The helper script refuses
 
 `Refusing profile`: the profile name is one of the protected names; use `pulso-prod`. `No saved plan`: run the matching plan subcommand first. `Aborted`: the confirmation word must be typed exactly (`APPLY` or `DESTROY`, upper case). `placeholders`: `prod.tfvars` still has `REPLACE_WITH` or `<registry>`; run `images`.
+
+## Free Plan errors at apply
+
+Read the AWS message literally; the stack is staged so a refusal costs one step ([operations](operations.md#apply-in-stages-free_plan)).
+
+| Message | Meaning | What to do |
+|---|---|---|
+| `InvalidParameterCombination` ... `not eligible for Free Tier` (EC2 `RunInstances`) | The instance type is outside the account's Free Tier list | Use `c7i-flex.large`, `m7i-flex.large`, `t3.micro`, `t3.small`, `t4g.micro`, `t4g.small`, `t8i.micro` or `t8i.small` in `instance_types`; the variable validation already stops other types |
+| `OperationNotPermitted` / `not eligible for Free Tier` on a managed service (NAT gateway, RDS, CloudFront, WAF) | The plan refuses that service | Stay on `profile = "free_plan"` (no NAT, no RDS); for CloudFront or WAF set `edge_enabled = false` / `enable_waf = false` and continue without them |
+| CodeBuild `ResourceNotFoundException` or `compute type ... not supported` | Compute size not allowed | `image_builder_compute_type = "BUILD_GENERAL1_SMALL"` (default) or build on the host with `images -Builder host` |
+| CodeBuild build `FAILED`, log shows `Killed` or exit 137 during `cargo build` | SMALL (3 GB) ran out of memory | `images ... -Builder host` |
+| Hosts run but nothing can pull images or reach SSM | Public IP missing or a route is gone (no NAT in free_plan) | `terraform output profile_effective` must show `hosts_public_ip = true`; the host must be in a public subnet with the internet gateway route |
+| CloudFront 403 from the origin | `X-Origin-Verify` mismatch or missing | The distribution and the host must carry the same `COMMON__ORIGIN_VERIFY`; re-run the deploy so `pulso-stack-prepare` re-renders `common.env`, then restart the stack. Direct requests to the host are rejected by design |
+| `pulso-stack` fails with `secret key COMMON__ORIGIN_VERIFY is missing or empty` | The proxy refuses to start without the value (fail closed) | Add the key to the secret (Terraform seeds it on a fresh account) |
+| Postgres container exits at first start: `init refused: DB_PASSWORD_... is unset or still CHANGE_ME` | Role passwords not set in the secret before the first start | Put real values in the `DB__DB_PASSWORD_*` keys, remove the failed data (`/srv/pgdata` contents, empty volume only) and restart |
+| Platform or engine cannot reach the database | SG rule, wrong DSN host, or the core stack is not up | `core.pulso.internal:5432` from the other host; the core SG must allow 5432 from the platform and engine SGs |

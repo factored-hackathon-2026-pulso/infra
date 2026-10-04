@@ -89,3 +89,30 @@ Order and protections, all through `scripts/aws-prod.ps1`:
 ## Cost levers
 
 Stop hosts (`enabled`), `enable_waf = false`, smaller `instance_types`, shorter RDS backup retention. The NAT gateway (about a third of the bill) cannot be paused without losing egress; see [costs](costs.md).
+
+## Apply in stages (free_plan)
+
+On a Free Plan account any service can be refused at apply time, and an apply stops at the first refusal while the rest of the plan is partly applied. Apply in small steps, one saved plan each, and read the error before the next one. Order, with the `-target` arguments (plans are produced with `scripts/aws-prod.ps1 plan`; add `-target` through the stage options only if you run terraform by hand):
+
+1. **network**: `module.network` (VPC, subnets, security groups, S3 endpoint, private zone). No NAT in free_plan.
+2. **data**: `module.data` and `module.iam` (bucket, KMS, the one secret, SSM parameters, instance roles). No RDS in container mode. Set the role passwords in the secret now (`DB__DB_PASSWORD_*` keys, not `CHANGE_ME`): the Postgres init refuses placeholders.
+3. **builder**: `plan -Stage builder` then apply (CodeBuild projects, SMALL compute). Build the images (`images -Service ...`); if a Rust build runs out of memory use `-Builder host` after stage 4 (the core host must exist).
+4. **compute**: `module.compute_core`, `module.compute_platform`, `module.compute_engine` (hosts, EBS volumes, DLM). If `m7i-flex.large` is refused the message says so; change `instance_types` to an eligible type and re-plan.
+5. **edge**: the rest (`module.edge`: CloudFront, WAF if enabled). `edge_enabled = false` skips it; test the hosts through SSM first.
+
+Error messages and what they mean are in [troubleshooting](troubleshooting.md#free-plan-errors-at-apply).
+
+## Image builds on the core host (free_plan fallback)
+
+```powershell
+./scripts/aws-prod.ps1 images -Profile pulso-prod -Service core-runtime -SourceDir D:\src\improvement-engine -AgentCoreDir D:\src\agent-core -Builder host
+```
+
+`-Builder host` (default `codebuild`) uploads the zip as before, finds the running instance tagged `Workload=core`, and runs docker buildx there through SSM Run Command (`AWS-RunShellScript`, script written to the work directory, one command). It prints the tail of the output, reads the build record from `engine/build-out/` and records the digest exactly like the CodeBuild path. The build shares CPU and memory with the stack on that host: build while traffic is idle. Requires `enable_host_builder` (default true in free_plan).
+
+## Postgres container (free_plan)
+
+- State: `docker ps` on the core host (via SSM) shows `pulso-postgres-1`; data lives on `/srv/pgdata` (separate EBS volume, daily DLM snapshot, 3 kept).
+- First start of an empty volume runs `initdb/10_init.sh` (databases and roles from `hackathon_data/sql/`); then run the engine's `db/sql` migrations on database `pulso` and `sql/30_pulso_logins.sql` (`docker compose -p pulso exec -T postgres psql -U pulso_master -d pulso < /srv/stack/initdb/sql/30_pulso_logins.sql`), as in [db-bootstrap](db-bootstrap.md) but without RDS.
+- Restore: create a volume from a snapshot, swap it in `module.compute_core` (see Teardown notes) or restore into a new volume and `rsync` to `/srv/pgdata` with the stack stopped.
+- DSNs in the secret point at `core.pulso.internal:5432` (`terraform output db_endpoint`).

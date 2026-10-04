@@ -76,3 +76,16 @@ One KMS key (rotation on) encrypts the bucket objects. One Secrets Manager secre
 | `bootstrap` (separate root) | state bucket, ECR repositories; CloudTrail, budget and the CI role are off |
 
 Longer module notes: [hackathon_network](../terraform/modules/hackathon_network/README.md), [hackathon_data](../terraform/modules/hackathon_data/README.md), [hackathon_edge](../terraform/modules/hackathon_edge/README.md), [hackathon_iam](../terraform/modules/hackathon_iam/README.md), and the compose bundles in [deploy/hackathon](../deploy/hackathon/README.md).
+
+## free_plan profile (default for now)
+
+Same three hosts, same bucket, same single secret; what differs (variable `profile`, `terraform/envs/hackathon`):
+
+```
+CloudFront (public origin, X-Origin-Verify) -> platform host :80 / engine host :8080   (public subnets, public IP, SG = CloudFront prefix list only)
+platform, engine -> core host :8000 (agent-core runtime) and :5432 (Postgres container)   (sibling SGs only)
+core host (m7i-flex.large): core-migrate, core-runtime, core-exporter, llm-gateway, postgres 16 (own EBS volume /srv/pgdata)
+all hosts -> S3 via the gateway endpoint; ECR, SSM, model APIs via the public IP (outbound only, no NAT)
+```
+
+`profile = "prod"` restores the previous design: RDS in isolated subnets (`database_mode = "rds"`), private hosts behind one NAT gateway, CloudFront VPC origins, WAF. The toggles can be mixed (`database_mode`, `enable_nat`, `enable_waf`, `edge_enabled`, `enable_host_builder`, `db_volume_size_gb`), and `terraform output profile_effective` prints what was resolved. Decision record: [decisions](decisions.md#free_plan-profile-record-0008).

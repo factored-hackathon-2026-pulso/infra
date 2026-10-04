@@ -1,5 +1,7 @@
 # Costs
 
+> **Profile.** The table below is the `prod` profile (RDS, NAT, WAF). The default profile for now is `free_plan`, priced in [free_plan profile](#free_plan-profile). Switch with `profile = "prod"` in `prod.tfvars`.
+
 Approximate USD per month, us-east-1, on-demand, steady state, demo traffic and data. Estimates for planning, not a quote: check the AWS pricing pages and the Billing console. There is no budget alarm (by decision): look at Billing > Cost Explorer yourself, weekly.
 
 | Resource | Free tier | Estimate |
@@ -28,3 +30,19 @@ CloudTrail (management events) and the budget are off by default; CloudTrail's f
 - Smaller or fewer volumes: `data_volume_size_gb`; shorter RDS backup retention in the module variable `db_backup_retention_days` of `hackathon_data` (default 7).
 - NAT is the biggest fixed cost and cannot be paused without losing egress (image pulls, LLM providers, SSM). A full teardown (`destroy`) is the only way to stop it; see [operations](operations.md#teardown).
 - Stopped RDS restarts itself after 7 days: do not rely on stopping it.
+
+## free_plan profile
+
+The human's account is on the AWS Free Plan: it refuses instance types outside the Free Tier eligible list (`c7i-flex.large`, `m7i-flex.large`, `t3.micro`, `t3.small`, `t4g.micro`, `t4g.small`, `t8i.micro`, `t8i.small`) and may refuse other services at apply time. The profile (`profile = "free_plan"`, variable `profile`) changes what costs money:
+
+| Resource | prod | free_plan |
+|---|---|---|
+| NAT gateway + data processing | ~37 | **0** (`enable_nat` null = off: hosts in public subnets with public IPs, outbound only) |
+| Public IPv4 addresses (3 hosts, 0.005 USD per hour each) | 0 | ~11 (the NAT EIP in prod is already inside the NAT line) |
+| EC2 | 3 x t3.small ~46 | core `m7i-flex.large` (8 GB, also runs Postgres) + 2 x `t3.small`; flex types are billed less than their m7i/c7i siblings, check the pricing page |
+| RDS db.t4g.micro | ~15 | **0** (`database_mode = "container"`: Postgres 16 on the core host) |
+| Postgres EBS volume (`db_volume_size_gb`, default 30) + daily snapshots | 0 | ~3 |
+| WAFv2 | ~8 | **0** (`enable_waf` null = off) |
+| CodeBuild | small | `BUILD_GENERAL1_SMALL`, per build minute; the fallback `images -Builder host` costs nothing extra |
+
+Free Plan credits and the 6-month window apply on top; they are not modelled here. Treat every number as an estimate until the first Cost Explorer week. Levers: `enabled = { core = false, ... }` stops a host (the Postgres volume and snapshots keep billing), `edge_enabled = false` removes CloudFront, `db_volume_size_gb` shrinks the database volume (before first apply only).
