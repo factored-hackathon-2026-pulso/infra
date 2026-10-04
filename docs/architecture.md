@@ -18,7 +18,7 @@ One AWS account, one environment (`prod`), three small EC2 hosts behind one Clou
  └─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  outside the VPC: S3 data bucket (SSE-KMS, deny-only bucket policy) · KMS data key · ONE Secrets Manager secret
                   pulso-prod/hackathon · SSM Parameter Store /pulso/<workload>/<service>/<VAR> (non-secret)
-                  · ECR repositories prod/<repo> · remote state bucket pulso-prod-tfstate-<account id>
+                  · ECR repositories pulso-prod/<repo> · remote state bucket pulso-prod-tfstate-<account id>
 ```
 
 ## Who talks to whom

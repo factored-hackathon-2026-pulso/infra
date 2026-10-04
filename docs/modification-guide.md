@@ -53,11 +53,11 @@ A compute module needs: workload name (`core`, `platform`, `engine`), subnet, se
 | `db_deletion_protection` | `true` | RDS deletion protection |
 | `db_skip_final_snapshot` | `false` | skip the final RDS snapshot on destroy |
 
-`terraform/bootstrap` (all optional): `aws_region` (`us-east-1`), `state_bucket_name` (null, derived), `state_key`, `tags`, `budget_alert_email` (empty: no budget), `monthly_budget_usd`, `account_alias`, `cloudtrail_enabled` (`false`), `github_org` and `github_repo` and `github_allowed_refs` (empty: no OIDC role), `ecr_repository_prefix` (`prod`), `ecr_repositories`.
+`terraform/bootstrap` (all optional): `aws_region` (`us-east-1`), `state_bucket_name` (null, derived), `state_key`, `tags`, `budget_alert_email` (empty: no budget), `monthly_budget_usd`, `account_alias`, `cloudtrail_enabled` (`false`), `github_org` and `github_repo` and `github_allowed_refs` (empty: no OIDC role), `ecr_repository_prefix` (`pulso-prod`), `ecr_repositories`.
 
 ## State backend and lock
 
-State is S3 with native locking (`use_lockfile = true`, Terraform 1.10 or newer, no DynamoDB). `scripts/aws-prod.ps1` writes `.scratch/aws-prod/backend.hcl` (ignored by Git) and runs `terraform init -reconfigure -backend-config=...`. Key: `pulso/prod/hackathon/terraform.tfstate`. Bootstrap's own state stays local in `terraform/bootstrap` (keep a copy). A stuck lock: [troubleshooting](troubleshooting.md#state-lock-stuck).
+State is S3 with native locking (`use_lockfile = true`, Terraform 1.10 or newer, no DynamoDB). `scripts/aws-prod.ps1` writes `.scratch/aws-prod/backend.hcl` (ignored by Git) and runs `terraform init -reconfigure -backend-config=...`. Key: `pulso/prod/hackathon/terraform.tfstate`. Bootstrap's own state is local by default; the already applied account keeps it in the state bucket at key `bootstrap/terraform.tfstate`. Bootstrap defaults (`ecr_repository_prefix` `pulso-prod`, bucket `pulso-prod-tfstate-<account id>`) match what was applied, so a plan against that state must show no changes. A stuck lock: [troubleshooting](troubleshooting.md#state-lock-stuck).
 
 ## Add or change a module with TDD
 

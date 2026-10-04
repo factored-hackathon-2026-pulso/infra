@@ -43,11 +43,11 @@ run "costly_or_optional_extras_are_off_by_default" {
   }
 }
 
-run "ecr_prefix_is_prod_and_backend_snippet_uses_the_derived_bucket" {
+run "ecr_prefix_is_pulso_prod_and_backend_snippet_uses_the_derived_bucket" {
   command = apply
 
   assert {
-    condition     = output.ecr_repository_names["pulso-engine"] == "prod/pulso-engine" && strcontains(output.backend_hcl, "pulso-prod-tfstate-000000000000")
-    error_message = "ECR prefix defaults to prod and the backend snippet uses the derived bucket."
+    condition     = output.ecr_repository_names["pulso-engine"] == "pulso-prod/pulso-engine" && strcontains(output.backend_hcl, "pulso-prod-tfstate-000000000000")
+    error_message = "ECR prefix defaults to pulso-prod (compatible with the already applied bootstrap) and the backend snippet uses the derived bucket."
   }
 }

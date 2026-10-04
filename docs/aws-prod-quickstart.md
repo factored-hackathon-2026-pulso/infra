@@ -12,7 +12,7 @@ Prerequisites on your machine: PowerShell 7, Terraform >= 1.10, AWS CLI v2, Dock
    ```
    Compare the account id with the console by eye. Profile names `default`, `payana*`, `higo*`, `standar*`, `management*` are refused unless `-AllowAnyProfile`.
 
-3. **Bootstrap** (state bucket `pulso-prod-tfstate-<account id>` and the ECR repositories; no inputs needed):
+3. **Bootstrap** (skip if already applied: the defaults match the applied one, a plan shows no changes; state bucket `pulso-prod-tfstate-<account id>` and the ECR repositories; no inputs needed):
    ```powershell
    .\scripts\aws-prod.ps1 bootstrap-plan -Profile pulso-prod
    .\scripts\aws-prod.ps1 bootstrap-apply -Profile pulso-prod     # read the summary, type APPLY

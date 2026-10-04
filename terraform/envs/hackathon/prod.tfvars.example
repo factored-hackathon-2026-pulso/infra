@@ -3,21 +3,21 @@
 # Everything else (region us-east-1, environment prod, name_prefix pulso-prod, registry URL, who may upload/load)
 # has a working default.
 
-# Required. Format <registry>/<repo>@sha256:<64 hex>, repos created by terraform/bootstrap (prefix "prod/").
+# Required. Format <registry>/<repo>@sha256:<64 hex>, repos created by terraform/bootstrap (prefix "pulso-prod/").
 # Replace <registry> with <account id>.dkr.ecr.us-east-1.amazonaws.com and each digest with the pushed one.
 images = {
   core = {
-    core    = "<registry>/prod/core-runtime@sha256:REPLACE_WITH_64_HEX_DIGEST"
-    gateway = "<registry>/prod/llm-gateway@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    core    = "<registry>/pulso-prod/core-runtime@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    gateway = "<registry>/pulso-prod/llm-gateway@sha256:REPLACE_WITH_64_HEX_DIGEST"
   }
   platform = {
-    support_api = "<registry>/prod/support-platform-api@sha256:REPLACE_WITH_64_HEX_DIGEST"
-    support_web = "<registry>/prod/support-platform-web@sha256:REPLACE_WITH_64_HEX_DIGEST"
-    proxy       = "<registry>/prod/caddy@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    support_api = "<registry>/pulso-prod/support-platform-api@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    support_web = "<registry>/pulso-prod/support-platform-web@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    proxy       = "<registry>/pulso-prod/caddy@sha256:REPLACE_WITH_64_HEX_DIGEST"
   }
   engine = {
-    pulso = "<registry>/prod/pulso-engine@sha256:REPLACE_WITH_64_HEX_DIGEST"
-    proxy = "<registry>/prod/caddy@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    pulso = "<registry>/pulso-prod/pulso-engine@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    proxy = "<registry>/pulso-prod/caddy@sha256:REPLACE_WITH_64_HEX_DIGEST"
   }
 }
 

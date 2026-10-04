@@ -46,7 +46,7 @@ everything is verified offline (mock providers, `terraform validate`, `terraform
 - Engine proxy listens on 8080 (matches the network rule and the edge default). Compute log group is `/<name_prefix>/docker`.
 - Route 53 records are created by compute (`<workload>.<zone>` A, TTL 60), in the zone from network.
 - ECR: bootstrap creates `<prefix>/{pulso-engine,core-runtime,llm-gateway,support-platform-api,support-platform-web,caddy}`; the
-  `images` values are full refs `<registry>/<prefix>/<repo>@sha256:...` (the host ECR pull grants are derived from them; default prefix `prod`).
+  `images` values are full refs `<registry>/<prefix>/<repo>@sha256:...` (the host ECR pull grants are derived from them; default prefix `pulso-prod`).
 
 ## Apply order (single `terraform apply` of `envs/hackathon`, Terraform orders it)
 

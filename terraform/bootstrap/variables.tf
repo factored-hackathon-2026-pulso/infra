@@ -90,7 +90,7 @@ variable "github_allowed_refs" {
 variable "ecr_repository_prefix" {
   type        = string
   description = "Prefix of ECR repositories (<prefix>/pulso-engine), matching the <env>/pulso-engine convention."
-  default     = "prod"
+  default     = "pulso-prod"
 }
 
 variable "ecr_repositories" {
