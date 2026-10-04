@@ -1,7 +1,8 @@
 data "aws_caller_identity" "current" {}
 
 locals {
-  budget_enabled = var.budget_alert_email != ""
+  budget_enabled    = var.budget_alert_email != ""
+  state_bucket_name = coalesce(var.state_bucket_name, "pulso-prod-tfstate-${data.aws_caller_identity.current.account_id}")
 }
 
 resource "aws_s3_account_public_access_block" "account" {
@@ -41,7 +42,7 @@ resource "aws_budgets_budget" "monthly" {
 # CloudTrail: management events only (cheap), private bucket, log file validation.
 resource "aws_s3_bucket" "trail" {
   count         = var.cloudtrail_enabled ? 1 : 0
-  bucket        = "${var.state_bucket_name}-trail"
+  bucket        = "${local.state_bucket_name}-trail"
   force_destroy = false
   tags          = var.tags
 }

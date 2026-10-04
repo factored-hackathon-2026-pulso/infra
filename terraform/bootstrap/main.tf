@@ -1,7 +1,7 @@
 # Remote-state bucket. Native S3 locking (`use_lockfile`, Terraform >= 1.10) needs no DynamoDB table, matching the
 # repo's backend.hcl.example convention.
 resource "aws_s3_bucket" "state" {
-  bucket        = var.state_bucket_name
+  bucket        = local.state_bucket_name
   force_destroy = false
   tags          = var.tags
 }

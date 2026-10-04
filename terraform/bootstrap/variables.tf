@@ -1,22 +1,23 @@
 variable "aws_region" {
   type        = string
-  description = "Region for the bootstrap resources. No default on purpose (docs/aws-asks.md AWS-02): the human chooses it."
+  description = "Region for the bootstrap resources. Single-region prod runs in us-east-1."
+  default     = "us-east-1"
 }
 
 variable "state_bucket_name" {
   type        = string
-  description = "Globally unique name of the remote-state bucket. The account id is deliberately not baked in; choose a unique name."
+  description = "Optional. Globally unique name of the remote-state bucket. Null (default) derives pulso-prod-tfstate-<account id>, so nobody has to pick a name."
+  default     = null
 
   validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9.-]{1,56}[a-z0-9]$", var.state_bucket_name))
+    condition     = var.state_bucket_name == null || can(regex("^[a-z0-9][a-z0-9.-]{1,56}[a-z0-9]$", var.state_bucket_name))
     error_message = "state_bucket_name must be a valid lowercase S3 bucket name (3-58 characters: a-z, 0-9, dot, hyphen; a -trail suffix is appended for the CloudTrail bucket)."
   }
 }
-
 variable "state_key" {
   type        = string
   description = "Object key of the state file for the first environment composition, used only in the emitted backend snippet."
-  default     = "pulso/staging-new/terraform.tfstate"
+  default     = "pulso/prod/terraform.tfstate"
 }
 
 variable "tags" {
@@ -54,8 +55,8 @@ variable "account_alias" {
 
 variable "cloudtrail_enabled" {
   type        = bool
-  description = "Create a multi-region management-event trail into a private bucket (first copy of management events is free; S3 storage is billed)."
-  default     = true
+  description = "Create a multi-region management-event trail into a private bucket (first copy of management events is free; S3 storage is billed). Off by default; enable when auditing is needed."
+  default     = false
 }
 
 variable "github_org" {
@@ -89,7 +90,7 @@ variable "github_allowed_refs" {
 variable "ecr_repository_prefix" {
   type        = string
   description = "Prefix of ECR repositories (<prefix>/pulso-engine), matching the <env>/pulso-engine convention."
-  default     = "staging"
+  default     = "prod"
 }
 
 variable "ecr_repositories" {
