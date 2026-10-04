@@ -1,9 +1,15 @@
-mock_provider "aws" {}
+mock_provider "aws" {
+  mock_data "aws_iam_policy_document" {
+    defaults = {
+      json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
+    }
+  }
+}
 
 variables {
-  aws_region         = "test-region-1"
+  aws_region         = "us-east-1"
   tags               = { Environment = "test", ManagedBy = "terraform", Service = "pulso" }
-  cluster_arn        = "arn:aws:ecs:test-region-1:000000000000:cluster/test"
+  cluster_arn        = "arn:aws:ecs:us-east-1:123456789012:cluster/test"
   subnet_ids         = ["subnet-aaaa1111"]
   security_group_ids = ["sg-aaaa1111"]
   bucket_name        = "test-pulso-data"
@@ -140,12 +146,12 @@ run "secrets_come_by_arn_and_bucket_is_plain_configuration" {
     enabled            = true
     pulso_image        = "repo/pulso@sha256:1111111111111111111111111111111111111111111111111111111111111111"
     core_runtime_image = "repo/core@sha256:2222222222222222222222222222222222222222222222222222222222222222"
-    secret_arns        = { PULSO_PG_APP_DSN = "arn:aws:secretsmanager:test-region-1:000000000000:secret:test/db_app-AbCdEf" }
+    secret_arns        = { PULSO_PG_APP_DSN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test/db_app-AbCdEf" }
     environment        = { PULSO_DATA_MODE = "product" }
   }
 
   assert {
-    condition     = [for c in jsondecode(aws_ecs_task_definition.this[0].container_definitions) : c.secrets[0].valueFrom if c.name == "pulso"][0] == "arn:aws:secretsmanager:test-region-1:000000000000:secret:test/db_app-AbCdEf"
+    condition     = [for c in jsondecode(aws_ecs_task_definition.this[0].container_definitions) : c.secrets[0].valueFrom if c.name == "pulso"][0] == "arn:aws:secretsmanager:us-east-1:123456789012:secret:test/db_app-AbCdEf"
     error_message = "Secrets are injected by ARN."
   }
 
@@ -186,7 +192,7 @@ run "alarms_cover_engine_health_logs_and_database" {
   variables {
     enabled                = true
     db_instance_identifier = "test-db"
-    alarm_actions          = ["arn:aws:sns:test-region-1:000000000000:alerts"]
+    alarm_actions          = ["arn:aws:sns:us-east-1:123456789012:alerts"]
     pulso_image            = "repo/pulso@sha256:1111111111111111111111111111111111111111111111111111111111111111"
     core_runtime_image     = "repo/core@sha256:2222222222222222222222222222222222222222222222222222222222222222"
   }
