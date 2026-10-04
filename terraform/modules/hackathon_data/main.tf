@@ -62,3 +62,58 @@ resource "aws_s3_bucket_notification" "data" {
   bucket      = aws_s3_bucket.data.id
   eventbridge = true
 }
+
+resource "aws_s3_bucket_lifecycle_configuration" "data" {
+  bucket = aws_s3_bucket.data.id
+
+  rule {
+    id     = "tmp-7d"
+    status = "Enabled"
+    filter {
+      prefix = "tmp/"
+    }
+    expiration {
+      days = 7
+    }
+  }
+
+  rule {
+    id     = "logs-90d"
+    status = "Enabled"
+    filter {
+      prefix = "logs/"
+    }
+    expiration {
+      days = 90
+    }
+  }
+
+  dynamic "rule" {
+    for_each = var.bronze_glacier_ir_days > 0 ? [1] : []
+    content {
+      id     = "bronze-glacier-ir"
+      status = "Enabled"
+      filter {
+        prefix = "lake/bronze/"
+      }
+      transition {
+        days          = var.bronze_glacier_ir_days
+        storage_class = "GLACIER_IR"
+      }
+    }
+  }
+
+  rule {
+    id     = "all-noncurrent-30d"
+    status = "Enabled"
+    filter {
+      prefix = ""
+    }
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
