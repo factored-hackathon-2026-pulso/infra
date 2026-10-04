@@ -183,3 +183,11 @@ run "no_build_statement_when_the_builder_is_off" {
     error_message = "No CodeBuild statement without projects."
   }
 }
+run "command_results_can_be_listed_and_read" {
+  command = plan
+
+  assert {
+    condition     = toset(flatten([one([for s in jsondecode(output.deployer_policy_json_core).Statement : s if s.Sid == "ReadCommandResult"]).Action])) == toset(["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"])
+    error_message = "A deployer that targets by tag finds the instance with ListCommandInvocations, then reads its output."
+  }
+}
