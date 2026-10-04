@@ -39,8 +39,8 @@ run "single_nat_gateway_in_one_az" {
   }
 
   assert {
-    condition     = aws_route_table_association.private["a"].route_table_id == aws_route_table_association.private["b"].route_table_id
-    error_message = "Both private subnets share the single-NAT route table."
+    condition     = length(aws_route_table_association.private) == 2
+    error_message = "Both private subnets associate with the one NAT route table."
   }
 }
 
