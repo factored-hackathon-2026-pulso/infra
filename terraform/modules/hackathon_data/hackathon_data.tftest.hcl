@@ -78,3 +78,63 @@ run "bronze_glacier_optional" {
     error_message = "Glacier IR rule expected when enabled."
   }
 }
+
+run "bucket_policy_tls_and_no_wildcard_allow" {
+  command = plan
+
+  variables {
+    loader_role_arns           = ["arn:aws:iam::111111111111:role/loader"]
+    uploader_principal_arns    = ["arn:aws:iam::111111111111:user/human"]
+    break_glass_principal_arns = ["arn:aws:iam::111111111111:role/admin"]
+    s3_vpc_endpoint_id         = "vpce-0123456789abcdef0"
+  }
+
+  assert {
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Effect == "Deny" && try(s.Condition.Bool["aws:SecureTransport"], "") == "false"]) == 1
+    error_message = "A TLS-only Deny is required."
+  }
+  assert {
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Effect == "Allow"]) == 0
+    error_message = "The bucket policy must contain no Allow (same-account identity policies grant access)."
+  }
+  assert {
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyLandingReadOutsideVpce"]) == 1
+    error_message = "VPC endpoint restriction for landing/ expected."
+  }
+  assert {
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyPiiReadToOthers" && contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:role/loader") && !contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:user/human")]) == 1
+    error_message = "Only loader and break-glass may read landing/ and lake/bronze/; the uploader may not."
+  }
+}
+
+run "no_vpce_means_no_vpce_statement" {
+  command = plan
+  assert {
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyLandingReadOutsideVpce"]) == 0
+    error_message = "No endpoint id, no statement."
+  }
+  assert {
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyPiiReadToOthers"]) == 1
+    error_message = "PII deny must exist even with empty lists (fails closed)."
+  }
+}
+
+run "uploader_policy_is_put_only_on_landing" {
+  command = plan
+  assert {
+    condition     = alltrue([for s in jsondecode(local.uploader_policy_json).Statement : s.Effect == "Allow" && !contains(flatten([s.Action]), "s3:GetObject") && !contains(flatten([s.Action]), "s3:DeleteObject") && !contains(flatten([s.Action]), "s3:*")])
+    error_message = "Uploader may only put."
+  }
+  assert {
+    condition     = alltrue([for s in jsondecode(local.uploader_policy_json).Statement : alltrue([for r in flatten([s.Resource]) : r != "*"])])
+    error_message = "No wildcard resource."
+  }
+}
+
+run "loader_policy_cannot_delete" {
+  command = plan
+  assert {
+    condition     = alltrue([for s in jsondecode(local.loader_policy_json).Statement : !anytrue([for a in flatten([s.Action]) : can(regex("Delete|\*", a))])])
+    error_message = "Loader must not delete or hold wildcard actions."
+  }
+}
