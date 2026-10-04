@@ -16,12 +16,12 @@ run "two_az_public_private_and_isolated_db_subnets" {
 
   assert {
     condition     = length(aws_subnet.public) == 2 && length(aws_subnet.private) == 2 && length(aws_subnet.db) == 2
-    error_message = "Two AZs: two public, two private (host) and two db subnets."
+    error_message = "Two AZs: two public, two private (hosts) and two db subnets."
   }
 
   assert {
-    condition     = alltrue([for s in concat(values(aws_subnet.private), values(aws_subnet.db)) : !s.map_public_ip_on_launch])
-    error_message = "Host and db subnets never assign public IPs."
+    condition     = alltrue([for s in concat(values(aws_subnet.private), values(aws_subnet.db), values(aws_subnet.public)) : !s.map_public_ip_on_launch])
+    error_message = "No subnet assigns public IPs; hosts never get one."
   }
 }
 
@@ -53,76 +53,101 @@ run "s3_gateway_endpoint_present" {
   }
 }
 
-run "host_ingress_only_from_cloudfront_prefix_list" {
+run "private_hosted_zone_defaults_to_pulso_internal" {
   command = plan
 
   assert {
-    condition     = alltrue([for r in aws_vpc_security_group_ingress_rule.host_cloudfront : r.prefix_list_id == "pl-0123456789abcdef0"]) && length(aws_vpc_security_group_ingress_rule.host_cloudfront) == 2
-    error_message = "Ports 80 and 443 are open only to the CloudFront origin-facing prefix list."
+    condition     = aws_route53_zone.internal.name == "pulso.internal" && length(aws_route53_zone.internal.vpc) == 1
+    error_message = "A private zone bound to the VPC."
+  }
+}
+
+run "platform_and_engine_ingress_only_from_cloudfront" {
+  command = plan
+
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.platform_cloudfront.from_port == 80 && aws_vpc_security_group_ingress_rule.platform_cloudfront.prefix_list_id == "pl-0123456789abcdef0"
+    error_message = "Platform :80 from the CloudFront origin-facing prefix list."
   }
 
   assert {
-    condition     = length(aws_vpc_security_group_ingress_rule.host_admin) == 0 && length(aws_vpc_security_group_ingress_rule.host_vpc_origin_sg) == 0
+    condition     = aws_vpc_security_group_ingress_rule.engine_cloudfront.from_port == 8080 && aws_vpc_security_group_ingress_rule.engine_cloudfront.prefix_list_id == "pl-0123456789abcdef0"
+    error_message = "Engine :8080 from the CloudFront origin-facing prefix list."
+  }
+
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.admin) == 0 && length(aws_vpc_security_group_ingress_rule.vpc_origin_sg) == 0
     error_message = "No admin or VPC-origin SG ingress by default."
   }
-
-  assert {
-    condition     = length([for r in aws_vpc_security_group_ingress_rule.host_cloudfront : r if r.from_port == 22]) == 0
-    error_message = "No SSH."
-  }
 }
 
-run "admin_cidr_opens_only_when_set" {
+run "optional_admin_and_vpc_origin_rules" {
   command = plan
 
   variables {
-    admin_cidr = "203.0.113.7/32"
-  }
-
-  assert {
-    condition     = length(aws_vpc_security_group_ingress_rule.host_admin) == 1
-    error_message = "A set admin CIDR adds one rule."
-  }
-}
-
-run "vpc_origin_sg_adds_ingress_rules" {
-  command = plan
-
-  variables {
+    admin_cidr                  = "203.0.113.7/32"
     cloudfront_vpc_origin_sg_id = "sg-0123456789abcdef0"
   }
 
   assert {
-    condition     = length(aws_vpc_security_group_ingress_rule.host_vpc_origin_sg) == 2
-    error_message = "VPC origin service SG gets 80 and 443."
+    condition     = length(aws_vpc_security_group_ingress_rule.admin) == 2 && length(aws_vpc_security_group_ingress_rule.vpc_origin_sg) == 2
+    error_message = "Each option adds one rule per public-facing workload."
   }
 }
 
-run "db_accepts_5432_only_from_host_sg" {
+run "core_8000_only_from_engine_and_platform" {
   command = plan
 
   assert {
-    condition     = aws_vpc_security_group_ingress_rule.db_from_host.from_port == 5432 && aws_vpc_security_group_ingress_rule.db_from_host.to_port == 5432
-    error_message = "Postgres only."
+    condition     = aws_vpc_security_group_ingress_rule.core_from_engine.from_port == 8000 && aws_vpc_security_group_ingress_rule.core_from_platform.from_port == 8000
+    error_message = "Core listens on 8000 for engine and platform."
   }
 
   assert {
-    condition     = aws_vpc_security_group_ingress_rule.db_from_host.cidr_ipv4 == null
-    error_message = "Source is the host SG, not a CIDR."
+    condition     = aws_vpc_security_group_ingress_rule.core_from_engine.cidr_ipv4 == null && aws_vpc_security_group_ingress_rule.core_from_platform.cidr_ipv4 == null
+    error_message = "Sources are security groups, not CIDRs."
   }
 }
 
-run "host_egress_is_narrow" {
+run "db_accepts_5432_from_the_three_hosts_only" {
   command = plan
 
   assert {
-    condition     = aws_vpc_security_group_egress_rule.host_https.from_port == 443 && aws_vpc_security_group_egress_rule.host_pg.from_port == 5432
-    error_message = "Egress limited to 443 and 5432."
+    condition     = length(aws_vpc_security_group_ingress_rule.db_from) == 3 && alltrue([for r in aws_vpc_security_group_ingress_rule.db_from : r.from_port == 5432 && r.to_port == 5432 && r.cidr_ipv4 == null])
+    error_message = "Postgres only, from core, platform and engine SGs."
+  }
+}
+
+run "egress_is_narrow" {
+  command = plan
+
+  assert {
+    condition     = length(aws_vpc_security_group_egress_rule.https) == 3 && alltrue([for r in aws_vpc_security_group_egress_rule.https : r.from_port == 443])
+    error_message = "All three hosts may egress on 443 via NAT."
   }
 
   assert {
-    condition     = length(aws_vpc_security_group_egress_rule.host_dns) == 2
-    error_message = "DNS over udp and tcp."
+    condition     = length(aws_vpc_security_group_egress_rule.pg) == 3
+    error_message = "All three hosts reach the database."
+  }
+
+  assert {
+    condition     = length(aws_vpc_security_group_egress_rule.to_core) == 2
+    error_message = "Only engine and platform call core on 8000."
+  }
+
+  assert {
+    condition     = length(aws_vpc_security_group_egress_rule.dns) == 6
+    error_message = "DNS over udp and tcp for each host."
+  }
+}
+
+run "no_ssh_anywhere" {
+  command = plan
+
+  assert {
+    condition     = length([for r in aws_vpc_security_group_ingress_rule.platform_cloudfront : r if r.from_port == 22]) == 0
+    error_message = "No SSH."
   }
 }
 
