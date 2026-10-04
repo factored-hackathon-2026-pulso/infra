@@ -67,7 +67,7 @@ locals {
           {
             Sid      = "ReadCommandResult"
             Effect   = "Allow"
-            Action   = ["ssm:GetCommandInvocation"]
+            Action   = ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]
             Resource = "*" # the API does not support resource-level scoping
           },
           {
