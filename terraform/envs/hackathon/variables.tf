@@ -1,6 +1,6 @@
 variable "region" {
   type        = string
-  description = "AWS region of the whole stack. Single-region prod runs in us-east-1."
+  description = "AWS region of the whole stack. Single-region prod (N. Virginia)."
   default     = "us-east-1"
 }
 

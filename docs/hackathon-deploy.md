@@ -1,15 +1,16 @@
 # Hackathon deploy: order of operations (human)
 
+> The copy-paste path is [aws-prod-quickstart.md](aws-prod-quickstart.md) (driven by `scripts/aws-prod.ps1`); day-2 tasks are in [operations.md](operations.md). This page keeps the step-by-step reasoning; where it differs, those win.
+
 Profile: THREE EC2 hosts (core, platform, engine; t3.small each, Amazon Linux 2023, private subnets, no public IP, no SSH), each running its own docker compose
 bundle (`deploy/hackathon/<workload>/`). They find each other by private DNS in the Route 53 private zone: `core.<zone>`, `platform.<zone>`, `engine.<zone>`. One NAT gateway for egress. CloudFront with a VPC origin and WAF is the only public edge and sends HTTP to
 the platform proxy on port 80 and the engine proxy on port 8080. Nothing here is applied by agents; every apply needs your explicit authorization.
 
 ## 0. Preconditions
-- Bootstrap lane done: account prepared, state bucket and lock, billing budget/alerts.
+- Bootstrap done (`aws-prod.ps1 bootstrap-apply`): state bucket with native lock and the ECR repositories. No budget or alerts by decision.
 - The real modules (`hackathon_network`, `hackathon_iam`, `hackathon_edge`, `hackathon_data`) are wired in `terraform/envs/hackathon/main.tf`; see `docs/hackathon-foundations.md` for the whole picture.
 - Each host role (`instance_profile_name_core|platform|engine`) needs exactly: read the single `secret_arn` and `kms:Decrypt` on `kms_key_arn`; `ssm:GetParametersByPath`
-  on `ssm_parameter_arn_prefix`; S3 read on `engine/deploy/*` and read/write on the engine/core/landing prefixes of the
-  bucket; ECR pull; SSM Session Manager core (`AmazonSSMManagedInstanceCore`); optional CloudWatch Logs.
+  on `ssm_parameter_arn_prefix`; S3 read on `engine/deploy/<workload>/*` and read/write on its own prefixes of the bucket (the engine also reads `landing/` and `lake/` and writes `lake/` while `engine_host_can_load` is true); ECR pull; SSM Session Manager core (`AmazonSSMManagedInstanceCore`); optional CloudWatch Logs.
 - `engine/deploy/` in the bucket must not be covered by an expiry lifecycle rule (compose bundle lives there).
 
 ## 1. Apply order
@@ -35,7 +36,7 @@ and create the Core database and logins. Store the resulting DSNs in the one sec
 
 ## 4. Push images
 Build and push `agent-core` (pin c814c2b), `llm-gateway`, `support-api`, `support-web`, `pulso` (docker/pulso.Dockerfile) and a
-mirror of the Caddy image to ECR (linux/amd64). Record each digest (`repo@sha256:...`) in your tfvars `images`.
+mirror of the Caddy image to ECR (linux/amd64). Record each full ref (`<registry>/<repo>@sha256:...`) in your tfvars `images` (`aws-prod.ps1 images` does it).
 No tags are used.
 
 ## 5. First start (three SSM sessions)
@@ -50,9 +51,6 @@ for support-platform lives on the platform host volume `/srv/data/support`.
 Core `:8000` is published on the core host and limited by `sg_core_id` to the platform and engine security groups; the gateway is never published.
 
 ## 6. Loading Parquet into the data lake
-1. Upload Parquet files to `s3://<bucket>/landing/<dataset>/` from your machine with the uploader principal (PUT only).
-2. The engine host role cannot read `landing/` or `lake/bronze/` (the bucket policy denies everyone but the loader role and
-   break-glass principals, and the host role is not granted them). Run the loader (data pipeline task) under a role listed in
-   `loader_role_arns`, reading through the VPC S3 endpoint; it writes `lake/`. The engine host reads only
-   `lake/gold_masked/` and `lake/gold_analytics/`.
-3. Engine outputs under `engine/` follow the prefix contract in `terraform/modules/hackathon_data/README.md`.
+1. Upload with `scripts/aws-prod.ps1 upload -Path <dir> -Dataset <name>`: objects land in `s3://<bucket>/landing/<dataset>/` (SSE-KMS). The uploader is your admin identity (by default the account's IAM users and root may write `landing/`).
+2. The engine host role is the loader by default (`engine_host_can_load = true`): it reads `landing/` and `lake/` and writes `lake/`, through the VPC S3 endpoint. Run the data pipeline on the engine host. Core and platform can never read `landing/` or `lake/bronze/` (bucket policy). To use a separate loader role set `engine_host_can_load = false` and list the role in `loader_role_arns`.
+3. At runtime the engine reads `lake/gold_masked/` and `lake/gold_analytics/`; its outputs under `engine/` follow the prefix contract in `terraform/modules/hackathon_data/README.md`.

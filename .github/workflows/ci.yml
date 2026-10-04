@@ -22,6 +22,15 @@ jobs:
           persist-credentials: false
       - name: Test portable infrastructure contracts (not stack readiness)
         run: python -m unittest discover -s tests -v
+      - name: Documentation matches the code (subcommands, flags, variables, modules, links)
+        run: python -m unittest tests.test_docs_consistency -v
+      - name: Test aws-prod.ps1 and release-engine.ps1 guards (Pester 3.4, fake aws and terraform)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Install-Module Pester -RequiredVersion 3.4.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          Import-Module Pester -RequiredVersion 3.4.0
+          Invoke-Pester scripts/tests -EnableExit
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.10.5

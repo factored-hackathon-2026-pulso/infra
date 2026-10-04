@@ -114,7 +114,7 @@ class DocsMatchCode(unittest.TestCase):
     def test_documented_modules_exist(self):
         text = all_doc_text()
         modules = {p.name for p in (ROOT / "terraform" / "modules").iterdir() if p.is_dir()}
-        for name in set(re.findall(r"modules/([a-z][a-z0-9_]+)", text)):
+        for name in set(re.findall(r"modules/([a-z][a-z0-9_]*[a-z0-9])\b", text)):
             self.assertIn(name, modules, f"modules/{name}")
         main = (ROOT / "terraform/envs/hackathon/main.tf").read_text(encoding="utf-8")
         called = set(re.findall(r'^module\s+"([^"]+)"', main, re.M))

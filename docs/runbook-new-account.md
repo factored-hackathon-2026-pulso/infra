@@ -1,5 +1,7 @@
 # Runbook: preparing a brand-new AWS account for Pulso
 
+> For the single-account **prod** deployment use [aws-prod-quickstart.md](aws-prod-quickstart.md) and `scripts/aws-prod.ps1`: root or an IAM admin user, no Identity Center, no budget, no CI role, nothing to choose. This runbook remains the longer reference for the account-preparation steps and the optional extras (budget, CloudTrail, OIDC role, SSO). Where it differs, the quickstart wins.
+
 Audience: the human who owns the new, empty AWS account. Nothing here has been run against any account; the
 Terraform in `terraform/bootstrap` is validated and tested offline only (mock provider). Never paste keys, secrets or
 account ids into chat, issues or Git.
@@ -11,12 +13,12 @@ explicit, per-apply go-ahead after you have read the saved plan. No agent, CI jo
 
 | Decision | Variable / place |
 |---|---|
-| Region (AWS-02) | `aws_region` (no default on purpose) |
-| Globally unique state bucket name (AWS-05) | `state_bucket_name` |
-| Mailbox you read, for budget alerts (AWS-07) | `budget_alert_email` |
+| Region (AWS-02) | `aws_region` (default `us-east-1`) |
+| State bucket name (AWS-05) | `state_bucket_name` (optional; default `pulso-prod-tfstate-<account id>`) |
+| Mailbox you read, for budget alerts (AWS-07), optional | `budget_alert_email` (empty: no budget) |
 | Monthly ceiling in USD (AWS-06) | `monthly_budget_usd` (default 100) |
 | GitHub org and infra repo name (AWS-03) | `github_org`, `github_repo` (empty = no OIDC role yet) |
-| Keep CloudTrail (cheap, recommended) | `cloudtrail_enabled` (default true) |
+| CloudTrail, optional | `cloudtrail_enabled` (default false) |
 
 Put them in `terraform/bootstrap/terraform.tfvars`. It is ignored by Git (verify with `git status` before any commit).
 

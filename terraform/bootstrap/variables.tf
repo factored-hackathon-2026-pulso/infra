@@ -1,6 +1,6 @@
 variable "aws_region" {
   type        = string
-  description = "Region for the bootstrap resources. Single-region prod runs in us-east-1."
+  description = "Region for the bootstrap resources. Single-region prod (N. Virginia)."
   default     = "us-east-1"
 }
 

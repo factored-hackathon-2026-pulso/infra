@@ -1,0 +1,44 @@
+# Security model
+
+Scope: the single-account prod deployment. This is a hackathon-grade deployment with real safeguards where they are cheap, and honest gaps where they are not. Nothing here was exercised against a live account yet.
+
+## Who can do what
+
+| Principal | Can | Cannot |
+|---|---|---|
+| You (root user today; IAM admin user later) | everything in the account, including reading `landing/` (break-glass and uploader default to the account's users and root) | nothing is blocked by a boundary; root is also exempt from permission boundaries and service control policies do not exist here (no Organizations) |
+| Host roles `core`, `platform`, `engine` (EC2 instance profiles) | read the one secret, `kms:Decrypt`/`GenerateDataKey` on the data key, read their own SSM prefix `/pulso/<workload>/*`, pull their own ECR repositories, read their compose bundle, write logs, use their own bucket prefixes | any IAM, Organizations or account change (permissions boundary `host-boundary` denies `iam:*`, `organizations:*`, `account:*`); core and platform cannot read `landing/` or `lake/bronze/` |
+| Engine host role, while `engine_host_can_load` is true | additionally read `landing/` and `lake/`, write `lake/` (the loader policy) | write `landing/`, delete lake objects |
+| Uploader principals | PUT into `landing/` | read it (unless also break-glass) |
+| CloudFront | reach the two proxies through VPC origins | reach core, the gateway or the database |
+
+Important for root: the permissions boundary and the bucket Deny statements protect the hosts from each other and from mistakes in their own code. They do not protect the account from you. Root has no boundary, can read every bucket and secret, and a leaked root key is a full account takeover that cannot be scoped. Hence the three rules `aws-prod.ps1 check` prints: MFA on root, create the key only in the console and enter it only with `aws configure --profile pulso-prod`, delete the key when done. The documented safer path afterwards is an IAM user `pulso-admin` with `AdministratorAccess`, MFA and a rotated key.
+
+## Bucket policy and KMS
+
+The bucket policy has Deny statements only, so it cannot widen access. It denies non-TLS access, reads and writes of `landing/` and `lake/bronze/` by any principal that is not a loader or break-glass principal (writes: uploaders too), and reads of `landing/` that do not come through this VPC's S3 endpoint, except for loader and break-glass principals (so your PC can read it and the engine host can load it). Lists fail closed: with empty lists the impossible principal ARN keeps every Deny active. Access is granted by identity policies (`hackathon_iam`). Objects are SSE-KMS with one customer key (rotation on); a host or user needs the key permission as well as the S3 permission. Public access is blocked at bucket and account level.
+
+By default (`uploader_principal_arns` and `break_glass_principal_arns` empty) the exempt principals are `user/*` and the root of this account. Roles, including the host roles, never match `user/*`.
+
+## The single-secret trade-off
+
+All sensitive values are in one Secrets Manager secret and every host role may read exactly that ARN. Cheap and simple (0.40 USD per month, one rotation point), but the key prefix (`CORE__`, `SUPPORT__`...) selects what a host renders; it is not an access boundary. A compromised platform host can read the core and gateway keys, the provider API keys and the database passwords. The random RDS master password is also in Terraform state (private encrypted state bucket, but readable by whoever can read state, which is you).
+
+## What is not protected
+
+- The CloudFront to origin hop is HTTP inside the AWS network (VPC origin). Traffic is not encrypted on that hop.
+- The `X-Origin-Verify` header is supported by the edge module but unset and not checked by Caddy: the VPC origin and security groups are the only origin lock.
+- Docker compose plugin is downloaded in `user_data` without a checksum; the Caddy image is a mirror pinned by digest.
+- No CloudTrail, no budget alarm and no CI role by default (decision: nothing fancy); you will not notice a cost spike or an unexpected API call unless you look.
+- The engine role can write under `engine/`, including its own bundle `engine/deploy/`.
+- Support-platform runs in non-prod settings.
+- Hosts have no inbound SSH, but anyone with SSM start-session rights in the account can open a shell (you and root).
+
+## Graduation path (when this becomes more than a hackathon)
+
+1. Replace root by an IAM admin user, then by Identity Center with an admin permission set; delete root keys, keep root MFA offline.
+2. Split the secret per workload (one ARN per host role) and give each its own KMS grant.
+3. Turn on `cloudtrail_enabled`, add the budget (`budget_alert_email`), GuardDuty and Config.
+4. HTTPS to the origins (certificate on Caddy) and enforce `X-Origin-Verify` in the Caddyfiles.
+5. Move to the staged production path (`terraform/envs/staging` and `prod`, ADR 0002) with a plan-only CI role (`github_org`, `github_repo`).
+6. Add a second AZ for RDS (Multi-AZ) and for the NAT gateway.

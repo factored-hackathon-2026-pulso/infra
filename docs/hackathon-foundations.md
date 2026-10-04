@@ -1,5 +1,7 @@
 # Hackathon foundations
 
+> Superseded as the entry point by [README.md](README.md) (docs index), [architecture.md](architecture.md) and [aws-prod-quickstart.md](aws-prod-quickstart.md): one environment, `prod`, us-east-1, no budget, CI role or Organizations. This page is kept as the original integration notes; where it differs, the new docs win (single prod, `engine_host_can_load`, defaults for region, registry and principals).
+
 One integrated branch (`claude/hackathon-foundations`) of the cheap, private, three-host AWS profile (ADR 0007). Nothing here was applied:
 everything is verified offline (mock providers, `terraform validate`, `terraform test`). Apply only with your explicit authorization.
 
@@ -27,7 +29,7 @@ everything is verified offline (mock providers, `terraform validate`, `terraform
 | `hackathon_compute` x3 | EC2, data volume, daily snapshots, compose bundle, DNS record | network, iam, data outputs, ECR registry, digest-pinned `images` |
 | `hackathon_edge` | CloudFront, two VPC origins, WAF | instance ARNs and private DNS names, aliased us-east-1 provider |
 | `engine_task` | ECS task alternative (pulso + core-runtime sidecar) | NOT wired: unwired alternative to the three EC2 hosts |
-| `bootstrap` | state bucket, budget, CloudTrail, OIDC plan role, ECR repos | run first, separately |
+| `bootstrap` | state bucket, ECR repos; budget, CloudTrail and the OIDC plan role exist but are off by default | run first, separately |
 
 `data_lake` and `data_pipeline` are untouched (production path).
 
@@ -36,15 +38,15 @@ everything is verified offline (mock providers, `terraform validate`, `terraform
 - IAM per host: exactly the one secret (`GetSecretValue`), `kms:Decrypt`/`GenerateDataKey` on the data key, `ssm:GetParameter*` on
   `/pulso/<workload>/*`, S3 `engine/deploy/<workload>/*` (list and get), its own prefixes (core: `core/blobs`; engine: `engine/`, read
   `lake/gold_masked`, `lake/gold_analytics`), ECR pull for its own repositories, logs under `/<name>/*`.
-- Bucket policy is deny-only (TLS, PII prefixes only for loader/break-glass, `landing/` reads only via the S3 endpoint). Host roles are
-  allowed by identity policy and never touch `landing/` or `lake/bronze/`. Lifecycle expires only `tmp/` and `logs/` (test-guarded), so
+- Bucket policy is deny-only (TLS, PII prefixes only for loader/break-glass, `landing/` reads only via the S3 endpoint). Core and platform host roles
+  never touch `landing/` or `lake/bronze/`; the engine host role does only while `engine_host_can_load` is true (default), as the loader. Lifecycle expires only `tmp/` and `logs/` (test-guarded), so
   `engine/deploy/` is never expired.
 - Secret keys are `<SERVICE>__<VAR>` (CORE, GATEWAY, SUPPORT, PULSO; COMMON optional); `DB_PASSWORD_*` and `RDS_MASTER_PASSWORD` are unprefixed.
 - SSM parameters are `/pulso/<workload>/<service>/<VAR>`; the start script reads `<prefix>/<workload>/<service>`.
 - Engine proxy listens on 8080 (matches the network rule and the edge default). Compute log group is `/<name_prefix>/docker`.
 - Route 53 records are created by compute (`<workload>.<zone>` A, TTL 60), in the zone from network.
 - ECR: bootstrap creates `<prefix>/{pulso-engine,core-runtime,llm-gateway,support-platform-api,support-platform-web,caddy}`; the
-  `images` values must be `<prefix>/<repo>@sha256:...` (the host ECR pull grants are derived from them).
+  `images` values are full refs `<registry>/<prefix>/<repo>@sha256:...` (the host ECR pull grants are derived from them; default prefix `prod`).
 
 ## Apply order (single `terraform apply` of `envs/hackathon`, Terraform orders it)
 
@@ -69,10 +71,9 @@ everything is verified offline (mock providers, `terraform validate`, `terraform
 
 ## What the human must provide
 
-AWS profile name (never in the repo), region (`region`, no default), `cloudfront_waf_region` (N. Virginia), alert email (bootstrap
-budget), domain: none (CloudFront default domain and certificate), `uploader_principal_arns` (who uploads to `landing/`),
-`loader_role_arns` (pipeline role that reads `landing/` and `lake/bronze/`), `break_glass_principal_arns`, ECR `images` digests and
-`ecr_registry_url`, GitHub org/repo for OIDC (optional), then the secret values.
+AWS profile name (never in the repo) and the ECR `images` digests (`scripts/aws-prod.ps1 images` writes them), then the secret values.
+Everything else has a default: `region` and `cloudfront_waf_region` are us-east-1, `ecr_registry_url` is derived, uploaders and break-glass
+default to the account users and root, the engine host is the loader (`engine_host_can_load`). Budget, GitHub OIDC and CloudTrail are optional and off.
 
 ## Open risks (unverified until the first apply)
 
@@ -87,4 +88,4 @@ budget), domain: none (CloudFront default domain and certificate), `uploader_pri
 - The mock provider does not echo nested CloudFront policy ids and `terraform validate` of `hackathon_edge` alone fails (needs the alias): both
   are covered through the env composition; wiring of policy ids is confirmed only at first apply.
 - Secret key names for providers and bridge signers are assumptions to confirm with their owning teams.
-- Pre-existing, left alone: plan-review `hardcoded-region` on `modules/data_pipeline/variables.tf:104` (fails on main too).
+- The plan-review `hardcoded-region` finding on `modules/data_pipeline/variables.tf` (`dataset_region`, us-east-2, the external dataset location) is now an explicit checker allowance.
