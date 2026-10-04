@@ -1,0 +1,39 @@
+#!/bin/bash
+# Runs before `docker compose up`. Never prints secret values.
+set -euo pipefail
+umask 077
+REGION="${region}"
+BUCKET="${bucket}"
+PREFIX="${bundle_prefix}"
+SECRET_ARN="${secret_arn}"
+SSM_PREFIX="${ssm_prefix}"
+SERVICES="${services}"
+
+aws s3 sync "s3://$BUCKET/$PREFIX" /srv/stack/ --region "$REGION" --only-show-errors
+aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "${registry}" >/dev/null
+
+mkdir -p /srv/data/support /srv/data/pulso /srv/data/exporter /srv/data/keys
+chown 10001:10001 /srv/data/exporter
+chmod 700 /srv/data/keys
+
+install -d -m 700 /run/pulso/env
+for s in $SERVICES; do : > "/run/pulso/env/$s.env"; done
+
+# Non-secret config: $SSM_PREFIX/<svc>/<VAR>
+for s in $SERVICES; do
+  aws ssm get-parameters-by-path --path "$SSM_PREFIX/$s" --recursive --region "$REGION" \
+    --query 'Parameters[].[Name,Value]' --output text 2>/dev/null |
+    while IFS=$'\t' read -r name value; do
+      [ -n "$name" ] && printf '%s=%s\n' "$(basename "$name")" "$value" >> "/run/pulso/env/$s.env"
+    done
+done
+
+# Secrets: ONE secret, JSON keys "<SERVICE>__<VAR>" -> /run/pulso/env/<service>.env
+aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --region "$REGION" \
+  --query SecretString --output text |
+  jq -r 'to_entries[] | select(.key | test("^(${svc_regex})__")) |
+         [(.key | split("__")[0] | ascii_downcase), (.key | sub("^[A-Z]+__";"")), (.value | tostring)] | @tsv' |
+  while IFS=$'\t' read -r svc var val; do
+    printf '%s=%s\n' "$var" "$val" >> "/run/pulso/env/$svc.env"
+  done
+chmod 600 /run/pulso/env/*.env

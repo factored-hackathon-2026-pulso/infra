@@ -1,0 +1,6 @@
+# Copy outside Git. Never add credentials here.
+bucket       = "replace-with-remote-state-bucket"
+key          = "pulso/hackathon/terraform.tfstate"
+region       = "us-east-1"
+use_lockfile = true
+encrypt      = true

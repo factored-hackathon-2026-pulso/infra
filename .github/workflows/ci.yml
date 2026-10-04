@@ -67,3 +67,14 @@ jobs:
             terraform "-chdir=terraform/modules/$module" test
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Test hackathon single-host compute and composition without cloud access
+        shell: pwsh
+        run: |
+          foreach ($dir in "modules/hackathon_compute", "envs/hackathon") {
+            terraform "-chdir=terraform/$dir" init -backend=false -input=false
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            terraform "-chdir=terraform/$dir" validate
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            terraform "-chdir=terraform/$dir" test
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
