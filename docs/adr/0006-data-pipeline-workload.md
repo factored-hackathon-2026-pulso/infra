@@ -77,10 +77,16 @@ Both sides must change this table in the same pair of pull requests.
    |---|---|---|
    | `PIPELINE_ROOT` | plain | `s3://<lake bucket>/<prefix>`; selects the dbt `s3` target |
    | `WORK_DIR` | plain | `/work`, the scratch for `warehouse.duckdb`, `target/` and the publication staging |
-   | `DATASET_BUCKET`, `DATASET_PREFIX`, `AWS_DEFAULT_REGION` | plain | the challenge dataset location and its region (`us-east-2`) |
+   | `AWS_DEFAULT_REGION` | plain | the region of the lake and of the task |
+   | `DATASET_BUCKET`, `DATASET_PREFIX`, `DATASET_REGION` | plain | the challenge dataset location and its own region (`us-east-2`) |
    | `S3_KMS_KEY_ID` | plain, optional | SSE-KMS key for uploads; the bucket default otherwise |
    | `PSEUDONYM_KEY` | secret | from `data-pipeline/pseudonym-key` |
-   | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | secret | from `data-pipeline/dataset-reader`, only while the dataset account issues keys |
+   | `DATASET_AWS_ACCESS_KEY_ID`, `DATASET_AWS_SECRET_ACCESS_KEY` | secret | from `data-pipeline/dataset-reader` (JSON keys `access_key_id`, `secret_access_key`), only while the dataset account issues keys |
+
+   The dataset credentials are **never** injected as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`: those outrank the
+   task role in the AWS credential chain, so the task would write to the lake with another account's read-only keys.
+   The pipeline scopes them to the dataset bucket and region and leaves the lake on the task role. (The first version
+   of this table listed the standard names; that was wrong.)
 
    The task exits non-zero before doing any work when `PIPELINE_ROOT` or `PSEUDONYM_KEY` is missing, naming the
    variable but never its value.
@@ -114,9 +120,13 @@ Nothing is deployed and no environment root wires the pipeline.
   nothing proves the policy behaves as intended against a real account.
 - **Missing in `data-pipeline`:** an image CI that publishes a digest; the remaining fact tables; the
   Platform CC `event_log` source; key rotation.
-- **Missing here:** ECR repository, the task definition pinned to a digest, the task and execution roles, the
-  consumer roles and the KMS key policy that names them, the secret entries, the schedule, the egress design for
-  the dataset account, the alarms, and the wiring of `data_lake` into `staging` and `prod`.
+- **Delivered here, not wired:** the `data_pipeline` module composes `data_lake`, the task and execution roles (via
+  `workload_iam`), the batch task definition (via `workload`, `create_service = false`) and an optional schedule
+  (via `scheduled_task`, off unless an expression is given). CPU and memory are required inputs with no default,
+  because they are not measured on Fargate.
+- **Missing here:** ECR repository, the consumer roles and the KMS key policy that names them, the secret entries,
+  the egress design for the dataset account, the alarms, the security group, and the wiring of `data_pipeline` into
+  `staging` and `prod`.
 
 ## Consequences
 
