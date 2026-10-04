@@ -30,4 +30,7 @@ Plan IDs: ASK-17..21 and ASK-24 already exist in the plan; AWS-nn rows are the d
 | AWS-18 (ASK-24) | Relay EXT-1 to agent-core (pin hygiene, c814c2b Dockerfile and runbook, Jev on main) | TA5 | plan without them, no Core-side Jev | TA5 accuracy |
 | AWS-19 | Data pipeline (ADR 0006): enable now or defer; a `data_pipeline_enabled` env switch must exist first (see gaps) | data lake, pipeline task | off | data lake, reader roles |
 
-Count: 19 asks (8 map to existing ASK ids). Minimum to unblock a first plan: AWS-01 to AWS-05.
+| AWS-20 | Logging and retention: CloudWatch log retention days per log group, who reads logs, CloudTrail/Config owned by the shared account owner (reuse, do not duplicate); S3 and RDS backup/retention policy | `log_retention_days`, backup variables | shortest retention that keeps TA6 evidence; reuse shared trail | TA6 |
+| AWS-21 | Break-glass: who may assume an emergency admin role, how it is logged and reviewed (owned by the shared account owner; this repo creates none) | incident response | no break-glass role created here | any apply |
+
+Count: 21 asks (8 map to existing ASK ids). Minimum to unblock a first plan: AWS-01 to AWS-05.

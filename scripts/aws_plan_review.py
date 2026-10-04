@@ -40,30 +40,74 @@ def _code_lines(path: Path):
             yield no, code
 
 
+BARE_ACCOUNT = re.compile(r'"(\d{12})"')
+WILDCARD_ARN = re.compile(r"arn:aws[a-z-]*:[a-z0-9-]*:[a-z0-9-]*:\*:")
+STAR_ACTION = re.compile(r'(?:Action|actions|NotAction)\s*=\s*(?:\[[^\]]*)?"\*"', re.I)
+STAR_PRINCIPAL = re.compile(r'(?:Principal|AWS|identifiers)\s*=\s*(?:\[\s*)?"\*"', re.I)
+PUBLIC = re.compile(r'(publicly_accessible|assign_public_ip|map_public_ip_on_launch)\s*=\s*"?true"?', re.I)
+SECRET = re.compile(r"AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----")
+OPEN_CIDR = re.compile(r'"(?:0\.0\.0\.0/0|::/0)"')
+
+
+def _blocks(text: str, header: str):
+    """Yield (match, body) of brace-balanced blocks whose opening line matches `header`."""
+    for m in re.finditer(header + r"[^{\n]*\{", text, re.M):
+        depth, i = 1, m.end()
+        while i < len(text) and depth:
+            depth += {"{": 1, "}": -1}.get(text[i], 0)
+            i += 1
+        yield m, text[m.end():i - 1]
+
+
+def _is_deny_statement(lines: list[str], idx: int) -> bool:
+    """A wildcard principal is only legitimate in a Deny statement (e.g. deny insecure transport)."""
+    window = "\n".join(lines[max(0, idx - 8): idx + 9])
+    return bool(re.search(r'[Ee]ffect\s*=\s*"Deny"', window)) and not re.search(r'[Ee]ffect\s*=\s*"Allow"', window)
+
+
 def scan_tf_dir(directory: Path, skip_tests: bool = True) -> list[Finding]:
     out: list[Finding] = []
     for path in sorted(directory.rglob("*.tf")):
         text = path.read_text(encoding="utf-8")
         where = lambda n: f"{path.relative_to(directory.parent) if directory.parent in path.parents else path.name}:{n}"
+        lines = text.splitlines()
         for no, line in _code_lines(path):
             validation = "regex(" in line
             m = ACCOUNT_ARN.search(line)
             if m and not validation and m.group(1) != PLACEHOLDER_ACCOUNT:
                 out.append(Finding("FAIL", "hardcoded-account-id", where(no), line.strip()))
+            b = BARE_ACCOUNT.search(line)
+            if b and not validation and not m and b.group(1) != PLACEHOLDER_ACCOUNT:
+                out.append(Finding("FAIL", "bare-account-id", where(no), line.strip()))
+            if WILDCARD_ARN.search(line):
+                out.append(Finding("FAIL", "wildcard-account-arn", where(no), line.strip()))
             if REGION.search(line) and not validation:
                 out.append(Finding("FAIL", "hardcoded-region", where(no), line.strip()))
-            if "AdministratorAccess" in line or re.search(r'Action\s*=\s*(\[\s*)?"\*"', line):
+            if "AdministratorAccess" in line or STAR_ACTION.search(line):
                 out.append(Finding("FAIL", "admin-policy", where(no), line.strip()))
-            if re.search(r"(publicly_accessible|assign_public_ip|map_public_ip_on_launch)\s*=\s*true", line):
+            if STAR_PRINCIPAL.search(line) and not _is_deny_statement(lines, no - 1):
+                out.append(Finding("FAIL", "wildcard-principal", where(no), line.strip()))
+            if PUBLIC.search(line):
                 out.append(Finding("FAIL", "public-db", where(no), line.strip()))
-        for block in re.finditer(r'resource "aws_vpc_security_group_ingress_rule"[^{]*\{(.*?)\n\}', text, re.S):
-            if re.search(r'"(0\.0\.0\.0/0|::/0)"', block.group(1)):
+            if SECRET.search(line):
+                out.append(Finding("FAIL", "secret-committed", where(no)))
+        for _, body in _blocks(text, r'resource "aws_vpc_security_group_ingress_rule"[^{]*'):
+            if OPEN_CIDR.search(body):
+                out.append(Finding("FAIL", "open-ingress", path.name))
+        for _, body in _blocks(text, r"^\s*ingress"):
+            if OPEN_CIDR.search(body):
+                out.append(Finding("FAIL", "open-ingress", path.name))
+        for _, body in _blocks(text, r'resource "aws_security_group_rule"[^{]*'):
+            if re.search(r'type\s*=\s*"ingress"', body) and OPEN_CIDR.search(body):
                 out.append(Finding("FAIL", "open-ingress", path.name))
         if "envs" not in path.parts and directory.name != "account_assuming":
             continue  # module-internal toggles (e.g. core_runtime_enabled) are gated by the env root switches
-        for block in re.finditer(r'variable "(\w+_enabled)"\s*\{(.*?)\n\}', text, re.S):
-            if re.search(r"default\s*=\s*true", block.group(2)):
-                out.append(Finding("FAIL", "switch-default-on", f"{path.name}:{block.group(1)}"))
+        for m, body in _blocks(text, r'variable "(\w+_enabled)"'):
+            if re.search(r'default\s*=\s*"?true"?', body):
+                out.append(Finding("FAIL", "switch-default-on", f"{path.name}:{m.group(1)}"))
+        for m, body in _blocks(text, r"^\s*locals"):
+            for sw in re.finditer(r'(\w+_enabled)\s*=\s*"?true"?', body):
+                out.append(Finding("FAIL", "switch-default-on", f"{path.name}:locals.{sw.group(1)}"))
     return out
 
 

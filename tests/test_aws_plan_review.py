@@ -20,6 +20,57 @@ class FixtureFailsRed(unittest.TestCase):
             self.assertIn(expected, rules)
 
 
+class FalseNegatives(unittest.TestCase):
+    def _rules(self, body, sub="envs/x"):
+        import tempfile
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t) / sub
+            d.mkdir(parents=True)
+            (d / "a.tf").write_text(body, encoding="utf-8")
+            return {f.rule for f in review.scan_tf_dir(Path(t))}
+
+    def test_other_syntaxes_are_flagged(self):
+        cases = {
+            "bare-account-id": 'locals { a = "123456789012" }',
+            "wildcard-account-arn": 'x = "arn:aws:iam::*:role/r"',
+            "open-ingress": '''resource "aws_security_group" "s" {
+  ingress {
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}''',
+            "public-db": 'publicly_accessible = "true"',
+            "admin-policy": 'actions = ["*"]',
+            "wildcard-principal": 'Principal = "*"',
+            "secret-committed": 'k = "AKIAABCDEFGHIJKLMNOP"',
+            "switch-default-on": '''variable "q_enabled" {
+  default = "true"
+}''',
+        }
+        for rule, body in cases.items():
+            self.assertIn(rule, self._rules(body), rule)
+
+    def test_locals_switch_on_is_flagged(self):
+        self.assertIn("switch-default-on", self._rules('locals {\n  bridge_services_enabled = true\n}'))
+
+    def test_wildcard_principal_allowed_only_in_deny(self):
+        deny = 'statement {
+  effect = "Deny"
+  principals { identifiers = ["*"] }
+}'
+        allow = 'statement {
+  effect = "Allow"
+  principals { identifiers = ["*"] }
+}'
+        self.assertNotIn("wildcard-principal", self._rules(deny))
+        self.assertIn("wildcard-principal", self._rules(allow))
+
+    def test_legit_use_not_flagged(self):
+        ok = '''egress { cidr_blocks = ["0.0.0.0/0"] }
+variable "a" { default = "000000000000" }
+actions = ["s3:GetObject"]'''
+        self.assertEqual(set(), self._rules(ok))
+
+
 class CurrentTree(unittest.TestCase):
     def test_no_failures_in_current_terraform_tree(self):
         failures = [f for f in review.run_all(ROOT) if f.severity == "FAIL"]
