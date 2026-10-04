@@ -20,6 +20,7 @@ param(
     [switch]$Push,
     [string]$AwsProfile = '',
     [string]$EcrRepository = '',
+    [string[]]$BuildContext = @(),   # extra named build contexts, name=path, passed as --build-context
     [switch]$LibraryOnly
 )
 
@@ -69,7 +70,8 @@ if ($Push -and [string]::IsNullOrWhiteSpace($EcrRepository)) { throw 'Refusing t
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $gitSha = (git -C $Context rev-parse HEAD).Trim()
 $localTag = "${ImageName}:build-$($gitSha.Substring(0, 12))"
-& $Engine build -f $Dockerfile -t $localTag $Context
+$buildArgs = @(); foreach ($bc in $BuildContext) { $buildArgs += @('--build-context', $bc) }
+& $Engine build -f $Dockerfile @buildArgs -t $localTag $Context
 if ($LASTEXITCODE) { throw 'build failed' }
 $digest = Assert-Digest ((& $Engine image inspect --format '{{.Id}}' $localTag).Trim())
 $digestTag = "${ImageName}:" + $digest.Replace(':', '-').Substring(0, 19)
