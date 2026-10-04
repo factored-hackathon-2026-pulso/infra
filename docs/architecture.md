@@ -88,4 +88,4 @@ core host (m7i-flex.large): core-migrate, core-runtime, core-exporter, llm-gatew
 all hosts -> S3 via the gateway endpoint; ECR, SSM, model APIs via the public IP (outbound only, no NAT)
 ```
 
-`profile = "prod"` restores the previous design: RDS in isolated subnets (`database_mode = "rds"`), private hosts behind one NAT gateway, CloudFront VPC origins, WAF. The toggles can be mixed (`database_mode`, `enable_nat`, `enable_waf`, `edge_enabled`, `enable_host_builder`, `db_volume_size_gb`), and `terraform output profile_effective` prints what was resolved. Decision record: [decisions](decisions.md#free_plan-profile-record-0008).
+`profile = "prod"` restores the previous design: RDS in isolated subnets (`database_mode = "rds"`), private hosts behind one NAT gateway, CloudFront VPC origins, WAF. The toggles can be mixed (`database_mode`, `enable_nat`, `enable_waf`, `edge_enabled`, `enable_host_builder`, `db_volume_size_gb`), and `terraform output profile_effective` prints what was resolved. Decision record: [ADR 0008](adr/0008-hackathon-free-plan-profile.md).

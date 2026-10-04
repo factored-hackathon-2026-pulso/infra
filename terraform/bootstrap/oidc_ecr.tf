@@ -93,3 +93,7 @@ resource "aws_iam_role_policy" "ecr_push" {
     ]
   })
 }
+
+# NOTE: this GitHub OIDC provider and modules/ci_roles are ALTERNATIVES per account. An AWS account can hold only one
+# GitHub OIDC provider (a second create fails with EntityAlreadyExists). oidc_enabled stays off unless github_org and
+# github_repo are set; never enable it in an account that already has the provider (use ci_roles with the existing one).
