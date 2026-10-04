@@ -14,8 +14,19 @@ locals {
   tags = {
     ManagedBy   = "terraform"
     Service     = "pulso-hackathon"
-    Environment = "hackathon"
+    Environment = var.environment
   }
+
+  account_id = data.aws_caller_identity.current.account_id
+
+  ecr_registry_url = coalesce(var.ecr_registry_url, "${local.account_id}.dkr.ecr.${var.region}.amazonaws.com")
+
+  # Defaults for a single-account prod: the IAM users and the root of THIS account (roles, i.e. the hosts, never
+  # match "user/*"; the bucket policy stays deny-only and identity policies still have to allow the call).
+  account_principals  = ["arn:aws:iam::${local.account_id}:user/*", "arn:aws:iam::${local.account_id}:root"]
+  uploader_principals = length(var.uploader_principal_arns) > 0 ? var.uploader_principal_arns : local.account_principals
+  break_glass         = length(var.break_glass_principal_arns) > 0 ? var.break_glass_principal_arns : local.account_principals
+  loader_roles        = var.engine_host_can_load ? distinct(concat(var.loader_role_arns, [module.iam.instance_role_arn_engine])) : var.loader_role_arns
 
   # ECR repositories per host, derived from the digest-pinned image references (repo@sha256:...).
   ecr_arns = {
@@ -42,9 +53,9 @@ module "data" {
 
   # Deny-only bucket policy: the reads of landing/ are bound to the S3 gateway endpoint of this VPC.
   s3_vpc_endpoint_id         = module.network.s3_gateway_endpoint_id
-  loader_role_arns           = var.loader_role_arns
-  uploader_principal_arns    = var.uploader_principal_arns
-  break_glass_principal_arns = var.break_glass_principal_arns
+  loader_role_arns           = local.loader_roles
+  uploader_principal_arns    = local.uploader_principals
+  break_glass_principal_arns = local.break_glass
   tags                       = local.tags
 }
 
@@ -57,8 +68,9 @@ module "iam" {
   secret_arn                = module.data.secret_arn
   kms_key_arn               = module.data.kms_key_arn
 
-  # The engine host is not the loader: it reads only the masked and analytics zones (landing/ and lake/bronze/
-  # are denied to it by the bucket policy and must stay so).
+  # Engine host: loader by default (engine_host_can_load); otherwise only the masked and analytics zones.
+  # Core and platform never read landing/ or lake/bronze/ (the bucket policy denies them).
+  engine_can_load           = var.engine_host_can_load
   engine_lake_read_prefixes = ["lake/gold_masked", "lake/gold_analytics"]
 
   ecr_repository_arns_core     = local.ecr_arns.core
@@ -85,7 +97,7 @@ module "compute_core" {
   bucket_name             = module.data.bucket_name
   secret_arn              = module.data.secret_arn
   kms_key_arn             = module.data.kms_key_arn
-  ecr_registry_url        = var.ecr_registry_url
+  ecr_registry_url        = local.ecr_registry_url
   images                  = var.images.core
   tags                    = local.tags
 }
@@ -108,7 +120,7 @@ module "compute_platform" {
   bucket_name             = module.data.bucket_name
   secret_arn              = module.data.secret_arn
   kms_key_arn             = module.data.kms_key_arn
-  ecr_registry_url        = var.ecr_registry_url
+  ecr_registry_url        = local.ecr_registry_url
   images                  = var.images.platform
   tags                    = local.tags
 }
@@ -131,7 +143,7 @@ module "compute_engine" {
   bucket_name             = module.data.bucket_name
   secret_arn              = module.data.secret_arn
   kms_key_arn             = module.data.kms_key_arn
-  ecr_registry_url        = var.ecr_registry_url
+  ecr_registry_url        = local.ecr_registry_url
   images                  = var.images.engine
   tags                    = local.tags
 }

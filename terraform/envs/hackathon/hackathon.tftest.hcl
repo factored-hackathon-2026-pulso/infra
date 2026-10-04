@@ -145,8 +145,8 @@ run "engine_host_loads_by_default_and_admins_can_upload" {
   command = apply
 
   assert {
-    condition     = contains(output.loader_role_arns_effective, output.instance_role_arns["engine"]) && !contains(output.loader_role_arns_effective, output.instance_role_arns["core"]) && !contains(output.loader_role_arns_effective, output.instance_role_arns["platform"])
-    error_message = "Only the engine host role is a loader by default."
+    condition     = contains(output.loader_role_arns_effective, output.instance_role_arns["engine"]) && length(output.loader_role_arns_effective) == 1
+    error_message = "Exactly one loader by default: the engine host role (mocked roles share one ARN, so core/platform are checked in the iam module tests)."
   }
 
   assert {

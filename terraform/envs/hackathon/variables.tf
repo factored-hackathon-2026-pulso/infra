@@ -1,11 +1,13 @@
 variable "region" {
   type        = string
-  description = "AWS region of the whole stack (human decision; there is no default)."
+  description = "AWS region of the whole stack. Single-region prod runs in us-east-1."
+  default     = "us-east-1"
 }
 
 variable "cloudfront_waf_region" {
   type        = string
   description = "Region of the provider alias that hosts the CLOUDFRONT-scope WAF web ACL. CloudFront accepts only the N. Virginia region here."
+  default     = "us-east-1"
 
   validation {
     condition     = can(regex("^us-east-1$", var.cloudfront_waf_region))
@@ -13,9 +15,15 @@ variable "cloudfront_waf_region" {
   }
 }
 
+variable "environment" {
+  type        = string
+  description = "Environment name, used in tags. There is exactly one environment: prod."
+  default     = "prod"
+}
+
 variable "name_prefix" {
   type    = string
-  default = "pulso-hk"
+  default = "pulso-prod"
 }
 
 variable "enabled" {
@@ -44,7 +52,11 @@ variable "enable_cloudwatch_agent" {
   default = false
 }
 
-variable "ecr_registry_url" { type = string }
+variable "ecr_registry_url" {
+  type        = string
+  default     = null
+  description = "Optional. Null derives <account id>.dkr.ecr.<region>.amazonaws.com from the caller identity."
+}
 
 variable "images" {
   type = object({
@@ -61,20 +73,26 @@ variable "enable_waf" {
   description = "WAFv2 web ACL on the distribution (about 8 USD per month plus requests). Set false to save the cost."
 }
 
+variable "engine_host_can_load" {
+  type        = bool
+  default     = true
+  description = "Attach the loader policy (read landing/ and lake/, write lake/) to the ENGINE host role so the loader runs on the engine host. Core and platform never get it. Set false to use a dedicated loader role via loader_role_arns."
+}
+
 variable "loader_role_arns" {
   type        = list(string)
   default     = []
-  description = "Roles allowed to read landing/ and lake/bronze/ (PII in the clear): the data loader."
+  description = "Extra roles allowed to read landing/ and lake/bronze/ (PII in the clear). The engine host role is added automatically when engine_host_can_load is true."
 }
 
 variable "uploader_principal_arns" {
   type        = list(string)
   default     = []
-  description = "Principals (the human uploading the data) allowed to PUT into landing/."
+  description = "Principals allowed to PUT into landing/. Empty (default) means the account's IAM users (user/*) and the root user; hosts are roles and never match. Their identity policy (admin) still has to allow the call."
 }
 
 variable "break_glass_principal_arns" {
   type        = list(string)
   default     = []
-  description = "Principals exempt from the landing/ VPC-endpoint restriction and the PII deny (keep to the account admin role)."
+  description = "Principals exempt from the PII deny. Empty (default) means the account's IAM users and root user."
 }
