@@ -11,7 +11,7 @@ locals {
   workloads = {
     core     = { ecr = var.ecr_repository_arns_core, rw = var.core_s3_prefixes, ro = [] }
     platform = { ecr = var.ecr_repository_arns_platform, rw = [], ro = [] }
-    engine   = { ecr = var.ecr_repository_arns_engine, rw = var.engine_s3_prefixes, ro = var.engine_lake_read_prefixes }
+    engine   = { ecr = var.ecr_repository_arns_engine, rw = var.engine_s3_prefixes, ro = var.engine_can_load ? ["landing", "lake"] : var.engine_lake_read_prefixes }
   }
 
   statements = {
@@ -92,6 +92,14 @@ locals {
           Resource = [for p in c.rw : "${local.bucket_arn}/${p}/*"]
         },
       ],
+      w == "engine" && var.engine_can_load ? [
+        {
+          Sid      = "LoaderWriteLake"
+          Effect   = "Allow"
+          Action   = ["s3:PutObject", "s3:AbortMultipartUpload"]
+          Resource = ["${local.bucket_arn}/lake/*"]
+        },
+      ] : [],
       length(c.ro) == 0 ? [] : [
         {
           Sid      = "ObjectReadOnly"

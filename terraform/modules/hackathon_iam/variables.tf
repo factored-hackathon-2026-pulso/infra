@@ -79,3 +79,9 @@ variable "bundle_prefix" {
   description = "Key prefix (no slashes at the ends) where compose bundles are published; each host reads <prefix>/<workload>/*."
   default     = "engine/deploy"
 }
+
+variable "engine_can_load" {
+  type        = bool
+  description = "Let the engine host run the data loader: read landing/ and lake/ and write lake/ (the loader policy). Core and platform never get this."
+  default     = false
+}

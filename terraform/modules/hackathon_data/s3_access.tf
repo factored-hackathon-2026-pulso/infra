@@ -51,7 +51,7 @@ locals {
         Resource  = ["${local.bucket_arn}/landing/*"]
         Condition = {
           StringNotEquals = { "aws:SourceVpce" = var.s3_vpc_endpoint_id }
-          StringNotLike   = { "aws:PrincipalArn" = local.breakglass }
+          StringNotLike   = { "aws:PrincipalArn" = distinct(concat(local.breakglass, var.loader_role_arns)) }
         }
       },
     ],

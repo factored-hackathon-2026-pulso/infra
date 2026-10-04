@@ -221,7 +221,7 @@ run "engine_can_load_adds_loader_access_to_the_engine_role_only" {
   }
 
   assert {
-    condition     = alltrue([for w in ["core", "platform"] : !strcontains(jsondecode(aws_iam_policy.host[w].policy) == null ? "" : aws_iam_policy.host[w].policy, "/landing/")])
+    condition     = alltrue([for w in ["core", "platform"] : !strcontains(aws_iam_policy.host[w].policy, "/landing/")])
     error_message = "Core and platform never get landing/ or bronze access."
   }
 }
