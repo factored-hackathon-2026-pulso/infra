@@ -1,5 +1,5 @@
-# Public edge for the hackathon single-host profile (ADR 0007): CloudFront with a VPC origin
-# to two private hosts (platform default, engine on /pulso/*), security headers, and an optional (default on) WAF.
+# Public edge for the hackathon profile (ADR 0007): CloudFront with a VPC origin (origin_mode=vpc) or, in the free_plan
+# profile (ADR 0008), a public origin (origin_mode=public) to two hosts (platform default, engine on /pulso/*), security headers, and an optional (default on) WAF.
 
 data "aws_cloudfront_cache_policy" "disabled" {
   name = "Managed-CachingDisabled"
@@ -18,7 +18,7 @@ locals {
 }
 
 resource "aws_cloudfront_vpc_origin" "this" {
-  for_each = local.origins
+  for_each = var.origin_mode == "vpc" ? local.origins : {}
 
   vpc_origin_endpoint_config {
     name                   = "${var.name}-${each.key}"
@@ -151,8 +151,22 @@ resource "aws_cloudfront_distribution" "this" {
       origin_id   = origin.key
       domain_name = origin.value.host
 
-      vpc_origin_config {
-        vpc_origin_id = aws_cloudfront_vpc_origin.this[origin.key].id
+      dynamic "vpc_origin_config" {
+        for_each = var.origin_mode == "vpc" ? [1] : []
+        content {
+          vpc_origin_id = aws_cloudfront_vpc_origin.this[origin.key].id
+        }
+      }
+
+      # Public origin (free_plan): the host public DNS; the origin SG admits only the CloudFront prefix list.
+      dynamic "custom_origin_config" {
+        for_each = var.origin_mode == "public" ? [1] : []
+        content {
+          http_port              = origin.value.port
+          https_port             = 443
+          origin_protocol_policy = var.origin_protocol_policy
+          origin_ssl_protocols   = ["TLSv1.2"]
+        }
       }
 
       dynamic "custom_header" {

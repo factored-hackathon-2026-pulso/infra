@@ -52,11 +52,27 @@ variable "origin_protocol_policy" {
   }
 }
 
+variable "origin_mode" {
+  type        = string
+  description = "vpc: CloudFront VPC origins to private hosts (prod). public: plain origins on the host public DNS name (free_plan; host SG = CloudFront prefix list only, plus the secret header)."
+  default     = "vpc"
+
+  validation {
+    condition     = contains(["vpc", "public"], var.origin_mode)
+    error_message = "origin_mode must be vpc or public."
+  }
+}
+
 variable "origin_secret" {
   type        = string
   description = "Value of the X-Origin-Verify header sent to both origins; the reverse proxies reject requests without it. Empty omits the header."
   default     = ""
   sensitive   = true
+
+  validation {
+    condition     = var.origin_mode != "public" || nonsensitive(var.origin_secret) != ""
+    error_message = "origin_secret is required in public origin mode: the proxy rejects requests that do not carry it."
+  }
 }
 
 variable "origin_secret_header_name" {
