@@ -88,6 +88,28 @@ resource "aws_s3_bucket_lifecycle_configuration" "data" {
     }
   }
 
+  rule {
+    id     = "build-src-14d"
+    status = "Enabled"
+    filter {
+      prefix = "engine/build-src/"
+    }
+    expiration {
+      days = 14
+    }
+  }
+
+  rule {
+    id     = "build-out-14d"
+    status = "Enabled"
+    filter {
+      prefix = "engine/build-out/"
+    }
+    expiration {
+      days = 14
+    }
+  }
+
   dynamic "rule" {
     for_each = var.bronze_glacier_ir_days > 0 ? [1] : []
     content {
