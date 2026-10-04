@@ -11,36 +11,36 @@ variables {
   tags = { Environment = "hackathon" }
 }
 
-run "two_az_public_and_isolated_db_subnets" {
+run "two_az_public_private_and_isolated_db_subnets" {
   command = plan
 
   assert {
-    condition     = length(aws_subnet.public) == 2 && length(aws_subnet.db) == 2
-    error_message = "Two AZs: two public and two db subnets."
+    condition     = length(aws_subnet.public) == 2 && length(aws_subnet.private) == 2 && length(aws_subnet.db) == 2
+    error_message = "Two AZs: two public, two private (host) and two db subnets."
   }
 
   assert {
-    condition     = alltrue([for s in aws_subnet.public : s.map_public_ip_on_launch])
-    error_message = "Public subnets assign public IPs (no NAT in this profile)."
-  }
-
-  assert {
-    condition     = alltrue([for s in aws_subnet.db : !s.map_public_ip_on_launch])
-    error_message = "DB subnets never assign public IPs."
+    condition     = alltrue([for s in concat(values(aws_subnet.private), values(aws_subnet.db)) : !s.map_public_ip_on_launch])
+    error_message = "Host and db subnets never assign public IPs."
   }
 }
 
-run "no_nat_and_db_has_no_internet_route" {
+run "single_nat_gateway_in_one_az" {
   command = plan
 
   assert {
-    condition     = length(aws_nat_gateway.this) == 0 && length(aws_eip.nat) == 0
-    error_message = "No NAT gateway or EIP is created."
+    condition     = length(aws_nat_gateway.this) == 1 && length(aws_eip.nat) == 1
+    error_message = "Exactly one NAT gateway and one EIP."
   }
 
   assert {
-    condition     = length(aws_route.db_default) == 0 && length(aws_route.public_default) == 1
-    error_message = "Only the public route table has a default route."
+    condition     = length(aws_route.private_default) == 1 && length(aws_route.public_default) == 1 && length(aws_route.db_default) == 0
+    error_message = "Private and public tables have a default route; db has none."
+  }
+
+  assert {
+    condition     = aws_route_table_association.private["a"].route_table_id == aws_route_table_association.private["b"].route_table_id
+    error_message = "Both private subnets share the single-NAT route table."
   }
 }
 
@@ -62,8 +62,8 @@ run "host_ingress_only_from_cloudfront_prefix_list" {
   }
 
   assert {
-    condition     = length(aws_vpc_security_group_ingress_rule.host_admin) == 0
-    error_message = "No admin ingress by default."
+    condition     = length(aws_vpc_security_group_ingress_rule.host_admin) == 0 && length(aws_vpc_security_group_ingress_rule.host_vpc_origin_sg) == 0
+    error_message = "No admin or VPC-origin SG ingress by default."
   }
 
   assert {
@@ -82,6 +82,19 @@ run "admin_cidr_opens_only_when_set" {
   assert {
     condition     = length(aws_vpc_security_group_ingress_rule.host_admin) == 1
     error_message = "A set admin CIDR adds one rule."
+  }
+}
+
+run "vpc_origin_sg_adds_ingress_rules" {
+  command = plan
+
+  variables {
+    cloudfront_vpc_origin_sg_id = "sg-0123456789abcdef0"
+  }
+
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.host_vpc_origin_sg) == 2
+    error_message = "VPC origin service SG gets 80 and 443."
   }
 }
 
