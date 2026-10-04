@@ -138,3 +138,66 @@ run "loader_policy_cannot_delete" {
     error_message = "Loader must not delete or hold wildcard actions."
   }
 }
+
+run "rds_is_private_encrypted_single_az_and_cheap" {
+  command = plan
+
+  assert {
+    condition     = aws_db_instance.this.engine == "postgres" && startswith(aws_db_instance.this.engine_version, "16")
+    error_message = "PostgreSQL 16."
+  }
+  assert {
+    condition     = aws_db_instance.this.instance_class == "db.t4g.micro" && aws_db_instance.this.allocated_storage == 20 && aws_db_instance.this.storage_type == "gp3"
+    error_message = "Smallest class, 20 GB gp3."
+  }
+  assert {
+    condition     = aws_db_instance.this.storage_encrypted && !aws_db_instance.this.publicly_accessible && !aws_db_instance.this.multi_az
+    error_message = "Encrypted, not public, single AZ."
+  }
+  assert {
+    condition     = aws_db_instance.this.backup_retention_period == 7 && aws_db_instance.this.deletion_protection
+    error_message = "7 day backups and deletion protection by default."
+  }
+  assert {
+    condition     = contains(aws_db_instance.this.vpc_security_group_ids, "sg-0123456789abcdef0")
+    error_message = "Database must use sg_db_id."
+  }
+  assert {
+    condition     = toset(aws_db_subnet_group.this.subnet_ids) == toset(["subnet-aaaa1111", "subnet-bbbb2222"])
+    error_message = "Database must sit in db_subnet_ids."
+  }
+  assert {
+    condition     = !aws_db_instance.this.manage_master_user_password
+    error_message = "Master password lives in the single secret, not an RDS-managed one."
+  }
+}
+
+run "parameter_group_limits_connections_forces_ssl_and_logs" {
+  command = plan
+
+  assert {
+    condition     = one([for p in aws_db_parameter_group.this.parameter : p.value if p.name == "max_connections"]) == "40"
+    error_message = "max_connections 40."
+  }
+  assert {
+    condition     = one([for p in aws_db_parameter_group.this.parameter : p.value if p.name == "rds.force_ssl"]) == "1"
+    error_message = "TLS forced."
+  }
+  assert {
+    condition     = length([for p in aws_db_parameter_group.this.parameter : p if p.name == "log_min_duration_statement"]) == 1
+    error_message = "Slow statement logging."
+  }
+}
+
+run "cheapest_backup_and_no_protection_variables" {
+  command = plan
+  variables {
+    db_backup_retention_days = 1
+    db_deletion_protection   = false
+    db_instance_class        = "db.t3.micro"
+  }
+  assert {
+    condition     = aws_db_instance.this.backup_retention_period == 1 && !aws_db_instance.this.deletion_protection && aws_db_instance.this.instance_class == "db.t3.micro"
+    error_message = "Variables must flow through."
+  }
+}
