@@ -42,6 +42,7 @@ services:
     mem_limit: 64m
     ports:
       - "8080:8080"
+    env_file: [/run/pulso/env/common.env]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:

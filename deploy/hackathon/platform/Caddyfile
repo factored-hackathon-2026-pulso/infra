@@ -3,23 +3,23 @@
 	admin off
 }
 
+# ORIGIN_VERIFY is rendered into common.env from the secret key COMMON__ORIGIN_VERIFY (the host refuses to start
+# without it). CloudFront sends it as X-Origin-Verify; everything else (another CloudFront distribution, a scanner on
+# the public IP) is rejected. `route` keeps this order literally: nothing is proxied before the check.
 :80 {
-	handle /healthz {
-		respond "ok" 200
-	}
+	route {
+		@healthz path /healthz
+		respond @healthz "ok" 200
 
-	# Core and gateway /internal routes never leave the docker network.
-	@internal path /internal /internal/* /api/internal /api/internal/*
-	handle @internal {
-		respond "not found" 404
-	}
+		@unverified not header X-Origin-Verify {$ORIGIN_VERIFY}
+		respond @unverified "forbidden" 403
 
-	# REST and WebSocket (/api/v1/ws) share this upstream; Caddy upgrades WebSockets itself.
-	handle /api/* {
-		reverse_proxy support-platform-api:8000
-	}
+		# Core and gateway /internal routes never leave the docker network.
+		@internal path /internal /internal/* /api/internal /api/internal/*
+		respond @internal "not found" 404
 
-	handle {
+		# REST and WebSocket (/api/v1/ws) share this upstream; Caddy upgrades WebSockets itself.
+		reverse_proxy /api/* support-platform-api:8000
 		reverse_proxy support-platform-web:80
 	}
 }

@@ -50,3 +50,7 @@ aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --region "$REGION"
     printf '%s=%s\n' "$var" "$val" >> "/run/pulso/env/$svc.env"
   done
 chmod 600 /run/pulso/env/*.env
+%{ if workload != "core" ~}
+# Fail closed: the proxy enforces X-Origin-Verify from this value; without it the stack must not start.
+grep -q '^ORIGIN_VERIFY=.\+' /run/pulso/env/common.env || { echo "secret key COMMON__ORIGIN_VERIFY is missing or empty" >&2; exit 1; }
+%{ endif ~}
