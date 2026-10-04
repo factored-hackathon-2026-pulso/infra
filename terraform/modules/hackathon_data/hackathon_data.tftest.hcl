@@ -21,7 +21,28 @@ run "bucket_is_private_versioned_and_encrypted" {
     error_message = "All four public access blocks must be on."
   }
   assert {
-    condition     = one(one(aws_s3_bucket_server_side_encryption_configuration.data.rule).apply_server_side_encryption_by_default).sse_algorithm == "AES256"
-    error_message = "SSE-S3 expected."
+    condition     = one(one(aws_s3_bucket_server_side_encryption_configuration.data.rule).apply_server_side_encryption_by_default).sse_algorithm == "aws:kms"
+    error_message = "SSE-KMS expected."
+  }
+}
+
+run "kms_key_rotates_bucket_key_on_ownership_enforced" {
+  command = plan
+
+  assert {
+    condition     = aws_kms_key.data.enable_key_rotation
+    error_message = "CMK rotation must be on."
+  }
+  assert {
+    condition     = one(aws_s3_bucket_server_side_encryption_configuration.data.rule).bucket_key_enabled
+    error_message = "Bucket key must be on to cut KMS cost."
+  }
+  assert {
+    condition     = one(aws_s3_bucket_ownership_controls.data.rule).object_ownership == "BucketOwnerEnforced"
+    error_message = "ACLs must be disabled."
+  }
+  assert {
+    condition     = length(aws_s3_bucket_notification.data) == 0
+    error_message = "EventBridge off by default."
   }
 }

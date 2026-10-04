@@ -70,3 +70,62 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+variable "loader_role_arns" {
+  description = "Roles allowed to read landing/ and lake/bronze/ (PII in the clear): the data loader/pipeline task."
+  type        = list(string)
+  default     = []
+}
+
+variable "uploader_principal_arns" {
+  description = "Principals (the human uploading E0 and CSV/Parquet) allowed to PUT into landing/. Never read."
+  type        = list(string)
+  default     = []
+}
+
+variable "break_glass_principal_arns" {
+  description = "Principals exempt from the landing/ VPC-endpoint restriction and the PII deny. Keep to the account admin role."
+  type        = list(string)
+  default     = []
+}
+
+variable "host_role_arns" {
+  description = "Roles of the host (compute) allowed to read lake/gold_masked, lake/gold_analytics and engine/*, and use core/, engine/, tmp/."
+  type        = list(string)
+  default     = []
+}
+
+variable "s3_vpc_endpoint_id" {
+  description = "S3 gateway endpoint id. When set, reads of landing/ are denied from anywhere else (except break-glass). Empty disables the statement."
+  type        = string
+  default     = ""
+}
+
+variable "bronze_glacier_ir_days" {
+  description = "Transition lake/bronze/ to Glacier Instant Retrieval after N days. 0 disables."
+  type        = number
+  default     = 0
+}
+
+variable "enable_eventbridge" {
+  type    = bool
+  default = false
+}
+
+variable "gateway_consumers" {
+  description = "Consumer names for GATEWAY_TOKEN_<CONSUMER> keys (names only)."
+  type        = list(string)
+  default     = ["AGENT_CORE", "ENGINE", "SUPPORT_PLATFORM"]
+}
+
+variable "llm_provider_key_names" {
+  description = "Provider API key names stored in the secret (ASSUMED defaults; confirm with llm-gateway)."
+  type        = list(string)
+  default     = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"]
+}
+
+variable "bridge_signer_names" {
+  description = "Names of the PULSO_BRIDGE_*_SIGNER keys (ASSUMED defaults; confirm with agent-core)."
+  type        = list(string)
+  default     = ["PULSO_BRIDGE_CONTROL_SIGNER", "PULSO_BRIDGE_LAB_SIGNER"]
+}
