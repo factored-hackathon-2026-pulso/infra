@@ -120,21 +120,21 @@ run "no_vpce_means_no_vpce_statement" {
 }
 
 run "uploader_policy_is_put_only_on_landing" {
-  command = plan
+  command = apply
   assert {
-    condition     = alltrue([for s in jsondecode(local.uploader_policy_json).Statement : s.Effect == "Allow" && !contains(flatten([s.Action]), "s3:GetObject") && !contains(flatten([s.Action]), "s3:DeleteObject") && !contains(flatten([s.Action]), "s3:*")])
+    condition     = alltrue([for s in jsondecode(output.uploader_policy_json).Statement : s.Effect == "Allow" && !contains(flatten([s.Action]), "s3:GetObject") && !contains(flatten([s.Action]), "s3:DeleteObject") && !contains(flatten([s.Action]), "s3:*")])
     error_message = "Uploader may only put."
   }
   assert {
-    condition     = alltrue([for s in jsondecode(local.uploader_policy_json).Statement : alltrue([for r in flatten([s.Resource]) : r != "*"])])
+    condition     = alltrue([for s in jsondecode(output.uploader_policy_json).Statement : alltrue([for r in flatten([s.Resource]) : r != "*"])])
     error_message = "No wildcard resource."
   }
 }
 
 run "loader_policy_cannot_delete" {
-  command = plan
+  command = apply
   assert {
-    condition     = alltrue([for s in jsondecode(local.loader_policy_json).Statement : !anytrue([for a in flatten([s.Action]) : can(regex("Delete|\*", a))])])
+    condition     = alltrue([for s in jsondecode(output.loader_policy_json).Statement : !anytrue([for a in flatten([s.Action]) : can(regex("Delete|[*]", a))])])
     error_message = "Loader must not delete or hold wildcard actions."
   }
 }
