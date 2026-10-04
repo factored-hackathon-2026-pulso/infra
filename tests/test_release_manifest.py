@@ -189,8 +189,8 @@ class ManifestTest(unittest.TestCase):
         ]
         # engine_platform owns only the four /pulso/<env>/pulso-engine-* names, bridge_services the three
         # /pulso/<env>/pulso-{core-runtime,core-exporter,platform-exporter} names; observability owns the legacy one;
-        # engine_task (unwired ECS alternative) and hackathon_network (optional flow logs, /<name>/vpc-flow) use their own names.
-        self.assertEqual(sorted(owners), ["bridge_services", "engine_platform", "engine_task", "hackathon_network", "observability"])
+        # engine_task (unwired ECS alternative), hackathon_network (optional flow logs, /<name>/vpc-flow) and image_builder\n        # (CodeBuild logs, /aws/codebuild/<name>-build-<service>) use their own names.
+        self.assertEqual(sorted(owners), ["bridge_services", "engine_platform", "engine_task", "hackathon_network", "image_builder", "observability"])
         engine = (tf / "engine_platform" / "main.tf").read_text("utf-8")
         self.assertIn('name              = "/pulso/${local.env}/${local.prefix}-${each.key}"', engine)
 

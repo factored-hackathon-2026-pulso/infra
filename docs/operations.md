@@ -24,10 +24,12 @@ then `.\scripts\aws-prod.ps1 plan -Profile pulso-prod` and `apply -Profile pulso
 
 ## Deploy a new image digest, roll back
 
-1. Build and push: `.\scripts\aws-prod.ps1 images -Profile pulso-prod -PulsoDir <dir> -AgentCoreDir <dir> -LlmGatewayDir <dir> -SupportPlatformDir <dir> -CaddyUpstreamDigest sha256:<64 hex>` (rewrites only the `images` block of `prod.tfvars`; images are digest-pinned, tags are never used). To rebuild a single image use `scripts/release-engine.ps1` directly and edit the digest in `prod.tfvars` by hand.
-2. `plan` (the env file changes in S3, the instances do not change), read it, `apply`.
-3. On each affected host: `sudo systemctl restart pulso-stack` (syncs the bundle, re-renders env, pulls, `docker compose up -d`). Core first if core changed.
-4. Roll back: put the previous digest back in `prod.tfvars` (old digests stay in ECR), `plan`, `apply`, restart `pulso-stack`. Keep the previous `prod.tfvars` copy outside Git.
+A new digest never needs a Terraform apply and never replaces an instance: digests live in SSM Parameter Store (`/pulso/<workload>/images/<key>`), Terraform only seeds them. Full guide for service teams, with the IAM they need, per-service notes, a worked example and troubleshooting: [service-deployment](service-deployment.md).
+
+1. Build and push: `.\scripts\aws-prod.ps1 images -Profile pulso-prod -Service <name> -SourceDir <dir>` builds in AWS CodeBuild (no local Docker) and prints the `repo@sha256:` digest (`-AgentCoreDir` for agent-core, `-MirrorImage` for caddy). Without `-Service` the older local flow remains: `.\scripts\aws-prod.ps1 images -Profile pulso-prod -PulsoDir <dir> -AgentCoreDir <dir> -LlmGatewayDir <dir> -SupportPlatformDir <dir> -CaddyUpstreamDigest sha256:<64 hex>` (rewrites only the `images` block of `prod.tfvars`).
+2. Deploy: `.\scripts\aws-prod.ps1 deploy -Profile pulso-prod -Service <name> -FromBuild <build id> -Wait` (or `-Digest sha256:<64 hex>`). It checks the digest in ECR, writes the SSM parameter, runs the document `pulso-deploy-<workload>` on the host (pull, `up -d`, wait healthy) and restores the previous digests by itself when the new ones are unhealthy. Type `DEPLOY` (or `-Yes`).
+3. Roll back: `.\scripts\aws-prod.ps1 deploy -Profile pulso-prod -Service <name> -Rollback -Wait`.
+4. `prod.tfvars` is only the seed for the FIRST apply and for a rebuilt host: after deployments the SSM parameters are the truth (Terraform ignores their value). A later `plan` shows no digest change even if `prod.tfvars` is older.
 
 ## Change instance type or volume size
 

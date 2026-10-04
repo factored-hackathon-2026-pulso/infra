@@ -23,6 +23,8 @@ Prerequisites on your machine: PowerShell 7, Terraform >= 1.10, AWS CLI v2, Dock
    .\scripts\aws-prod.ps1 images -Profile pulso-prod -PulsoDir D:\src\improvement-engine -AgentCoreDir D:\src\agent-core -LlmGatewayDir D:\src\llm-gateway -SupportPlatformDir D:\src\support-platform -CaddyUpstreamDigest sha256:<64 hex>
    ```
 
+   No local Docker (the Podman machine is too small)? Build in AWS instead: `.\scripts\aws-prod.ps1 plan -Profile pulso-prod -Stage builder`, `apply`, then one `.\scripts\aws-prod.ps1 images -Profile pulso-prod -Service <name> -SourceDir <dir>` per service (agent-core also takes `-AgentCoreDir`, caddy takes `-MirrorImage`); details in [service-deployment](service-deployment.md#c-first-bring-up-of-an-empty-account-infra-owner-only).
+
 5. **Plan and apply the stack** (VPC, NAT, RDS, bucket, KMS, secret, 3 hosts, CloudFront + WAF):
    ```powershell
    .\scripts\aws-prod.ps1 plan -Profile pulso-prod

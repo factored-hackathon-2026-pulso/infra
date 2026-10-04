@@ -8,6 +8,7 @@ How the Terraform is organised and how to change it safely. Rules of the repo ar
 |---|---|
 | `terraform/bootstrap` | separate root, local state, run once per account: state bucket (`pulso-prod-tfstate-<account id>` unless `state_bucket_name` is set), ECR repositories, account S3 public-access block. Off by default: CloudTrail, budget, GitHub OIDC role |
 | `terraform/envs/hackathon` | the one prod composition, remote state in the bootstrap bucket (`backend "s3" {}` placeholder, config injected by `scripts/aws-prod.ps1`) |
+| `terraform/modules/image_builder`, `terraform/modules/deployer_policies` | CodeBuild image builds and the per-host deployer IAM policy documents for service teams ([service-deployment](service-deployment.md)) |
 | `terraform/modules/hackathon_*` | the five modules the composition calls (`hackathon_network`, `hackathon_data`, `hackathon_iam`, `hackathon_compute` x3, `hackathon_edge`) |
 | `terraform/modules/*` (others), `terraform/envs/staging`, `terraform/envs/prod` | older production-path material (ECS, data lake, pipeline); not part of the single-account prod deployment |
 | `deploy/hackathon/<workload>/` | compose bundles and Caddyfiles published to `engine/deploy/<workload>/` |
@@ -52,6 +53,9 @@ A compute module needs: workload name (`core`, `platform`, `engine`), subnet, se
 | `break_glass_principal_arns` | `[]` (account users and root) | exempt from the PII deny |
 | `db_deletion_protection` | `true` | RDS deletion protection |
 | `db_skip_final_snapshot` | `false` | skip the final RDS snapshot on destroy |
+| `enable_image_builder` | `true` | CodeBuild projects that build or mirror the service images ([service-deployment](service-deployment.md)) |
+| `image_builder_compute_type` | `BUILD_GENERAL1_MEDIUM` | CodeBuild compute type of those builds |
+| `ecr_repository_prefix` | `pulso-prod` | prefix of the ECR repositories (must match the bootstrap) |
 
 `terraform/bootstrap` (all optional): `aws_region` (`us-east-1`), `state_bucket_name` (null, derived), `state_key`, `tags`, `budget_alert_email` (empty: no budget), `monthly_budget_usd`, `account_alias`, `cloudtrail_enabled` (`false`), `github_org` and `github_repo` and `github_allowed_refs` (empty: no OIDC role), `ecr_repository_prefix` (`pulso-prod`), `ecr_repositories`.
 
