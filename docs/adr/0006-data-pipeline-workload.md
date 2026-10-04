@@ -99,24 +99,31 @@ Both sides must change this table in the same pair of pull requests.
 
 ## Implementation status
 
-Nothing for the data pipeline is declared in Terraform and nothing is deployed.
+Nothing is deployed and no environment root wires the pipeline.
 
 - **Delivered in `data-pipeline`:** the runner, the `Dockerfile` (verified: a full `dbt build` of 161 checks
   and the publication ran inside the container with `--network none`), the guarded publication to S3 (checked
   against a simulated client, not against real S3) and the data-governance document.
+- **Delivered here, not wired:** the `data_lake` module (`terraform/modules/data_lake`): the versioned,
+  encrypted, private lake bucket; Deny statements in the bucket policy for `bronze/`, `bronze_eval/`,
+  `gold_restricted.duckdb` and `gold_masked.duckdb` that block every principal not on the zone's list, with an
+  empty list failing closed; deletion denied except for listed break-glass principals; an opt-in expiry rule that
+  can never match `publish/latest.json`; and one identity-statement output per consumer for `workload_iam`. Its
+  12 mocked `terraform test` runs include checks that a reader never receives another zone, and were verified
+  to fail when the restricted protection is removed. It is validated offline only: no plan or apply has run, so
+  nothing proves the policy behaves as intended against a real account.
 - **Missing in `data-pipeline`:** an image CI that publishes a digest; the remaining fact tables; the
   Platform CC `event_log` source; key rotation.
-- **Missing here:** ECR repository, the lake bucket and lifecycle, the task definition pinned to a digest, the
-  two roles and the consumer read roles, the secret entries, the schedule, the egress design for the dataset
-  account, and the alarms. `terraform` was not available where this ADR was written, so no HCL was drafted:
-  declaring unvalidated modules in this repository would break its credential-free CI gate.
+- **Missing here:** ECR repository, the task definition pinned to a digest, the task and execution roles, the
+  consumer roles and the KMS key policy that names them, the secret entries, the schedule, the egress design for
+  the dataset account, the alarms, and the wiring of `data_lake` into `staging` and `prod`.
 
 ## Consequences
 
 - On acceptance, AGENTS.md, CONTEXT.md and the README will name the pipeline as a workload of this repository; they are
   not changed while the ADR is only proposed.
-- The first slice is the lake bucket and its access matrix, because the protection of the personal data is
-  enforced there and nowhere else (DuckDB has no roles).
+- The first slice is the lake bucket and its access matrix (the `data_lake` module), because the protection of the
+  personal data is enforced there and nowhere else (DuckDB has no roles).
 - It is the first workload with data at rest in different sensitivity zones inside one bucket. If a prefix-level
   policy proves too coarse, the alternative is one bucket per zone; this ADR starts with prefixes to keep the
   foundation small.
