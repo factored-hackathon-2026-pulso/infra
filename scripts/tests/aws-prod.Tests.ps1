@@ -471,6 +471,125 @@ Describe 'images -Service (cloud build)' {
     }
 }
 
+Describe 'images -Service -Builder host (free_plan fallback: build on the core host)' {
+    AfterEach { Restore-Fakes; $env:AWS_PROD_BUILD_ID = $null }
+
+    function Set-HostBuildOk([string]$Svc = 'support-platform-api') {
+        Set-Resp 'ec2-describe-instances' 'i-0123456789abcdef0'
+        Set-Resp 'ssm-send-command' 'cmd-0001'
+        Set-Resp 'ssm-list-command-invocations' 'i-0123456789abcdef0 InProgress' 1
+        Set-Resp 'ssm-list-command-invocations' 'i-0123456789abcdef0 Success' 2
+        Set-Resp 'ssm-get-command-invocation' 'IMAGE=built'
+        Set-Resp 's3-cp' '' 1
+        Set-Resp 's3-cp' ('{"image":"' + $script:Registry + '/pulso-prod/' + $Svc + '@' + $script:D64 + '","digest":"' + $script:D64 + '"}') 2
+    }
+
+    function Get-HostScript { (Get-Content -Raw (Join-Path $env:AWS_PROD_WORKDIR 'host-build-b1.json')) }
+
+    It 'rejects an unknown builder' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Builder = 'laptop'; Yes = $true } } | Should Throw 'Builder'
+    }
+
+    It 'uploads the zip, finds the running core instance, builds through SSM and never starts CodeBuild' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-HostBuildOk
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        $vf = Join-Path $TestDrive 'prod.tfvars'
+        $out = Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Builder = 'host'; Yes = $true; VarFile = $vf }
+        $calls = Get-Calls
+        $calls | Should Not Match 'codebuild'
+        $calls | Should Match 'ec2 describe-instances'
+        $calls | Should Match 'Name=tag:Workload,Values=core'
+        $calls | Should Match 'Name=instance-state-name,Values=running'
+        $calls | Should Match 'ssm send-command --instance-ids i-0123456789abcdef0 --document-name AWS-RunShellScript'
+        $iUp = $calls.IndexOf('s3 cp')
+        $iSend = $calls.IndexOf('ssm send-command')
+        $iRec = $calls.IndexOf('engine/build-out/support-platform-api/b1.json')
+        ($iUp -ge 0 -and $iUp -lt $iSend -and $iSend -lt $iRec) | Should Be $true
+        $out | Should Match ([regex]::Escape("$($script:Registry)/pulso-prod/support-platform-api@$($script:D64)"))
+        $out | Should Match 'core host'
+    }
+
+    It 'the host script pulls the zip from S3, builds in the service context with buildx and pushes to ECR' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-HostBuildOk
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Builder = 'host'; Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
+        $s = Get-HostScript
+        $s | Should Match 's3://pulso-prod-data-000000000000/engine/build-src/support-platform-api/b1\.zip'
+        $s | Should Match 'docker buildx build'
+        $s | Should Match 'api/Dockerfile'
+        $s | Should Match 'ecr get-login-password'
+        $s | Should Match 'docker push'
+        $s | Should Match 'ecr describe-images'
+        $s | Should Match 's3://pulso-prod-data-000000000000/engine/build-out/support-platform-api/b1\.json'
+        $s | Should Match 'swap'
+        (Get-Calls) | Should Match '--parameters file://'
+    }
+
+    It 'core-runtime gets the pinned agent-core as the named build context, plus Dockerfile and build args' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-HostBuildOk 'core-runtime'
+        $src = Join-Path $TestDrive 'engine'; New-SrcTree $src
+        $core = Join-Path $TestDrive 'core'; New-SrcTree $core
+        Run 'images' 'pulso-prod' @{ Service = 'agent-core'; SourceDir = $src; AgentCoreDir = $core; Builder = 'host'; BuildArg = @('A=1'); Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
+        $s = Get-HostScript
+        $s | Should Match '--build-context core='
+        $s | Should Match 'core-bridge/Dockerfile'
+        $s | Should Match '--build-arg'
+        $s | Should Match 'A=1'
+    }
+
+    It 'a build argument is quoted so it cannot inject shell into the root script' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-HostBuildOk
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Builder = 'host'; BuildArg = @('K=$(id)'); Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
+        (Get-HostScript) | Should Match "'K=\`$\(id\)'"
+    }
+
+    It 'caddy is mirrored on the host: pull, tag, push, record' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-HostBuildOk 'caddy'
+        Set-Resp 's3-cp' ('{"image":"' + $script:Registry + '/pulso-prod/caddy@' + $script:D64 + '","digest":"' + $script:D64 + '"}') 1
+        Run 'images' 'pulso-prod' @{ Service = 'caddy'; MirrorImage = 'docker.io/library/caddy:2.8.4-alpine'; Builder = 'host'; Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
+        $s = Get-HostScript
+        $s | Should Match 'docker pull'
+        $s | Should Match 'caddy:2\.8\.4-alpine'
+        $s | Should Not Match 'buildx build'
+        (Get-Calls) | Should Not Match 'build-src'
+    }
+
+    It 'fails clearly when no core instance is running' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-Resp 'ec2-describe-instances' ''
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Builder = 'host'; Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } } | Should Throw 'running core'
+        (Get-Calls) | Should Not Match 'ssm send-command'
+    }
+
+    It 'a failed command throws with the command id and leaves tfvars untouched' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-Resp 'ec2-describe-instances' 'i-0123456789abcdef0'
+        Set-Resp 'ssm-send-command' 'cmd-0002'
+        Set-Resp 'ssm-list-command-invocations' 'i-0123456789abcdef0 Failed'
+        Set-Resp 'ssm-get-command-invocation' 'Killed'
+        $src = Join-Path $TestDrive 'src'; New-SrcTree $src
+        $vf = Join-Path $TestDrive 'p.tfvars'
+        { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Builder = 'host'; Yes = $true; VarFile = $vf } } | Should Throw 'cmd-0002'
+        (Test-Path $vf) | Should Be $false
+    }
+}
+
 Describe 'plan -Stage builder' {
     AfterEach { Restore-Fakes }
 
