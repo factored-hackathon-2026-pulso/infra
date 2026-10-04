@@ -267,3 +267,14 @@ run "build_args_are_passed_to_docker_build" {
     error_message = "The buildspec forwards BUILD_ARGS as --build-arg."
   }
 }
+run "records_use_the_bucket_default_key_not_the_aws_managed_one" {
+  command = plan
+  variables {
+    enabled = true
+  }
+
+  assert {
+    condition     = !strcontains(one(aws_codebuild_project.this["core-runtime"].source).buildspec, "--sse") && !strcontains(one(aws_codebuild_project.this["caddy"].source).buildspec, "--sse")
+    error_message = "No --sse flag: the bucket default (the data KMS key) encrypts the record; --sse aws:kms alone would pick the AWS-managed key that readers cannot decrypt with."
+  }
+}
