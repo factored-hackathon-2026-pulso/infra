@@ -46,3 +46,35 @@ run "kms_key_rotates_bucket_key_on_ownership_enforced" {
     error_message = "EventBridge off by default."
   }
 }
+
+run "lifecycle_per_prefix" {
+  command = plan
+
+  assert {
+    condition     = length([for r in aws_s3_bucket_lifecycle_configuration.data.rule : r if r.id == "tmp-7d" && one(r.expiration).days == 7]) == 1
+    error_message = "tmp/ expires after 7 days."
+  }
+  assert {
+    condition     = length([for r in aws_s3_bucket_lifecycle_configuration.data.rule : r if r.id == "logs-90d" && one(r.expiration).days == 90]) == 1
+    error_message = "logs/ expires after 90 days."
+  }
+  assert {
+    condition     = length([for r in aws_s3_bucket_lifecycle_configuration.data.rule : r if r.id == "all-noncurrent-30d" && one(r.noncurrent_version_expiration).noncurrent_days == 30 && one(r.abort_incomplete_multipart_upload).days_after_initiation == 7]) == 1
+    error_message = "Noncurrent versions 30d and multipart abort."
+  }
+  assert {
+    condition     = length([for r in aws_s3_bucket_lifecycle_configuration.data.rule : r if r.id == "bronze-glacier-ir"]) == 0
+    error_message = "Glacier IR transition is off by default."
+  }
+}
+
+run "bronze_glacier_optional" {
+  command = plan
+  variables {
+    bronze_glacier_ir_days = 90
+  }
+  assert {
+    condition     = length([for r in aws_s3_bucket_lifecycle_configuration.data.rule : r if r.id == "bronze-glacier-ir"]) == 1
+    error_message = "Glacier IR rule expected when enabled."
+  }
+}
