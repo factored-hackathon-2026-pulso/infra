@@ -6,7 +6,7 @@ REGION="${region}"
 BUCKET="${bucket}"
 PREFIX="${bundle_prefix}"
 SECRET_ARN="${secret_arn}"
-SSM_PREFIX="${ssm_prefix}"
+SSM_PREFIX="${ssm_prefix}/${workload}"
 SERVICES="${services}"
 
 aws s3 sync "s3://$BUCKET/$PREFIX" /srv/stack/ --region "$REGION" --only-show-errors

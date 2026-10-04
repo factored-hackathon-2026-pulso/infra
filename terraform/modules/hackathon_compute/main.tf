@@ -21,7 +21,7 @@ locals {
 
   memory_by_type     = { "t3.micro" = 1024, "t3.small" = 2048, "t3.medium" = 4096, "t3.large" = 8192 }
   instance_memory_mb = lookup(local.memory_by_type, var.instance_type, 2048)
-  allowed_ports      = var.workload == "core" ? ["8000:8000"] : ["80:80"]
+  allowed_ports      = { core = ["8000:8000"], platform = ["80:80"], engine = ["8080:8080"] }[var.workload]
   bundle_key_prefix  = "${var.bundle_prefix}${var.workload}/"
 
   service_env_names = {
@@ -31,7 +31,7 @@ locals {
   }[var.workload]
 
   data_volume_id = var.protect_data_volume ? aws_ebs_volume.data_protected[0].id : aws_ebs_volume.data_unprotected[0].id
-  log_group      = "/${trimprefix(var.ssm_prefix, "/")}/docker"
+  log_group      = "/${var.name_prefix}/docker"
 
   prepare_script = templatefile("${path.module}/templates/prepare.sh.tftpl", {
     region        = var.region
@@ -41,6 +41,7 @@ locals {
     svc_regex     = join("|", [for s in local.service_env_names : upper(s)])
     secret_arn    = var.secret_arn
     ssm_prefix    = var.ssm_prefix
+    workload      = var.workload
     registry      = var.ecr_registry_url
   })
 
