@@ -193,3 +193,11 @@ run "cloudwatch_agent_may_create_its_log_group" {
     error_message = "CreateLogGroup scoped to the name prefix."
   }
 }
+run "boundary_allow_is_not_a_star_action" {
+  command = plan
+
+  assert {
+    condition     = alltrue([for s in jsondecode(aws_iam_policy.boundary.policy).Statement : s.Effect == "Deny" || !contains(flatten([s.Action]), "*")])
+    error_message = "The boundary's Allow lists service families, never the star action."
+  }
+}
