@@ -143,31 +143,31 @@ run "rds_is_private_encrypted_single_az_and_cheap" {
   command = plan
 
   assert {
-    condition     = aws_db_instance.this.engine == "postgres" && startswith(aws_db_instance.this.engine_version, "16")
+    condition     = aws_db_instance.this[0].engine == "postgres" && startswith(aws_db_instance.this[0].engine_version, "16")
     error_message = "PostgreSQL 16."
   }
   assert {
-    condition     = aws_db_instance.this.instance_class == "db.t4g.micro" && aws_db_instance.this.allocated_storage == 20 && aws_db_instance.this.storage_type == "gp3"
+    condition     = aws_db_instance.this[0].instance_class == "db.t4g.micro" && aws_db_instance.this[0].allocated_storage == 20 && aws_db_instance.this[0].storage_type == "gp3"
     error_message = "Smallest class, 20 GB gp3."
   }
   assert {
-    condition     = aws_db_instance.this.storage_encrypted && !aws_db_instance.this.publicly_accessible && !aws_db_instance.this.multi_az
+    condition     = aws_db_instance.this[0].storage_encrypted && !aws_db_instance.this[0].publicly_accessible && !aws_db_instance.this[0].multi_az
     error_message = "Encrypted, not public, single AZ."
   }
   assert {
-    condition     = aws_db_instance.this.backup_retention_period == 7 && aws_db_instance.this.deletion_protection
+    condition     = aws_db_instance.this[0].backup_retention_period == 7 && aws_db_instance.this[0].deletion_protection
     error_message = "7 day backups and deletion protection by default."
   }
   assert {
-    condition     = contains(aws_db_instance.this.vpc_security_group_ids, "sg-0123456789abcdef0")
+    condition     = contains(aws_db_instance.this[0].vpc_security_group_ids, "sg-0123456789abcdef0")
     error_message = "Database must use sg_db_id."
   }
   assert {
-    condition     = toset(aws_db_subnet_group.this.subnet_ids) == toset(["subnet-aaaa1111", "subnet-bbbb2222"])
+    condition     = toset(aws_db_subnet_group.this[0].subnet_ids) == toset(["subnet-aaaa1111", "subnet-bbbb2222"])
     error_message = "Database must sit in db_subnet_ids."
   }
   assert {
-    condition     = aws_db_instance.this.manage_master_user_password != true
+    condition     = aws_db_instance.this[0].manage_master_user_password != true
     error_message = "Master password lives in the single secret, not an RDS-managed one."
   }
 }
@@ -176,15 +176,15 @@ run "parameter_group_limits_connections_forces_ssl_and_logs" {
   command = plan
 
   assert {
-    condition     = one([for p in aws_db_parameter_group.this.parameter : p.value if p.name == "max_connections"]) == "40"
+    condition     = one([for p in aws_db_parameter_group.this[0].parameter : p.value if p.name == "max_connections"]) == "40"
     error_message = "max_connections 40."
   }
   assert {
-    condition     = one([for p in aws_db_parameter_group.this.parameter : p.value if p.name == "rds.force_ssl"]) == "1"
+    condition     = one([for p in aws_db_parameter_group.this[0].parameter : p.value if p.name == "rds.force_ssl"]) == "1"
     error_message = "TLS forced."
   }
   assert {
-    condition     = length([for p in aws_db_parameter_group.this.parameter : p if p.name == "log_min_duration_statement"]) == 1
+    condition     = length([for p in aws_db_parameter_group.this[0].parameter : p if p.name == "log_min_duration_statement"]) == 1
     error_message = "Slow statement logging."
   }
 }
@@ -197,7 +197,7 @@ run "cheapest_backup_and_no_protection_variables" {
     db_instance_class        = "db.t3.micro"
   }
   assert {
-    condition     = aws_db_instance.this.backup_retention_period == 1 && !aws_db_instance.this.deletion_protection && aws_db_instance.this.instance_class == "db.t3.micro"
+    condition     = aws_db_instance.this[0].backup_retention_period == 1 && !aws_db_instance.this[0].deletion_protection && aws_db_instance.this[0].instance_class == "db.t3.micro"
     error_message = "Variables must flow through."
   }
 }
@@ -287,4 +287,32 @@ run "image_build_prefixes_expire_after_14_days" {
     condition     = length([for r in aws_s3_bucket_lifecycle_configuration.data.rule : r if r.id == "build-out-14d" && one(r.filter).prefix == "engine/build-out/" && one(r.expiration).days == 14]) == 1
     error_message = "Build records under engine/build-out/ expire after 14 days."
   }
+}
+
+# ---- free_plan ----
+
+run "rds_mode_has_no_container_password_key" {
+  command = apply
+
+  assert {
+    condition     = !contains(keys(jsondecode(aws_secretsmanager_secret_version.this.secret_string)), "DB__POSTGRES_PASSWORD")
+    error_message = "DB__POSTGRES_PASSWORD only exists in container mode."
+  }
+}
+
+run "origin_verify_secret_is_generated_and_rendered_to_every_host" {
+  command = apply
+
+  assert {
+    condition     = contains(keys(jsondecode(aws_secretsmanager_secret_version.this.secret_string)), "COMMON__ORIGIN_VERIFY")
+    error_message = "The CloudFront X-Origin-Verify value is in the single secret as COMMON__ORIGIN_VERIFY (common.env on every host, read by Caddy)."
+  }
+}
+
+run "database_mode_is_validated" {
+  command = plan
+  variables {
+    database_mode = "sqlite"
+  }
+  expect_failures = [var.database_mode]
 }
