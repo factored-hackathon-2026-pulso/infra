@@ -1,32 +1,20 @@
-# Hackathon compose bundle
+# Hackathon compose bundles
 
-Single-host stack (one EC2, private subnet, Amazon Linux 2023). CloudFront with a VPC origin
-terminates TLS and sends HTTP to the proxy on port 80. Nothing else is published.
+Three hosts, one bundle each (`core/`, `platform/`, `engine/`), all private subnets. CloudFront with a VPC origin
+terminates TLS and sends HTTP to port 80 of the platform and engine proxies. Nothing else is public.
 
-| Path | Upstream |
-|---|---|
-| `/api/*` (incl. `/api/v1/ws`) | support-platform-api:8000 |
-| `/pulso/*` | pulso:8080 (console and debug API) |
-| `/healthz` | proxy itself |
-| `/` | support-platform-web:80 |
-| any `/internal*` | 404 at the proxy; Core and gateway stay on the docker network |
+| Host | Services (mem MB) | Published |
+|---|---|---|
+| core | core-migrate 256 (one-shot), core-runtime 768, core-exporter 128, llm-gateway 128 | core-runtime 8000 (SG: platform+engine only) |
+| platform | support-platform-api 512, support-platform-web 64, proxy 64 | proxy 80 |
+| engine | pulso 512 (`pulso healthcheck`, 70 s stop grace), proxy 64 | proxy 80 |
 
-Memory limits (MB): core-migrate 256 (one-shot), core-runtime 1024, core-exporter 256, llm-gateway 256,
-support api 768, support web 64, pulso 1024, proxy 128 = 3776 < 8 GB.
+Routes: platform proxy `/api/*` (incl. `/api/v1/ws`) -> api:8000, `/` -> web:80, `/internal*` 404;
+engine proxy `/pulso/*` -> pulso:8080, `/internal*` 404. `/healthz` answers on both proxies.
 
-## Files on the host
+Files on a host: `/srv/stack` is synced from S3 `engine/deploy/<workload>/` (compose, Caddyfile, `.env` rendered by Terraform).
+`/run/pulso/env/<svc>.env` (tmpfs, 0600) is generated at every start from the host's slice of the ONE Secrets Manager secret
+(JSON keys `<SERVICE>__<VAR>`) plus non-secret SSM values under `<ssm_prefix>/<svc>/<VAR>`. Never commit values.
 
-- `/srv/stack/compose.yaml`, `Caddyfile`, `.env` are synced by Terraform from S3 (`engine/deploy/` prefix).
-- `/run/pulso/env/{common,core,gateway,support,pulso}.env` (tmpfs, 0600) are generated at every start by
-  `/usr/local/bin/pulso-stack-prepare` from ONE Secrets Manager secret (JSON). Keys are named
-  `<SERVICE>__<VAR>` (`COMMON__`, `CORE__`, `GATEWAY__`, `SUPPORT__`, `PULSO__`), e.g.
-  `CORE__DATABASE_URL` becomes `DATABASE_URL=...` in `core.env`. Reconcile the names with lane B's
-  `docs/secrets-keys.md`. Non-secret config is read from SSM under `ssm_prefix` (`/<svc>/<VAR>`) into the same files.
-- Values are never logged and never committed.
-
-## Operations
-
-- Stop everything: `sudo systemctl stop pulso-stack` (gives pulso 70 s to drain). Start: `sudo systemctl start pulso-stack`.
-- Whole host off: Terraform variable `enabled = false` stops the instance.
-- Logs: `docker compose -p pulso logs -f <svc>` (json-file, 10 MB x 3 per container).
-- Support-platform runs in non-prod settings (prod refuses without an email adapter) and must stay a single instance.
+Operate: `sudo systemctl stop|start pulso-stack`; Terraform `enabled` map stops an instance; logs by `docker compose -p pulso logs -f <svc>`.
+Support-platform stays single instance and in non-prod settings (prod refuses without an email adapter).

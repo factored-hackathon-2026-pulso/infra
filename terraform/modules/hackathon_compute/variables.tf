@@ -1,6 +1,21 @@
 variable "name_prefix" { type = string }
 variable "region" { type = string }
 
+variable "workload" {
+  type        = string
+  description = "Which host this instance is: core, platform or engine. Selects the compose bundle and secret slice."
+
+  validation {
+    condition     = contains(["core", "platform", "engine"], var.workload)
+    error_message = "workload must be core, platform or engine."
+  }
+}
+
+variable "private_zone_id" {
+  type        = string
+  description = "Route 53 private hosted zone (lane A). A record <workload>.<zone> points at the host private IP."
+}
+
 variable "enabled" {
   type        = bool
   default     = true
@@ -9,8 +24,8 @@ variable "enabled" {
 
 variable "instance_type" {
   type        = string
-  default     = "t3.large"
-  description = "x86_64 type with >= 8 GB RAM. t3.medium and t3.micro cannot hold the stack."
+  default     = "t3.small"
+  description = "x86_64 type. t3.small (2 GB) fits each workload with 30 percent headroom; t3.micro does not."
 }
 
 variable "ami_ssm_parameter" {
@@ -75,15 +90,8 @@ variable "ecr_registry_url" {
 }
 
 variable "images" {
-  type = object({
-    core_runtime = string
-    llm_gateway  = string
-    support_api  = string
-    support_web  = string
-    pulso        = string
-    proxy        = string
-  })
-  description = "Immutable image references (repo@sha256:digest). No tags."
+  type        = map(string)
+  description = "Immutable image references (repo@sha256:digest) keyed core, gateway, support_api, support_web, pulso, proxy as the workload needs. No tags."
 
   validation {
     condition     = alltrue([for v in values(var.images) : can(regex("@sha256:[0-9a-f]{64}$", v))])

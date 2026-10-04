@@ -6,12 +6,29 @@ data "aws_subnet" "this" {
   id = var.subnet_id
 }
 
+data "aws_route53_zone" "private" {
+  zone_id      = var.private_zone_id
+  private_zone = true
+}
+
 locals {
-  bundle_dir     = coalesce(var.bundle_dir, "${path.module}/../../../deploy/hackathon")
+  bundle_dir     = "${coalesce(var.bundle_dir, "${path.module}/../../../deploy/hackathon")}/${var.workload}"
   compose_text   = file("${local.bundle_dir}/compose.yaml")
-  caddyfile_text = file("${local.bundle_dir}/Caddyfile")
+  caddyfile_text = try(file("${local.bundle_dir}/Caddyfile"), null)
   compose        = yamldecode(local.compose_text)
-  tags           = merge(var.tags, { Module = "hackathon_compute" })
+  name           = "${var.name_prefix}-${var.workload}"
+  tags           = merge(var.tags, { Module = "hackathon_compute", Workload = var.workload })
+
+  memory_by_type     = { "t3.micro" = 1024, "t3.small" = 2048, "t3.medium" = 4096, "t3.large" = 8192 }
+  instance_memory_mb = lookup(local.memory_by_type, var.instance_type, 2048)
+  allowed_ports      = var.workload == "core" ? ["8000:8000"] : ["80:80"]
+  bundle_key_prefix  = "${var.bundle_prefix}${var.workload}/"
+
+  service_env_names = {
+    core     = ["common", "core", "gateway"]
+    platform = ["common", "support"]
+    engine   = ["common", "pulso"]
+  }[var.workload]
 
   data_volume_id = var.protect_data_volume ? aws_ebs_volume.data_protected[0].id : aws_ebs_volume.data_unprotected[0].id
   log_group      = "/${trimprefix(var.ssm_prefix, "/")}/docker"
@@ -19,7 +36,9 @@ locals {
   prepare_script = templatefile("${path.module}/templates/prepare.sh.tftpl", {
     region        = var.region
     bucket        = var.bucket_name
-    bundle_prefix = var.bundle_prefix
+    bundle_prefix = local.bundle_key_prefix
+    services      = join(" ", local.service_env_names)
+    svc_regex     = join("|", [for s in local.service_env_names : upper(s)])
     secret_arn    = var.secret_arn
     ssm_prefix    = var.ssm_prefix
     registry      = var.ecr_registry_url
@@ -33,17 +52,16 @@ locals {
     log_group             = local.log_group
   })
 
-  env_text = <<-EOT
-    CORE_IMAGE=${var.images.core_runtime}
-    GATEWAY_IMAGE=${var.images.llm_gateway}
-    SUPPORT_API_IMAGE=${var.images.support_api}
-    SUPPORT_WEB_IMAGE=${var.images.support_web}
-    PULSO_IMAGE=${var.images.pulso}
-    PROXY_IMAGE=${var.images.proxy}
-    BUCKET_NAME=${var.bucket_name}
-    CORE_BLOB_PREFIX=core/blobs/
-    PULSO_STORAGE_PREFIX=engine/
-  EOT
+  env_text = join("\n", concat(
+    [for k, v in var.images : "${upper(k)}_IMAGE=${v}"],
+    [
+      "BUCKET_NAME=${var.bucket_name}",
+      "CORE_BLOB_PREFIX=core/blobs/",
+      "PULSO_STORAGE_PREFIX=engine/",
+      "PRIVATE_ZONE_NAME=${trimsuffix(data.aws_route53_zone.private.name, ".")}",
+      "",
+    ],
+  ))
 }
 
 resource "aws_instance" "this" {
@@ -69,7 +87,7 @@ resource "aws_instance" "this" {
     encrypted   = true
   }
 
-  tags = merge(local.tags, { Name = "${var.name_prefix}-host" })
+  tags = merge(local.tags, { Name = "${local.name}-host" })
 }
 
 resource "aws_ebs_volume" "data_protected" {
@@ -78,7 +96,7 @@ resource "aws_ebs_volume" "data_protected" {
   size              = var.data_volume_size_gb
   type              = "gp3"
   encrypted         = true
-  tags              = merge(local.tags, { Name = "${var.name_prefix}-data", Snapshot = "${var.name_prefix}-daily" })
+  tags              = merge(local.tags, { Name = "${local.name}-data", Snapshot = "${local.name}-daily" })
 
   lifecycle {
     prevent_destroy = true
@@ -91,7 +109,7 @@ resource "aws_ebs_volume" "data_unprotected" {
   size              = var.data_volume_size_gb
   type              = "gp3"
   encrypted         = true
-  tags              = merge(local.tags, { Name = "${var.name_prefix}-data", Snapshot = "${var.name_prefix}-daily" })
+  tags              = merge(local.tags, { Name = "${local.name}-data", Snapshot = "${local.name}-daily" })
 }
 
 resource "aws_volume_attachment" "data" {
@@ -116,7 +134,7 @@ data "aws_iam_policy_document" "dlm_assume" {
 }
 
 resource "aws_iam_role" "dlm" {
-  name               = "${var.name_prefix}-dlm"
+  name               = "${local.name}-dlm"
   assume_role_policy = data.aws_iam_policy_document.dlm_assume.json
   tags               = local.tags
 }
@@ -127,13 +145,13 @@ resource "aws_iam_role_policy_attachment" "dlm" {
 }
 
 resource "aws_dlm_lifecycle_policy" "data" {
-  description        = "${var.name_prefix} daily data volume snapshots"
+  description        = "${local.name} daily data volume snapshots"
   execution_role_arn = aws_iam_role.dlm.arn
   state              = "ENABLED"
 
   policy_details {
     resource_types = ["VOLUME"]
-    target_tags    = { Snapshot = "${var.name_prefix}-daily" }
+    target_tags    = { Snapshot = "${local.name}-daily" }
 
     schedule {
       name = "daily"
@@ -154,19 +172,28 @@ resource "aws_dlm_lifecycle_policy" "data" {
 # Compose bundle published to the single bucket; no secrets inside.
 resource "aws_s3_object" "compose" {
   bucket       = var.bucket_name
-  key          = "${var.bundle_prefix}compose.yaml"
+  key          = "${local.bundle_key_prefix}compose.yaml"
   content      = local.compose_text
   content_type = "text/yaml"
 }
 
 resource "aws_s3_object" "caddyfile" {
+  count   = local.caddyfile_text == null ? 0 : 1
   bucket  = var.bucket_name
-  key     = "${var.bundle_prefix}Caddyfile"
+  key     = "${local.bundle_key_prefix}Caddyfile"
   content = local.caddyfile_text
 }
 
 resource "aws_s3_object" "env" {
   bucket  = var.bucket_name
-  key     = "${var.bundle_prefix}.env"
+  key     = "${local.bundle_key_prefix}.env"
   content = local.env_text
+}
+
+resource "aws_route53_record" "this" {
+  zone_id = var.private_zone_id
+  name    = "${var.workload}.${trimsuffix(data.aws_route53_zone.private.name, ".")}"
+  type    = "A"
+  ttl     = 60
+  records = [aws_instance.this.private_ip]
 }

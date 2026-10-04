@@ -9,18 +9,19 @@ variable "name_prefix" {
 }
 
 variable "enabled" {
-  type    = bool
-  default = true
+  type        = map(bool)
+  default     = { core = true, platform = true, engine = true }
+  description = "Per-host kill switch: false stops that instance."
 }
 
-variable "instance_type" {
-  type    = string
-  default = "t3.large"
+variable "instance_types" {
+  type    = map(string)
+  default = { core = "t3.small", platform = "t3.small", engine = "t3.small" }
 }
 
 variable "data_volume_size_gb" {
-  type    = number
-  default = 40
+  type    = map(number)
+  default = { core = 20, platform = 20, engine = 40 }
 }
 
 variable "protect_data_volume" {
@@ -37,12 +38,9 @@ variable "ecr_registry_url" { type = string }
 
 variable "images" {
   type = object({
-    core_runtime = string
-    llm_gateway  = string
-    support_api  = string
-    support_web  = string
-    pulso        = string
-    proxy        = string
+    core     = map(string)
+    platform = map(string)
+    engine   = map(string)
   })
-  description = "Digest-pinned image refs (repo@sha256:...)."
+  description = "Digest-pinned image refs per host. core: core, gateway. platform: support_api, support_web, proxy. engine: pulso, proxy."
 }

@@ -1,0 +1,84 @@
+# Hackathon core host. Project dir on the host: /srv/stack (synced from S3 by pulso-stack-prepare).
+# Images are digest variables in .env; secrets come from /run/pulso/env/<svc>.env (tmpfs, 0600),
+# rendered from this host's slice of the one Secrets Manager secret.
+name: pulso
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+networks:
+  internal: {}
+
+services:
+  core-migrate:
+    image: ${CORE_IMAGE:?set}
+    command: ["migrate"]
+    restart: "no"
+    mem_limit: 256m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/core.env]
+    logging: *logging
+    networks: [internal]
+
+  core-runtime:
+    image: ${CORE_IMAGE:?set}
+    command: ["runtime"]
+    restart: unless-stopped
+    mem_limit: 768m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/core.env]
+    environment:
+      AGENTCORE_BLOB_BUCKET: ${BUCKET_NAME:?set}
+      AGENTCORE_BLOB_PREFIX: ${CORE_BLOB_PREFIX:-core/blobs/}
+      AGENTCORE_LLM_GATEWAY_URL: http://llm-gateway:8080
+    # Reachable from the platform and engine hosts as http://core.<private zone>:8000 (security group limited).
+    ports:
+      - "8000:8000"
+    depends_on:
+      core-migrate:
+        condition: service_completed_successfully
+      llm-gateway:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+    networks: [internal]
+
+  core-exporter:
+    image: ${CORE_IMAGE:?set}
+    command: ["exporter"]
+    restart: unless-stopped
+    mem_limit: 128m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/core.env]
+    environment:
+      AGENTCORE_BLOB_BUCKET: ${BUCKET_NAME:?set}
+      AGENTCORE_BLOB_PREFIX: ${CORE_BLOB_PREFIX:-core/blobs/}
+    volumes:
+      - /srv/data/exporter:/var/lib/exporter
+    depends_on:
+      core-migrate:
+        condition: service_completed_successfully
+    # No listener: liveness is the restart policy.
+    healthcheck:
+      disable: true
+    logging: *logging
+    networks: [internal]
+
+  llm-gateway:
+    image: ${GATEWAY_IMAGE:?set}
+    restart: unless-stopped
+    mem_limit: 128m
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/gateway.env]
+    # Distroless image has no shell or curl; /healthz :8080 is probed by the proxy-side smoke test.
+    healthcheck:
+      disable: true
+    logging: *logging
+    networks: [internal]

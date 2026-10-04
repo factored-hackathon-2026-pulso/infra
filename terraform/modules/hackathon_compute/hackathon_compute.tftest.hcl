@@ -40,12 +40,12 @@ variables {
   kms_key_arn           = "arn:aws:kms:us-east-1:123456789012:key/11111111-2222-3333-4444-555555555555"
   ecr_registry_url      = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
   images = {
-    core         = "r/agent-core@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    gateway      = "r/llm-gateway@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    support_api  = "r/support-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-    support_web  = "r/support-web@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-    pulso        = "r/pulso@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-    proxy        = "r/caddy@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    core        = "r/agent-core@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    gateway     = "r/llm-gateway@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    support_api = "r/support-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    support_web = "r/support-web@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    pulso       = "r/pulso@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    proxy       = "r/caddy@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
   }
 }
 
@@ -66,7 +66,7 @@ run "bundle_rules_core" {
     error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core)."
   }
   assert {
-    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {}), "ports")
+    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {})), "ports")
     error_message = "The gateway is never published."
   }
   assert {
@@ -104,7 +104,7 @@ run "bundle_rules_platform" {
     error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core)."
   }
   assert {
-    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {}), "ports")
+    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {})), "ports")
     error_message = "The gateway is never published."
   }
   assert {
@@ -142,7 +142,7 @@ run "bundle_rules_engine" {
     error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core)."
   }
   assert {
-    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {}), "ports")
+    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {})), "ports")
     error_message = "The gateway is never published."
   }
   assert {

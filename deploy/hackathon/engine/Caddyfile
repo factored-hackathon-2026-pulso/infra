@@ -1,0 +1,24 @@
+{
+	auto_https off
+	admin off
+}
+
+:80 {
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	@internal path /internal /internal/* /pulso/internal /pulso/internal/*
+	handle @internal {
+		respond "not found" 404
+	}
+
+	handle /pulso/* {
+		uri strip_prefix /pulso
+		reverse_proxy pulso:8080
+	}
+
+	handle {
+		respond "not found" 404
+	}
+}

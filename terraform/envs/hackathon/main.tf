@@ -34,16 +34,19 @@ module "iam" {
   kms_key_arn              = module.data.kms_key_arn
 }
 
-module "compute" {
+# One EC2 per workload; each reads only its own slice of the one secret.
+module "compute_core" {
   source                  = "../../modules/hackathon_compute"
   name_prefix             = var.name_prefix
   region                  = var.region
-  enabled                 = var.enabled
-  instance_type           = var.instance_type
+  workload                = "core"
+  enabled                 = var.enabled["core"]
+  instance_type           = var.instance_types["core"]
   subnet_id               = module.network.private_subnet_ids[0]
-  security_group_ids      = [module.network.sg_host_id]
-  instance_profile_name   = module.iam.instance_profile_name
-  data_volume_size_gb     = var.data_volume_size_gb
+  security_group_ids      = [module.network.sg_core_id]
+  instance_profile_name   = module.iam.instance_profile_name_core
+  private_zone_id         = module.network.zone_id
+  data_volume_size_gb     = var.data_volume_size_gb["core"]
   protect_data_volume     = var.protect_data_volume
   enable_cloudwatch_agent = var.enable_cloudwatch_agent
   ssm_prefix              = module.data.ssm_prefix
@@ -51,16 +54,63 @@ module "compute" {
   secret_arn              = module.data.secret_arn
   kms_key_arn             = module.data.kms_key_arn
   ecr_registry_url        = var.ecr_registry_url
-  images                  = var.images
+  images                  = var.images.core
+  tags                    = local.tags
+}
+
+module "compute_platform" {
+  source                  = "../../modules/hackathon_compute"
+  name_prefix             = var.name_prefix
+  region                  = var.region
+  workload                = "platform"
+  enabled                 = var.enabled["platform"]
+  instance_type           = var.instance_types["platform"]
+  subnet_id               = module.network.private_subnet_ids[0]
+  security_group_ids      = [module.network.sg_platform_id]
+  instance_profile_name   = module.iam.instance_profile_name_platform
+  private_zone_id         = module.network.zone_id
+  data_volume_size_gb     = var.data_volume_size_gb["platform"]
+  protect_data_volume     = var.protect_data_volume
+  enable_cloudwatch_agent = var.enable_cloudwatch_agent
+  ssm_prefix              = module.data.ssm_prefix
+  bucket_name             = module.data.bucket_name
+  secret_arn              = module.data.secret_arn
+  kms_key_arn             = module.data.kms_key_arn
+  ecr_registry_url        = var.ecr_registry_url
+  images                  = var.images.platform
+  tags                    = local.tags
+}
+
+module "compute_engine" {
+  source                  = "../../modules/hackathon_compute"
+  name_prefix             = var.name_prefix
+  region                  = var.region
+  workload                = "engine"
+  enabled                 = var.enabled["engine"]
+  instance_type           = var.instance_types["engine"]
+  subnet_id               = module.network.private_subnet_ids[0]
+  security_group_ids      = [module.network.sg_engine_id]
+  instance_profile_name   = module.iam.instance_profile_name_engine
+  private_zone_id         = module.network.zone_id
+  data_volume_size_gb     = var.data_volume_size_gb["engine"]
+  protect_data_volume     = var.protect_data_volume
+  enable_cloudwatch_agent = var.enable_cloudwatch_agent
+  ssm_prefix              = module.data.ssm_prefix
+  bucket_name             = module.data.bucket_name
+  secret_arn              = module.data.secret_arn
+  kms_key_arn             = module.data.kms_key_arn
+  ecr_registry_url        = var.ecr_registry_url
+  images                  = var.images.engine
   tags                    = local.tags
 }
 
 module "edge" {
-  source             = "../../modules/hackathon_edge"
-  name_prefix        = var.name_prefix
-  vpc_id             = module.network.vpc_id
-  private_subnet_ids = module.network.private_subnet_ids
-  origin_instance_id = module.compute.instance_id
-  origin_private_ip  = module.compute.private_ip
-  origin_private_dns = module.compute.private_dns
+  source               = "../../modules/hackathon_edge"
+  name_prefix          = var.name_prefix
+  vpc_id               = module.network.vpc_id
+  private_subnet_ids   = module.network.private_subnet_ids
+  platform_instance_id = module.compute_platform.instance_id
+  platform_private_ip  = module.compute_platform.private_ip
+  engine_instance_id   = module.compute_engine.instance_id
+  engine_private_ip    = module.compute_engine.private_ip
 }
