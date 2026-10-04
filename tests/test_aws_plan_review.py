@@ -53,14 +53,8 @@ class FalseNegatives(unittest.TestCase):
         self.assertIn("switch-default-on", self._rules('locals {\n  bridge_services_enabled = true\n}'))
 
     def test_wildcard_principal_allowed_only_in_deny(self):
-        deny = 'statement {
-  effect = "Deny"
-  principals { identifiers = ["*"] }
-}'
-        allow = 'statement {
-  effect = "Allow"
-  principals { identifiers = ["*"] }
-}'
+        deny = 'statement {\n  effect = "Deny"\n  principals { identifiers = ["*"] }\n}'
+        allow = 'statement {\n  effect = "Allow"\n  principals { identifiers = ["*"] }\n}'
         self.assertNotIn("wildcard-principal", self._rules(deny))
         self.assertIn("wildcard-principal", self._rules(allow))
 
