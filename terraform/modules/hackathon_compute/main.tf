@@ -21,17 +21,23 @@ locals {
   name           = "${var.name_prefix}-${var.workload}"
   tags           = merge(var.tags, { Module = "hackathon_compute", Workload = var.workload })
 
-  memory_by_type     = { "t3.micro" = 1024, "t3.small" = 2048, "t3.medium" = 4096, "t3.large" = 8192 }
+  memory_by_type = {
+    "t3.micro"       = 1024, "t3.small" = 2048, "t3.medium" = 4096, "t3.large" = 8192,
+    "t4g.micro"      = 1024, "t4g.small" = 2048, "t8i.micro" = 1024, "t8i.small" = 2048,
+    "c7i-flex.large" = 4096, "m7i-flex.large" = 8192,
+  }
+  has_db_volume      = var.db_volume_size_gb > 0
   instance_memory_mb = lookup(local.memory_by_type, var.instance_type, 2048)
-  allowed_ports      = { core = ["8000:8000"], platform = ["80:80"], engine = ["8080:8080"] }[var.workload]
+  allowed_ports      = { core = concat(["8000:8000"], var.db_volume_size_gb > 0 ? ["5432:5432"] : []), platform = ["80:80"], engine = ["8080:8080"] }[var.workload]
   bundle_key_prefix  = "${var.bundle_prefix}${var.workload}/"
 
-  service_env_names = {
+  service_env_names = concat({
     core     = ["common", "core", "gateway"]
     platform = ["common", "support"]
     engine   = ["common", "pulso"]
-  }[var.workload]
+  }[var.workload], var.extra_service_envs)
 
+  db_volume_id   = local.has_db_volume ? (var.protect_data_volume ? aws_ebs_volume.db_protected[0].id : aws_ebs_volume.db_unprotected[0].id) : ""
   data_volume_id = var.protect_data_volume ? aws_ebs_volume.data_protected[0].id : aws_ebs_volume.data_unprotected[0].id
   log_group      = "/${var.name_prefix}/docker"
 
@@ -50,6 +56,7 @@ locals {
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
     compose_version       = var.compose_version
     data_volume_id_nodash = replace(local.data_volume_id, "-", "")
+    db_volume_id_nodash   = local.has_db_volume ? replace(local.db_volume_id, "-", "") : ""
     prepare_script        = local.prepare_script
     cloudwatch            = var.enable_cloudwatch_agent
     log_group             = local.log_group
@@ -57,13 +64,15 @@ locals {
 
   # No image references here: the start script resolves <KEY>_IMAGE from SSM (aws_ssm_parameter.image), so a new
   # digest never changes this object, the start script or the instance.
-  env_text = join("\n", [
+  env_text = join("\n", concat([
     "BUCKET_NAME=${var.bucket_name}",
     "CORE_BLOB_PREFIX=core/blobs/",
     "PULSO_STORAGE_PREFIX=engine/",
     "PRIVATE_ZONE_NAME=${trimsuffix(data.aws_route53_zone.private.name, ".")}",
-    "",
-  ])
+    ],
+    length(var.compose_files) > 1 ? ["COMPOSE_FILE=${join(":", var.compose_files)}"] : [],
+    [""],
+  ))
 
   deploy_document_name = "pulso-deploy-${var.workload}"
 }
@@ -74,7 +83,7 @@ resource "aws_instance" "this" {
   subnet_id                   = var.subnet_id
   vpc_security_group_ids      = var.security_group_ids
   iam_instance_profile        = var.instance_profile_name
-  associate_public_ip_address = false
+  associate_public_ip_address = var.associate_public_ip
   ebs_optimized               = true
   user_data                   = local.user_data
   user_data_replace_on_change = true
@@ -114,6 +123,36 @@ resource "aws_ebs_volume" "data_unprotected" {
   type              = "gp3"
   encrypted         = true
   tags              = merge(local.tags, { Name = "${local.name}-data", Snapshot = "${local.name}-daily" })
+}
+
+# Postgres container data volume (free_plan database_mode=container); same Snapshot tag, so the daily DLM policy covers it.
+resource "aws_ebs_volume" "db_protected" {
+  count             = local.has_db_volume && var.protect_data_volume ? 1 : 0
+  availability_zone = data.aws_subnet.this.availability_zone
+  size              = var.db_volume_size_gb
+  type              = "gp3"
+  encrypted         = true
+  tags              = merge(local.tags, { Name = "${local.name}-pgdata", Snapshot = "${local.name}-daily" })
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ebs_volume" "db_unprotected" {
+  count             = local.has_db_volume && !var.protect_data_volume ? 1 : 0
+  availability_zone = data.aws_subnet.this.availability_zone
+  size              = var.db_volume_size_gb
+  type              = "gp3"
+  encrypted         = true
+  tags              = merge(local.tags, { Name = "${local.name}-pgdata", Snapshot = "${local.name}-daily" })
+}
+
+resource "aws_volume_attachment" "db" {
+  count       = local.has_db_volume ? 1 : 0
+  device_name = "/dev/sdg"
+  volume_id   = local.db_volume_id
+  instance_id = aws_instance.this.id
 }
 
 resource "aws_volume_attachment" "data" {
@@ -186,6 +225,13 @@ resource "aws_s3_object" "caddyfile" {
   bucket  = var.bucket_name
   key     = "${local.bundle_key_prefix}Caddyfile"
   content = local.caddyfile_text
+}
+
+resource "aws_s3_object" "extra" {
+  for_each = var.extra_bundle_files
+  bucket   = var.bucket_name
+  key      = "${local.bundle_key_prefix}${each.key}"
+  content  = each.value
 }
 
 resource "aws_s3_object" "env" {

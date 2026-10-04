@@ -307,6 +307,18 @@ run "public_ip_only_when_asked" {
   }
 }
 
+run "no_database_volume_keeps_user_data_without_pgdata" {
+  command = plan
+  variables {
+    workload = "engine"
+  }
+
+  assert {
+    condition     = !strcontains(local.user_data, "pgdata") && !strcontains(local.env_text, "COMPOSE_FILE")
+    error_message = "Hosts without a database volume are unchanged."
+  }
+}
+
 run "database_volume_is_snapshotted_by_the_same_dlm_policy" {
   command = apply
   variables {
@@ -349,17 +361,5 @@ run "database_volume_is_snapshotted_by_the_same_dlm_policy" {
   assert {
     condition     = local.instance_memory_mb == 8192
     error_message = "m7i-flex.large is 8 GB."
-  }
-}
-
-run "no_database_volume_keeps_user_data_without_pgdata" {
-  command = plan
-  variables {
-    workload = "engine"
-  }
-
-  assert {
-    condition     = !strcontains(local.user_data, "pgdata") && !strcontains(local.env_text, "COMPOSE_FILE")
-    error_message = "Hosts without a database volume are unchanged."
   }
 }

@@ -119,3 +119,33 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+variable "associate_public_ip" {
+  type        = bool
+  default     = false
+  description = "Public IP for outbound-only egress (free_plan profile: hosts in public subnets, no NAT gateway). Inbound stays closed by the security groups."
+}
+
+variable "db_volume_size_gb" {
+  type        = number
+  default     = 0
+  description = "Size of a dedicated EBS volume for a Postgres container (mounted at /srv/pgdata, snapshotted daily by the same DLM policy). 0 = none."
+}
+
+variable "extra_service_envs" {
+  type        = list(string)
+  default     = []
+  description = "Extra service env files rendered from <SERVICE>__<VAR> secret keys and SSM, for example [\"db\"] for the Postgres container on the core host."
+}
+
+variable "compose_files" {
+  type        = list(string)
+  default     = ["compose.yaml"]
+  description = "Compose files of the bundle, in order. More than one sets COMPOSE_FILE in .env (docker compose merges them)."
+}
+
+variable "extra_bundle_files" {
+  type        = map(string)
+  default     = {}
+  description = "Additional non-secret files published into the bundle (path relative to the bundle root -> content), for example the Postgres compose override and initdb scripts."
+}

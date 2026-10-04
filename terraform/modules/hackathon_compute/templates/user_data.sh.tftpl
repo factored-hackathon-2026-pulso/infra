@@ -24,6 +24,18 @@ UUID=$(blkid -s UUID -o value "$DEV")
 grep -q "$UUID" /etc/fstab || echo "UUID=$UUID /srv xfs defaults,nofail 0 2" >> /etc/fstab
 mount -a
 mkdir -p /srv/stack
+%{ if db_volume_id_nodash != "" ~}
+
+# Postgres data volume (own EBS volume, own daily snapshots); the container runs as uid 999
+DBDEV=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${db_volume_id_nodash}
+for i in $(seq 1 60); do [ -e "$DBDEV" ] && break; sleep 2; done
+blkid "$DBDEV" || mkfs.xfs "$DBDEV"
+mkdir -p /srv/pgdata
+DBUUID=$(blkid -s UUID -o value "$DBDEV")
+grep -q "$DBUUID" /etc/fstab || echo "UUID=$DBUUID /srv/pgdata xfs defaults,nofail 0 2" >> /etc/fstab
+mount -a
+chown 999:999 /srv/pgdata
+%{ endif ~}
 
 cat > /usr/local/bin/pulso-stack-prepare <<'PREPARE'
 ${prepare_script}

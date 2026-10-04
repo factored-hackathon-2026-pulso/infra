@@ -11,3 +11,6 @@ output "ami_id" {
 output "user_data_sha256" { value = sha256(local.user_data) }
 output "deploy_document_name" { value = aws_ssm_document.deploy.name }
 output "image_parameter_names" { value = { for k, p in aws_ssm_parameter.image : k => p.name } }
+output "public_dns" { value = aws_instance.this.public_dns }
+output "public_ip" { value = aws_instance.this.public_ip }
+output "db_volume_id" { value = local.db_volume_id }
