@@ -35,6 +35,37 @@ locals {
           Action   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
           Resource = "arn:${local.partition}:logs:${var.region}:${local.account_id}:log-group:/${var.name}/*:*"
         },
+        {
+          Sid      = "CreateLogGroup"
+          Effect   = "Allow"
+          Action   = ["logs:CreateLogGroup"]
+          Resource = "arn:${local.partition}:logs:${var.region}:${local.account_id}:log-group:/${var.name}/*"
+        },
+        {
+          Sid      = "ReadSecret"
+          Effect   = "Allow"
+          Action   = ["secretsmanager:GetSecretValue"]
+          Resource = var.secret_arn
+        },
+        {
+          Sid      = "UseDataKey"
+          Effect   = "Allow"
+          Action   = ["kms:Decrypt", "kms:GenerateDataKey"]
+          Resource = var.kms_key_arn
+        },
+        {
+          Sid       = "ListBundle"
+          Effect    = "Allow"
+          Action    = ["s3:ListBucket"]
+          Resource  = local.bucket_arn
+          Condition = { StringLike = { "s3:prefix" = ["${var.bundle_prefix}/${w}/*"] } }
+        },
+        {
+          Sid      = "ReadBundle"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject"]
+          Resource = "${local.bucket_arn}/${var.bundle_prefix}/${w}/*"
+        },
       ],
       length(c.ecr) == 0 ? [] : [
         {

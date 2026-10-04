@@ -64,3 +64,19 @@ variable "tags" {
   type        = map(string)
   description = "Tags applied to every resource."
 }
+
+variable "secret_arn" {
+  type        = string
+  description = "ARN of the one Secrets Manager secret every host reads (the host role gets GetSecretValue on exactly this ARN)."
+}
+
+variable "kms_key_arn" {
+  type        = string
+  description = "Data KMS key: objects in the bucket are SSE-KMS, so the hosts need kms:Decrypt/GenerateDataKey on it."
+}
+
+variable "bundle_prefix" {
+  type        = string
+  description = "Key prefix (no slashes at the ends) where compose bundles are published; each host reads <prefix>/<workload>/*."
+  default     = "engine/deploy"
+}
