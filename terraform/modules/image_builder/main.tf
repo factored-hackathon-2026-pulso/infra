@@ -133,6 +133,7 @@ resource "aws_codebuild_project" "this" {
         OUTPUT_BUCKET    = var.bucket_name
         OUTPUT_PREFIX    = var.output_prefix
         SOURCE_ID        = ""
+        BUILD_ARGS       = ""
       }
       content {
         name  = environment_variable.key
