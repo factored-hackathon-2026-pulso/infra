@@ -17,8 +17,8 @@ only enables login. Do not edit the engine's generated SQL here.
 ## Passwords
 
 All role passwords and the master password live in the one Secrets Manager secret `<name_prefix>/hackathon` (JSON).
-Terraform creates `RDS_MASTER_PASSWORD` (random) and `CHANGE_ME` placeholders for the `DB_PASSWORD_*` keys; set real
-values out of band first (console, or `put-secret-value` run by a human). Never paste a password in a command line or a
+Terraform generates `RDS_MASTER_PASSWORD` and every `DB_PASSWORD_*` key, and assembles the DSNs from them
+([secrets-wiring](secrets-wiring.md)); nobody types a password. Never paste a password in a command line or a
 ticket. The scripts read passwords from environment variables via psql `\getenv`.
 
 ## Run (on the host, by a human, after applying a reviewed plan)

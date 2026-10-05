@@ -37,7 +37,7 @@ Legend. **literal**: a non-secret value in `compose.agents.yaml` (or its `.env` 
 | `AGENTCORE_SERVE_AGENTS` | O | literal from `agent_serve_agents` (`AGENT_SERVE_AGENTS`), default `recepcion,disputas,consultas,copiloto-asesor` |
 | `AGENTCORE_GIT_SHA` | O | baked in the image (build arg) |
 | `AGENTCORE_DB_POOL_MAX` | O | literal from the instance-size table (section 4) |
-| `AGENTCORE_LANG_THRESHOLDS` | O | unset (without it the language never switches by detection); to enable, put the JSON as secret file `FILES__AGENT__LANG_THRESHOLDS` and set the SSM parameter to `/run/files/LANG_THRESHOLDS` |
+| `AGENTCORE_LANG_THRESHOLDS` | O | literal `/run/files/LANG_THRESHOLDS`, secret file `FILES__AGENT__LANG_THRESHOLDS` (authored, `deploy/hackathon/config/agent/lang-thresholds.json`; without it the language never switches) |
 | `AGENTCORE_FX_RATES_FILE` | C | literal `/run/files/FX_RATES`, secret file `FILES__AGENT__FX_RATES` (H) |
 | `AGENTCORE_IDENTITY_KEYS_FILE` | R | literal `/run/files/IDENTITY_KEYS`, secret file (G) |
 | `AGENTCORE_REGISTRY_API` | O | literal `1` (the engine and the platform use `/v1/registry`) |

@@ -110,7 +110,7 @@ render, pull (running containers untouched), `up -d`, wait healthy twice, otherw
 ## 6. Decisions taken and what remains
 
 1. **Auto-restart (done).** `pulso-autoheal.timer` (every 60 s, from 5 min after boot, `user_data`) restarts containers of the `pulso`
-   project whose health is `unhealthy`, for `AUTOHEAL_SERVICES` (default `pulso agent-core`), at most `AUTOHEAL_MAX_PER_HOUR` (6) per
+   project whose health is `unhealthy`, for `AUTOHEAL_SERVICES` (default `pulso`; `agent-core` is NOT in it: its container health is `/readyz`, so a Postgres or gateway blip would restart serve although it recovers by itself in about 30 s, PRODLIKE I5), at most `AUTOHEAL_MAX_PER_HOUR` (6) per
    service, so a crash loop is left to the deploy rollback. For other services (`tool-service`, `llm-gateway`, `support-platform-api`)
    add them to `AUTOHEAL_SERVICES` in the service Environment; they all have probes. Never restarts one-shot jobs.
 2. **Engine database bootstrap (done, one manual switch).** `pulso-db-bootstrap` (core compose, one-shot, Postgres master, quiet,

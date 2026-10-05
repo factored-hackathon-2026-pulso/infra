@@ -182,7 +182,7 @@ class AutoHeal(unittest.TestCase):
     def test_timer_restarts_unhealthy_pulso_and_agent_core_and_never_prints_env(self):
         self.assertIn("/usr/local/bin/pulso-autoheal", self.UNIT)
         self.assertRegex(self.UNIT, r"(?m)^OnUnitActiveSec=60s?$")
-        self.assertRegex(self.UNIT, r"AUTOHEAL_SERVICES:-pulso agent-core")
+        self.assertRegex(self.UNIT, r"AUTOHEAL_SERVICES:-pulso}")
         self.assertIn("health=unhealthy", self.UNIT)
         self.assertIn("docker restart", self.UNIT)
         self.assertNotIn("docker inspect \"$id\" --format '{{.Config.Env", self.UNIT)

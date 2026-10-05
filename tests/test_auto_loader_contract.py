@@ -158,9 +158,9 @@ class Memory(unittest.TestCase):
         self.assertIn("LOADER_TABLE_BATCHES", s)
         self.assertIn("pipeline.ingest_bank --tables", s)
 
-    def test_engine_host_default_is_a_4gib_free_tier_type_with_the_loader(self):
+    def test_engine_host_default_is_the_largest_free_plan_type_with_the_loader(self):
         m = read(ROOT / "terraform" / "envs" / "hackathon" / "main.tf")
-        self.assertIn('engine = var.auto_loader_enabled ? "c7i-flex.large" : "t3.small"', m)
+        self.assertIn('engine = var.auto_loader_enabled ? "m7i-flex.large" : "t3.small"', m)
         v = read(ROOT / "terraform" / "envs" / "hackathon" / "variables.tf")
         self.assertIn('"c7i-flex.large"', v)
 

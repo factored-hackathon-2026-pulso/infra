@@ -72,6 +72,7 @@ locals {
 
   # Names are main's (docs/agent-services.md, docs/secrets-keys.md). Agent-services keys exist only with agent_services_enabled.
   generated_secrets = merge(
+    local.wired_secrets,
     { for c, p in random_password.gateway_token : "GATEWAY__GATEWAY_TOKEN_${c}" => p.result },
     {
       # The same value in the service that issues it (GATEWAY__) and in the one that presents it.

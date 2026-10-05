@@ -214,8 +214,8 @@ run "one_secret_holds_every_sensitive_key" {
     error_message = "Secret JSON is missing a documented key."
   }
   assert {
-    condition     = jsondecode(aws_secretsmanager_secret_version.this.secret_string)["CORE__AGENTCORE_REGISTRY_DSN"] == "CHANGE_ME"
-    error_message = "Non-master values are placeholders."
+    condition     = jsondecode(aws_secretsmanager_secret_version.this.secret_string)["GATEWAY__OPENROUTER_API_KEY"] == "CHANGE_ME" && jsondecode(aws_secretsmanager_secret_version.this.secret_string)["CORE__AGENTCORE_REGISTRY_DSN"] != "CHANGE_ME"
+    error_message = "Only provider keys are placeholders; the DSN is derived."
   }
   assert {
     condition     = alltrue([for k in keys(jsondecode(aws_secretsmanager_secret_version.this.secret_string)) : can(regex("^(CORE|GATEWAY|SUPPORT|PULSO|COMMON)__[A-Z0-9_]+$", k)) || can(regex("^DB_PASSWORD_[A-Z_]+$", k)) || k == "RDS_MASTER_PASSWORD"])

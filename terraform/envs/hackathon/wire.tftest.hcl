@@ -480,3 +480,35 @@ run "engine_key_rotation_variables_reach_the_ssm_kid" {
     error_message = "The module receives the rotation variables: both kids published, the new one active."
   }
 }
+
+run "platform_url_cors_and_secrets_are_derived_not_typed" {
+  command = apply
+  variables {
+    agent_services_enabled = true
+    images = {
+      core = {
+        gateway = "r/pulso-prod/llm-gateway@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        agent   = "r/pulso-prod/agent-core-serve@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        tools   = "r/pulso-prod/tool-service@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      }
+      platform = {
+        support_api = "r/support-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        support_web = "r/support-web@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        proxy       = "r/caddy@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+      engine = {
+        pulso = "r/pulso@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        proxy = "r/caddy@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    }
+  }
+
+  assert {
+    condition     = startswith(aws_ssm_parameter.platform_public["CC_PUBLIC_APP_URL"].value, "https://") && aws_ssm_parameter.platform_public["CC_CORS_ORIGINS"].value == jsonencode([aws_ssm_parameter.platform_public["CC_PUBLIC_APP_URL"].value])
+    error_message = "CC_PUBLIC_APP_URL is the CloudFront origin and CC_CORS_ORIGINS a JSON list of it; nobody types them."
+  }
+  assert {
+    condition     = length(module.data.ssm_prefix) > 0 && !contains(values({ for k, v in aws_ssm_parameter.platform_public : k => v.value }), "CHANGE_ME")
+    error_message = "No CHANGE_ME in the platform SSM values."
+  }
+}

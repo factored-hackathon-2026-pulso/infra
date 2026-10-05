@@ -660,6 +660,19 @@ function Invoke-Deploy($p, $id) {
 # set-secret: one key of the single Secrets Manager secret, typed at a secure prompt. The value never touches a
 # parameter, a file in the repository, the console or a log.
 # ---------------------------------------------------------------------------------------------------------------------
+# The ONLY keys a human types (external provider accounts). Everything else is generated or derived by Terraform (docs/secrets-wiring.md).
+$script:HumanSecretKeys = @('GATEWAY__OPENROUTER_API_KEY', 'GATEWAY__JEV_API_KEY', 'LANGFUSE__LANGFUSE_PUBLIC_KEY', 'LANGFUSE__LANGFUSE_SECRET_KEY')
+# One provider key, two consumers: the JEV key the human types once is also the one agent-core serve reads.
+$script:SecretFanOut = @{ 'GATEWAY__JEV_API_KEY' = @('AGENT__AGENTCORE_JEV_API_KEY') }
+# A derived DSN is only seeded together with the passwords it embeds (a kept password would not match a freshly generated DSN).
+$script:DerivedFrom = @{
+    'CORE__AGENTCORE_REGISTRY_DSN' = @('DB__DB_PASSWORD_CORE_APP'); 'CORE__AGENTCORE_EVAL_DSN' = @('DB__DB_PASSWORD_CORE_EVAL_APP')
+    'AGENT__AGENTCORE_REGISTRY_DSN' = @('DB__DB_PASSWORD_AGENT_APP'); 'AGENT__AGENTCORE_EVAL_DSN' = @('DB__DB_PASSWORD_AGENT_APP')
+    'AGENT__AGENTCORE_MIGRATE_DSN' = @('DB__DB_PASSWORD_AGENT_OWNER'); 'AGENT__AGENTCORE_MIGRATE_EVAL_DSN' = @('DB__DB_PASSWORD_AGENT_OWNER')
+    'SUPPORT__CC_DATABASE_URL' = @('DB__DB_PASSWORD_PLATFORM_APP'); 'SUPPORT__CC_MIGRATE_DATABASE_URL' = @('DB__DB_PASSWORD_PLATFORM_OWNER')
+    'PULSO__PULSO_PG_PRODUCT_DSN' = @('DB__DB_PASSWORD_PLATFORM_EXPORTER_RO'); 'PULSO__PULSO_DATABASE_URL' = @('DB__POSTGRES_PASSWORD')
+}
+
 function Read-SecretValue([string]$Prompt) {
     $secure = Read-Host -Prompt $Prompt -AsSecureString
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
@@ -674,6 +687,7 @@ function Invoke-SetSecret($p, $id) {
     $prof = $p.Profile
     $current = ((Invoke-Aws -AwsProfile $prof -CliArgs @('secretsmanager', 'get-secret-value', '--secret-id', $name, '--query', 'SecretString', '--output', 'text')) -join "`n") | ConvertFrom-Json
     $existed = [bool]$current.PSObject.Properties[$p.SecretKey]
+    if ($script:HumanSecretKeys -notcontains $p.SecretKey) { Write-Host "NOTE     : $($p.SecretKey) is generated or derived by Terraform, not a human key; setting it overrides the wiring (docs/human-secrets-only.md)." }
     Write-Host "Secret   : $name"
     Write-Host "Key      : $($p.SecretKey) ($(if ($existed) { 'existing key, will be replaced' } else { 'new key, will be added' }))"
     Write-Host 'The value is typed next, hidden, and is never printed or logged. All other keys are kept.'
@@ -684,6 +698,8 @@ function Invoke-SetSecret($p, $id) {
     $merged = [ordered]@{}
     foreach ($prop in $current.PSObject.Properties) { $merged[$prop.Name] = $prop.Value }
     $merged[$p.SecretKey] = $value
+    $also = @(); if ($script:SecretFanOut.ContainsKey($p.SecretKey)) { $also = @($script:SecretFanOut[$p.SecretKey]) }
+    foreach ($k in $also) { $merged[$k] = $value }
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ('pulso-secret-' + [guid]::NewGuid().ToString('N') + '.json')
     try {
         [IO.File]::WriteAllText($tmp, ($merged | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding($false)))
@@ -692,6 +708,7 @@ function Invoke-SetSecret($p, $id) {
         if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force }
         $value = $null; $merged = $null
     }
+    if ($also.Count) { Write-Host "Also set : $($also -join ', ') (same provider key)" }
     Write-Host "OK: $($p.SecretKey) set in $name. Hosts pick it up on the next pulso-stack restart or deploy."
 }
 
@@ -713,6 +730,11 @@ function Invoke-SeedSecretKeys($p, $id) {
         $cur = $current.PSObject.Properties[$prop.Name]
         if (-not $cur -or [string]$cur.Value -eq 'CHANGE_ME' -or [string]::IsNullOrEmpty([string]$cur.Value)) { $add += $prop.Name } else { $keep += $prop.Name }
     }
+    $skipped = @()
+    foreach ($k in @($add)) {
+        if ($script:DerivedFrom.ContainsKey($k) -and (@($script:DerivedFrom[$k] | Where-Object { $keep -contains $_ }).Count -gt 0)) { $skipped += $k; $add = @($add | Where-Object { $_ -ne $k }) }
+    }
+    if ($skipped.Count) { Write-Host "Skipped  : $($skipped -join ', ') (embeds a password that is already set and kept; the DSN would not match it)" }
     Write-Host "Secret   : $name"
     Write-Host "Will add : $(if ($add.Count) { $add -join ', ' } else { '(nothing)' })"
     Write-Host "Kept     : $(if ($keep.Count) { $keep -join ', ' } else { '(none)' }) (already hold a value; never overwritten)"
@@ -770,7 +792,28 @@ images = {
     Write-Host 'Stage "builder" creates the network, the database, the bucket and the CodeBuild projects, not the hosts. Next: apply, then images -Service ..., then plan (without -Stage) and apply.'
 }
 
+# Names and SET/UNSET only. A value of CHANGE_ME or an empty value is UNSET. Never a value, never a length.
+function Show-SecretStatus([string]$AwsProfile) {
+    $name = "$($script:EcrPrefix)/hackathon"
+    $json = (Invoke-Aws -AwsProfile $AwsProfile -CliArgs @('secretsmanager', 'get-secret-value', '--secret-id', $name, '--query', 'SecretString', '--output', 'text')) -join "`n"
+    $cur = $json | ConvertFrom-Json
+    $json = $null
+    $unset = @(); $set = 0
+    foreach ($prop in $cur.PSObject.Properties) {
+        $v = [string]$prop.Value
+        if ([string]::IsNullOrEmpty($v) -or $v -eq 'CHANGE_ME') { $unset += $prop.Name } else { $set++ }
+    }
+    $cur = $null
+    Write-Host "--- secret $name (names only) ---"
+    Write-Host "SET      : $set key(s)"
+    $human = @($unset | Where-Object { $script:HumanSecretKeys -contains $_ } | Sort-Object)
+    $other = @($unset | Where-Object { $script:HumanSecretKeys -notcontains $_ } | Sort-Object)
+    Write-Host "UNSET (human, set with set-secret): $(if ($human.Count) { $human -join ', ' } else { '(none)' })"
+    Write-Host "UNSET (should be wired; run seed-secret-keys): $(if ($other.Count) { $other -join ', ' } else { '(none)' })"
+}
+
 function Invoke-Status($id, [string]$AwsProfile) {
+    Show-SecretStatus $AwsProfile
     $rows = Invoke-Aws -AwsProfile $AwsProfile -CliArgs @('ec2', 'describe-instances', '--filters', 'Name=tag:Environment,Values=prod',
         '--query', 'Reservations[].Instances[].[InstanceId,State.Name,InstanceType,Tags[?Key==`Name`]|[0].Value]', '--output', 'text')
     $rows | ForEach-Object { Write-Host $_ }
