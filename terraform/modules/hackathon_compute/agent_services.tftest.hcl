@@ -115,7 +115,7 @@ run "hosts_without_tool_service_never_sync_the_publication" {
   }
 
   assert {
-    condition     = !strcontains(local.prepare_script, "lake/publish") && !strcontains(local.prepare_script, "core/artifacts") && local.allowed_ports == ["8000:8000"]
+    condition     = !strcontains(local.prepare_script, "lake/publish") && !strcontains(local.prepare_script, "core/artifacts") && local.allowed_ports == ["8000:8000", "8080:8080"]
     error_message = "Without the agent services nothing reads the restricted publication and only 8000 is published."
   }
 }

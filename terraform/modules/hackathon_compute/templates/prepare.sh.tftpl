@@ -26,7 +26,8 @@ chmod 644 "$IMG_TMP"
 mv "$IMG_TMP" /srv/stack/.env
 
 mkdir -p /srv/data/support /srv/data/pulso /srv/data/exporter /srv/data/keys
-chown 10001:10001 /srv/data/exporter
+# The engine image runs as uid 10001 and keeps its work and store dirs on this bind mount (a root-owned mount makes `pulso run` exit).
+chown 10001:10001 /srv/data/exporter /srv/data/pulso
 chmod 700 /srv/data/keys
 
 install -d -m 700 /run/pulso/env

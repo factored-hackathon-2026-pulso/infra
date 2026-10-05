@@ -18,3 +18,6 @@ backend.hcl
 
 # Nexus hook receipts must never be committed
 .nexus-outbox/
+
+# Local prod-like rehearsal output (scripts/prodlike): generated secrets live here
+.prodlike/

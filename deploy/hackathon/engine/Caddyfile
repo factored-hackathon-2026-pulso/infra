@@ -16,8 +16,8 @@
 		@internal path /internal /internal/* /pulso/internal /pulso/internal/*
 		respond @internal "not found" 404
 
+		# The engine serves under /pulso itself (PULSO_BASE_PATH, SSM engine/pulso): the prefix is kept, not stripped.
 		@pulso path /pulso/*
-		uri @pulso strip_prefix /pulso
 		reverse_proxy @pulso pulso:8080
 
 		respond "not found" 404

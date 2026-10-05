@@ -65,6 +65,9 @@ locals {
       "PULSO__PULSO_LLM_GATEWAY_KEY"      = random_password.gateway_token["ENGINE"].result
       # The engine's Ed25519 seed as the 64 hex characters the engine reads; its kid is the SSM value PULSO_SERVICE_KID.
       "PULSO__PULSO_SERVICE_SEED_HEX" = local.agent_seeds_hex["engine"]
+      # `pulso run` on a non-loopback bind exits 2 without two DIFFERENT bearer tokens of at least 24 characters.
+      "PULSO__PULSO_DEBUG_TOKEN" = random_password.engine_debug.result
+      "PULSO__PULSO_ADMIN_TOKEN" = random_password.engine_admin.result
     },
     var.agent_services_enabled ? {
       "AGENT__AGENTCORE_LLM_GATEWAY_TOKEN"  = random_password.gateway_token["AGENT_SERVE"].result
@@ -91,6 +94,17 @@ resource "random_password" "gateway_token" {
   for_each = toset(var.gateway_consumers)
   length   = 48
   special  = false
+}
+
+# Engine debug API and admin append bearer tokens (PULSO_DEBUG_TOKEN, PULSO_ADMIN_TOKEN): distinct, 48 characters.
+resource "random_password" "engine_debug" {
+  length  = 48
+  special = false
+}
+
+resource "random_password" "engine_admin" {
+  length  = 48
+  special = false
 }
 
 # Bearer of consumer `agent-core` in tool-service (TOOLS__TOOL_SERVICE_TOKENS) and in agent-core's AGENTCORE_TOOL_SERVICE_TOKEN.

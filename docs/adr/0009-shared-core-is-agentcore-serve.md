@@ -29,8 +29,8 @@ public contract (runs, registry API, export API). The Dockerfile and the build b
    configuration (they ride in each request profile). The sensitive output `generated_secrets` feeds `aws-prod.ps1 seed-secret-keys`,
    the merge-only reseed of an existing secret (adds missing or `CHANGE_ME` keys, keeps every other value, prints key names only).
 3. **Engine wiring.** SSM values `PULSO_CORE_ADDR` (core host private IP, port 8001 with the flag, else 8000) and `PULSO_LLM_GATEWAY_ADDR`
-   (private IP, 8080): the engine client rejects DNS names. Security groups: core 8080 from the engine (gateway, already published by the
-   core compose) and, with the flag, core 8001 from the engine, plus matching egress.
+   (private IP, 8080): the engine client rejects DNS names. Security groups: core 8080 from the engine (the gateway is published on 8080 by the
+   core compose since the run-and-health fix; it was not before, so the engine could not reach it) and, with the flag, core 8001 from the engine, plus matching egress.
 
 ## Trust implication (read before applying)
 

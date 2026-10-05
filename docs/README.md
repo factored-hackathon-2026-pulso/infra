@@ -14,6 +14,9 @@ Start with the quickstart; the rest is reference. These docs are checked against
 | [security-model.md](security-model.md) | understand who can do what, trade-offs, what is not protected |
 | [costs.md](costs.md) | estimate and control the monthly bill |
 | [decisions.md](decisions.md) | ADR index and the simplification decision |
+| [run-and-health.md](run-and-health.md) | see how each service runs on the hosts: image, command, env names, ports, probes, restart, start order, limits |
+| [runbooks/build-and-release.md](runbooks/build-and-release.md) | build with Podman, scan, push to ECR, pin digests, roll out and roll back when there is no CI |
+| [prodlike-rehearsal.md](prodlike-rehearsal.md) | rehearse the host stacks locally with Podman (`scripts/prodlike`) before any apply |
 
 Temporary Linux build host for agents (cargo and tests off the Windows PC): [buildbox.md](buildbox.md).
 

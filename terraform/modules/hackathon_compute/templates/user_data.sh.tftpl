@@ -53,9 +53,14 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/srv/stack
 ExecStartPre=/usr/local/bin/pulso-stack-prepare
-ExecStart=/usr/bin/docker compose -p pulso up -d --remove-orphans
+# --force-recreate: /run/pulso is tmpfs, so after a reboot the bind sources of the old containers (env files, key files) are gone;
+# the unit only runs at boot or by hand (deploys use deploy-stack.sh), so recreating here is cheap and always correct.
+ExecStart=/usr/bin/docker compose -p pulso up -d --remove-orphans --force-recreate
 ExecStop=/usr/bin/docker compose -p pulso down
 TimeoutStartSec=600
+# A transient S3, SSM, ECR or Secrets Manager error in pulso-stack-prepare must not leave the host up with nothing running.
+Restart=on-failure
+RestartSec=30
 TimeoutStopSec=120
 
 [Install]

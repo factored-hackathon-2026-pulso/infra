@@ -111,7 +111,7 @@ run "agent_services_are_off_by_default" {
     error_message = "Without agent_services_enabled the bundles are unchanged."
   }
   assert {
-    condition     = join(",", module.compute_core.published_ports) == "8000:8000,5432:5432" && join(",", module.compute_platform.published_ports) == "80:80"
+    condition     = join(",", module.compute_core.published_ports) == "8000:8000,8080:8080,5432:5432" && join(",", module.compute_platform.published_ports) == "80:80"
     error_message = "Without agent_services_enabled no new port is published."
   }
   assert {

@@ -71,7 +71,9 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $gitSha = (git -C $Context rev-parse HEAD).Trim()
 $localTag = "${ImageName}:build-$($gitSha.Substring(0, 12))"
 $buildArgs = @(); foreach ($bc in $BuildContext) { $buildArgs += @('--build-context', $bc) }
-& $Engine build -f $Dockerfile @buildArgs -t $localTag $Context
+# Every EC2 type of the environment is x86_64. Podman's default OCI format silently drops HEALTHCHECK, so build docker format.
+$formatArgs = @('--platform', 'linux/amd64'); if ($Engine -eq 'podman') { $formatArgs += @('--format', 'docker') }
+& $Engine build -f $Dockerfile @formatArgs @buildArgs -t $localTag $Context
 if ($LASTEXITCODE) { throw 'build failed' }
 $digest = Assert-Digest ((& $Engine image inspect --format '{{.Id}}' $localTag).Trim())
 $digestTag = "${ImageName}:" + $digest.Replace(':', '-').Substring(0, 19)

@@ -114,7 +114,7 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
   .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service llm-gateway -SourceDir D:\src\llm-gateway
   .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-core -Service llm-gateway -FromBuild <build id> -Wait
   ```
-- Never published: reachable only from agent-core on the host's docker network (`http://llm-gateway:8080`), `GET /healthz` on 8080. The compose health check is disabled (no tool in the image), so health is "container running" plus agent-core `/readyz`.
+- Published on 8080 for the engine host only (security group: engine); agent-core uses the docker network (`http://llm-gateway:8080`). `GET /healthz` on 8080. The compose health check is the image's own probe, `/llm-gateway -healthcheck` (liveness only); agent-core and core-runtime wait for it to be healthy.
 - Config and secrets: `GATEWAY__GATEWAY_TOKEN_AGENT_CORE`, `GATEWAY__GATEWAY_TOKEN_ENGINE`, `GATEWAY__GATEWAY_TOKEN_SUPPORT_PLATFORM`, `GATEWAY__OPENAI_API_KEY`, `GATEWAY__ANTHROPIC_API_KEY`, `GATEWAY__GOOGLE_API_KEY`, `GATEWAY__JEV_API_KEY`; SSM `GATEWAY_CONSUMERS`, `LLM_ENDPOINTS`.
 
 ### agent-core serve (`agent-core-serve`, agent services only)
@@ -158,7 +158,7 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
   .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-engine -Service pulso-engine -FromBuild <build id> -Wait
   ```
 - Runtime: command `run`, port 8080 behind the proxy at `/pulso/*`, state in `/var/lib/pulso` (host `/srv/data/pulso`), `stop_grace_period` 70 s (a deploy can take over a minute to stop the old container), reaches agent-core at `http://core.pulso.internal:8000`.
-- Config and secrets: `PULSO__PULSO_DATABASE_URL`, `PULSO__PULSO_ADMIN_TOKEN`; SSM `PULSO_DATA_MODE`, `PIPELINE_ROOT`.
+- Config and secrets: `PULSO__PULSO_DATABASE_URL`, `PULSO__PULSO_ADMIN_TOKEN`, `PULSO__PULSO_DEBUG_TOKEN`; SSM `PULSO_DATA_MODE`, `PIPELINE_ROOT`.
 - Health: `https://<cloudfront domain>/pulso/healthz`, `pulso healthcheck` inside the container.
 
 ### Caddy proxy (`caddy`, infra owner only)

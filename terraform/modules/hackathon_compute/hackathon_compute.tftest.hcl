@@ -71,8 +71,8 @@ run "bundle_rules_core" {
     error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core)."
   }
   assert {
-    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {})), "ports")
-    error_message = "The gateway is never published."
+    condition     = try(local.compose.services["llm-gateway"].ports, []) == ["8080:8080"]
+    error_message = "The gateway is published on 8080 only: the engine host calls it by the core private IP (security group: engine only)."
   }
   assert {
     condition     = alltrue([for n, s in local.compose.services : can(regex("^[0-9]+m$", s.mem_limit)) && contains(keys(s), "restart")])

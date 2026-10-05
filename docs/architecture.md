@@ -29,7 +29,7 @@ One AWS account, one environment (`prod`), three small EC2 hosts behind one Clou
 | CloudFront VPC origins | platform host | 80 | web UI and API; security group admits only the CloudFront origin-facing prefix list |
 | CloudFront VPC origins | engine host | 8080 | `/pulso/*` |
 | platform, engine | core host | 8000 | Agent Core API; security group `sg_core` admits those two only |
-| core host | llm-gateway (same host) | 8080 | internal compose network, never published |
+| core host | llm-gateway (same host) | 8080 | published on the core host for the engine host only (security group), plus the internal compose network |
 | core, platform, engine | RDS | 5432 | `sg_db` admits the three host groups only |
 | hosts | S3, ECR, SSM, Secrets Manager, KMS, CloudWatch | 443 | S3 via the gateway endpoint, the rest via the NAT |
 | hosts | LLM providers and package mirrors | 443 | via the NAT |

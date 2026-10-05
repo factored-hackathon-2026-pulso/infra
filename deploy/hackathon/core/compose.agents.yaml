@@ -65,10 +65,12 @@ services:
     depends_on:
       agent-core-migrate:
         condition: service_completed_successfully
+      # /healthz of both is liveness only: a tool-service without a publication still starts (it answers
+      # data_unavailable); agent-core's own /readyz reports the tool-service reachability.
       tool-service:
-        condition: service_started
+        condition: service_healthy
       llm-gateway:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8001/readyz', timeout=3)"]
       interval: 15s

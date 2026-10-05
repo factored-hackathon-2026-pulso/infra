@@ -26,6 +26,7 @@ locals {
     # Engine -> shared Core, named as the engine reads them (real_core.rs): kid here, seed hex in PULSO__PULSO_SERVICE_SEED_HEX.
     "engine/pulso/PULSO_SERVICE_KID"  = local.engine_kid
     "engine/pulso/PULSO_LLM_GATEWAY"  = "enabled"
+    "engine/pulso/PULSO_BASE_PATH"    = "/pulso"
     "core/core/AGENTCORE_BLOB_BUCKET" = "s3://${local.bucket_name}/core/blobs"
     "engine/pulso/PIPELINE_ROOT"      = "s3://${local.bucket_name}/lake"
   }
