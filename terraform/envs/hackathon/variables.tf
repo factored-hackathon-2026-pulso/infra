@@ -177,3 +177,19 @@ variable "db_volume_size_gb" {
   default     = 30
   description = "Postgres container data volume (free_plan, database_mode=container), snapshotted daily."
 }
+
+variable "agent_core_serve_pieces" {
+  description = "modulo:atributo of the three `agentcore serve` pieces that have no real implementation in agent-core yet: transcript, calibration, classifier (agent-core docs/specs/TEMAS-ABIERTOS-PENDIENTES.md). Written to the core host .env as AGENTCORE_PIECE_*; null leaves them empty and `agentcore serve` refuses to start (fail closed, the deploy rolls back). Demo doubles (testing.*) are not in the image and AGENTCORE_ALLOW_DEMO is never set."
+  type = object({
+    transcript  = string
+    calibration = string
+    classifier  = string
+  })
+  default = null
+}
+
+variable "agent_keys_suffix" {
+  description = "Suffix of the generated Ed25519 key ids (cc-principal-<s>, cc-grant-<s>, cc-staff-<s>, pulso-engine-<s>). Rotate by publishing a new suffix (docs/secrets-keys.md)."
+  type        = string
+  default     = "hk1"
+}

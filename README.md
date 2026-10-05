@@ -79,6 +79,8 @@ runtime URL, security groups and Cloud Map namespace are inputs that default to 
 
 ## Bridge and exporter services
 
+Hackathon stack: the shared Core is agent-core's own `agentcore serve` image built from agent-core's Dockerfile ([ADR 0009](docs/adr/0009-shared-core-is-agentcore-serve.md)); Terraform generates the gateway bearers and the Ed25519 keys of the platform and the engine (`agent_keys_suffix`, `agent_core_serve_pieces`).
+
 Module `bridge_services` (`core-runtime`, `core-exporter`, `platform-exporter`) is wired into `staging` and `prod`
 and plans zero resources by default. Switches in `bridge_services_variables.tf`: `bridge_services_enabled` (default
 `false`; it requires `engine_platform_enabled` and `private_endpoints_enabled`), `bridge_ecr_enabled` (default

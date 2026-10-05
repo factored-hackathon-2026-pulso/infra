@@ -23,7 +23,14 @@ services:
     environment:
       PULSO_STORAGE_BUCKET: ${BUCKET_NAME:?set}
       PULSO_STORAGE_PREFIX: ${PULSO_STORAGE_PREFIX:-engine/}
+      # Shared Core = agent-core's `agentcore serve` (ADR 0009): runs API, /v1/registry, /v1/export and /registry-events on
+      # :8000. The credentials are the secrets PULSO_CORE_SIGNING_SEED (Ed25519, builder principal) and SSM PULSO_CORE_KID /
+      # PULSO_CORE_PRINCIPAL_ID in pulso.env. The engine never approves, publishes or promotes.
       PULSO_CORE_URL: http://core.${PRIVATE_ZONE_NAME:?set}:8000
+      PULSO_CORE_ADDR: core.${PRIVATE_ZONE_NAME:?set}:8000
+      # llm-gateway on the core host (consumer `engine`); the bearer is PULSO_LLM_GATEWAY_TOKEN in pulso.env. Model ids ride in
+      # each request profile, the gateway only maps the openrouter alias.
+      PULSO_LLM_GATEWAY_ADDR: core.${PRIVATE_ZONE_NAME:?set}:8080
     volumes:
       - /srv/data/pulso:/var/lib/pulso
     # Assumes the engine image ships `pulso healthcheck` (probes /healthz).

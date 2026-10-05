@@ -22,8 +22,8 @@ locals {
   # /run/pulso/env/<service>.env for the services of its own host. DB_PASSWORD_* and RDS_MASTER_PASSWORD are for
   # docs/db-bootstrap.md and carry no prefix, so no host renders them into an env file.
   secret_keys = concat(
-    # agent-core (compose service env "core")
-    [for k in concat(["AGENTCORE_REGISTRY_DSN", "AGENTCORE_EVAL_DSN", "AGENTCORE_LLM_GATEWAY_TOKEN"], var.bridge_signer_names) : "CORE__${k}"],
+    # agent-core (compose service env "core"): out-of-band values; the generated ones are in generated.tf
+    [for k in concat(["AGENTCORE_REGISTRY_DSN", "AGENTCORE_EVAL_DSN", "AGENTCORE_JEV_API_KEY", "AGENTCORE_TOOL_SERVICE_TOKEN"], var.bridge_signer_names) : "CORE__${k}"],
     # llm-gateway (service env "gateway")
     [for k in concat([for c in var.gateway_consumers : "GATEWAY_TOKEN_${c}"], var.llm_provider_key_names, ["JEV_API_KEY"]) : "GATEWAY__${k}"],
     # support-platform (service env "support")
@@ -38,7 +38,8 @@ locals {
     local.db_password_keys,
   )
 
-  secret_placeholders = { for k in local.secret_keys : k => "CHANGE_ME" }
+  # Generated keys (generated.tf) replace the placeholder of the same name; the rest stay CHANGE_ME for out-of-band values.
+  secret_placeholders = { for k in local.secret_keys : k => "CHANGE_ME" if !contains(keys(local.generated_secrets), k) }
 }
 
 resource "aws_secretsmanager_secret" "this" {
@@ -52,6 +53,7 @@ resource "aws_secretsmanager_secret_version" "this" {
   secret_id = aws_secretsmanager_secret.this.id
   secret_string = jsonencode(merge(
     local.secret_placeholders,
+    local.generated_secrets,
     { RDS_MASTER_PASSWORD = random_password.db_master.result, COMMON__ORIGIN_VERIFY = random_password.origin_verify.result },
     var.database_mode == "container" ? { DB__POSTGRES_PASSWORD = random_password.db_master.result } : {},
   ))

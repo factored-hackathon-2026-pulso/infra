@@ -248,3 +248,29 @@ run "rds_mode_keeps_the_previous_design" {
     error_message = "Defaults (nat, rds) are the previous prod design."
   }
 }
+
+run "gateway_8080_only_from_engine" {
+  command = plan
+
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.gateway_from) == 1 && aws_vpc_security_group_ingress_rule.gateway_from["engine"].from_port == 8080 && aws_vpc_security_group_ingress_rule.gateway_from["engine"].to_port == 8080 && aws_vpc_security_group_ingress_rule.gateway_from["engine"].cidr_ipv4 == null
+    error_message = "The llm-gateway port is open on the core SG from the engine SG only."
+  }
+  assert {
+    condition     = length(aws_vpc_security_group_egress_rule.to_gateway) == 1 && aws_vpc_security_group_egress_rule.to_gateway["engine"].from_port == 8080
+    error_message = "The engine may egress 8080 to the core SG."
+  }
+}
+
+run "platform_internal_listener_only_from_core" {
+  command = plan
+
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.platform_internal_from_core.from_port == 8081 && aws_vpc_security_group_ingress_rule.platform_internal_from_core.to_port == 8081 && aws_vpc_security_group_ingress_rule.platform_internal_from_core.cidr_ipv4 == null && aws_vpc_security_group_ingress_rule.platform_internal_from_core.prefix_list_id == null
+    error_message = "The platform internal listener accepts 8081 from the core SG only."
+  }
+  assert {
+    condition     = aws_vpc_security_group_egress_rule.core_to_platform_internal.from_port == 8081
+    error_message = "The core host may egress 8081 to the platform SG."
+  }
+}

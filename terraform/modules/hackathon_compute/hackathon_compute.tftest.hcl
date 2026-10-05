@@ -71,8 +71,20 @@ run "bundle_rules_core" {
     error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core)."
   }
   assert {
-    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {})), "ports")
-    error_message = "The gateway is never published."
+    condition     = local.compose.services["llm-gateway"].ports == ["8080:8080"] && contains(local.allowed_ports, "8080:8080")
+    error_message = "The gateway is published on the core host only (engine SG), on 8080."
+  }
+  assert {
+    condition     = local.compose.services["core-runtime"].command[0] == "serve" && contains(local.compose.services["core-runtime"].command, "--registry-api") && contains(local.compose.services["core-runtime"].command, "--staff-keys") && contains(local.compose.services["core-runtime"].command, "--identity-keys")
+    error_message = "The shared Core is agentcore serve with the registry API and both key files."
+  }
+  assert {
+    condition     = !can(regex("ALLOW_DEMO|testing[.]|core-bridge|\"runtime\"|core-exporter", local.compose_text))
+    error_message = "No demo doubles and no composed core-bridge runtime (ADR 0009)."
+  }
+  assert {
+    condition     = !contains(keys(local.compose), "secrets") && strcontains(join(" ", local.compose.services["core-runtime"].entrypoint), "IDENTITY_KEYS_JSON") && strcontains(join(" ", local.compose.services["core-runtime"].entrypoint), "STAFF_KEYS_JSON")
+    error_message = "The Core writes its two public key documents from env to /tmp in its entrypoint; no host files."
   }
   assert {
     condition     = alltrue([for n, s in local.compose.services : can(regex("^[0-9]+m$", s.mem_limit)) && contains(keys(s), "restart")])
@@ -167,6 +179,65 @@ run "bundle_rules_engine" {
     error_message = "Private DNS record per workload."
   }
 }
+
+run "platform_reaches_the_core_and_serves_the_grant_check" {
+  command = apply
+  variables {
+    workload = "platform"
+  }
+
+  assert {
+    condition     = local.compose.services["support-platform-api"].environment["CC_AGENT_CORE_URL"] == "http://core.$${PRIVATE_ZONE_NAME:?set}:8000" && local.compose.services["support-platform-api"].environment["CC_AGENT_KEYS_FILE"] == "/tmp/agent-keys.json"
+    error_message = "The platform backend gets CC_AGENT_CORE_URL and CC_AGENT_KEYS_FILE together."
+  }
+  assert {
+    condition     = local.compose.services["internal-proxy"].ports == ["8081:8081"] && contains(local.allowed_ports, "8081:8081")
+    error_message = "Internal listener for the grant check on 8081."
+  }
+  assert {
+    condition     = strcontains(join(" ", local.compose.services["support-platform-api"].entrypoint), "AGENT_KEYS_JSON") && local.compose.services["support-platform-api"].command[0] == "uvicorn"
+    error_message = "The platform writes its private agent keys from env to /tmp in its entrypoint and keeps the image's uvicorn command."
+  }
+}
+
+run "engine_reaches_the_gateway_and_the_core" {
+  command = apply
+  variables {
+    workload = "engine"
+  }
+
+  assert {
+    condition     = local.compose.services["pulso"].environment["PULSO_LLM_GATEWAY_ADDR"] == "core.$${PRIVATE_ZONE_NAME:?set}:8080" && local.compose.services["pulso"].environment["PULSO_CORE_ADDR"] == "core.$${PRIVATE_ZONE_NAME:?set}:8000"
+    error_message = "The engine addresses the gateway (8080) and the Core (8000) by private DNS name."
+  }
+}
+
+run "extra_env_lands_in_the_host_dotenv" {
+  command = apply
+  variables {
+    workload = "core"
+    extra_env = {
+      AGENTCORE_PIECE_TRANSCRIPT = "pieces.mod:transcript"
+    }
+  }
+
+  assert {
+    condition     = can(regex("AGENTCORE_PIECE_TRANSCRIPT=pieces.mod:transcript", local.env_text))
+    error_message = "extra_env is written to the host .env for compose interpolation."
+  }
+}
+
+run "extra_env_rejects_bad_keys" {
+  command = plan
+  variables {
+    workload = "core"
+    extra_env = {
+      "bad key" = "x"
+    }
+  }
+  expect_failures = [var.extra_env]
+}
+
 
 run "defaults_are_hardened" {
   command = apply

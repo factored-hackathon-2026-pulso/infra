@@ -34,6 +34,14 @@ locals {
   origin_mode  = local.public_hosts ? "public" : "vpc"
   edge         = var.edge_enabled == null ? true : var.edge_enabled
 
+  # Core host bundle: the field-classification overlay mounted into agent-core, plus (container database mode) the Postgres
+  # compose override and the repository SQL run by the initdb script.
+  core_files = merge({
+    "field-overlay.json" = file("${path.module}/../../../deploy/hackathon/core/field-overlay.json")
+    },
+    local.core_db_files
+  )
+
   # Postgres container bundle on the core host: compose override and the repository SQL run by the initdb script.
   core_db_files = local.container_db ? {
     "compose.postgres.yaml"             = file("${path.module}/../../../deploy/hackathon/core/compose.postgres.yaml")
@@ -76,7 +84,9 @@ module "data" {
   vpc_id        = module.network.vpc_id
   database_mode = local.db_mode
   db_subnet_ids = module.network.db_subnet_ids
-  sg_db_id      = module.network.sg_db_id
+
+  agent_keys_suffix = var.agent_keys_suffix
+  sg_db_id          = module.network.sg_db_id
 
   # Deny-only bucket policy: the reads of landing/ are bound to the S3 gateway endpoint of this VPC.
   db_deletion_protection     = var.db_deletion_protection
@@ -134,7 +144,8 @@ module "compute_core" {
   db_volume_size_gb       = local.container_db ? var.db_volume_size_gb : 0
   extra_service_envs      = local.container_db ? ["db"] : []
   compose_files           = local.container_db ? ["compose.yaml", "compose.postgres.yaml"] : ["compose.yaml"]
-  extra_bundle_files      = local.core_db_files
+  extra_bundle_files      = local.core_files
+  extra_env               = { for k, v in coalesce(var.agent_core_serve_pieces, {}) : "AGENTCORE_PIECE_${upper(k)}" => v }
   tags                    = local.tags
 }
 
@@ -159,7 +170,10 @@ module "compute_platform" {
   kms_key_arn             = module.data.kms_key_arn
   ecr_registry_url        = local.ecr_registry_url
   images                  = var.images.platform
-  tags                    = local.tags
+  extra_bundle_files = {
+    "Caddyfile.internal" = file("${path.module}/../../../deploy/hackathon/platform/Caddyfile.internal")
+  }
+  tags = local.tags
 }
 
 module "compute_engine" {
@@ -208,10 +222,11 @@ module "edge" {
 # Cloud image builds and the deploy mechanism. Digests are changed by deployments (SSM), never by an apply;
 # the deployer policies below are for the IAM users or roles the human creates for the service teams.
 locals {
-  # One build project per repository created by terraform/bootstrap. core-runtime is built from the improvement-engine
-  # repo (core-bridge/) with the pinned agent-core checkout as the named build context "core".
+  # One build project per repository created by terraform/bootstrap. core-runtime is agent-core's OWN image (ADR 0009, ADR 0003):
+  # the source zip is the agent-core checkout at the pinned commit and its Dockerfile (`agentcore serve`) is used as is. The
+  # repository keeps its historical name core-runtime so bootstrap and the image keys do not change.
   build_services = {
-    "core-runtime"         = { repository = "${var.ecr_repository_prefix}/core-runtime", dockerfile = "core-bridge/Dockerfile", context_dir = "core-bridge", core_context_dir = "agent-core" }
+    "core-runtime"         = { repository = "${var.ecr_repository_prefix}/core-runtime" }
     "llm-gateway"          = { repository = "${var.ecr_repository_prefix}/llm-gateway" }
     "support-platform-api" = { repository = "${var.ecr_repository_prefix}/support-platform-api", dockerfile = "backend/Dockerfile", context_dir = "backend" }
     "support-platform-web" = { repository = "${var.ecr_repository_prefix}/support-platform-web", dockerfile = "frontend/Dockerfile", context_dir = "frontend" }

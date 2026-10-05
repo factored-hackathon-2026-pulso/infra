@@ -213,6 +213,30 @@ run "image_builder_is_wired_for_every_service_and_on_by_default" {
   }
 }
 
+run "core_is_agent_cores_own_image_and_bundle" {
+  command = apply
+  variables {
+    agent_core_serve_pieces = {
+      transcript  = "pieces.real:transcript"
+      calibration = "pieces.real:calibration"
+      classifier  = "pieces.real:classifier"
+    }
+  }
+
+  assert {
+    condition     = local.build_services["core-runtime"] == { repository = "pulso-prod/core-runtime" }
+    error_message = "core-runtime is built from agent-core's own Dockerfile at its root (no core-bridge, no named build context); the repository keeps its name."
+  }
+  assert {
+    condition     = contains(keys(local.core_files), "field-overlay.json") && contains(keys(local.core_files), "compose.postgres.yaml")
+    error_message = "The core bundle ships the field-classification overlay next to the Postgres override."
+  }
+  assert {
+    condition     = output.engine_core_kid == "pulso-engine-hk1" && length(output.engine_core_public_key) == 43
+    error_message = "The engine key id and a 32-byte base64url public key are exposed (public information)."
+  }
+}
+
 run "image_builder_can_be_switched_off" {
   command = apply
   variables {

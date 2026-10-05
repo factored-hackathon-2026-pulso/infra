@@ -104,3 +104,13 @@ output "profile_effective" {
     image_builder_compute_type = local.compute_type
   }
 }
+
+output "engine_core_kid" {
+  description = "kid of the engine's Ed25519 key in the shared Core's identity-keys and staff-keys files (public)."
+  value       = module.data.engine_core_kid
+}
+
+output "engine_core_public_key" {
+  description = "Public half of that key (base64url). Public information; the seed is the secret PULSO__PULSO_CORE_SIGNING_SEED."
+  value       = module.data.engine_core_public_key
+}

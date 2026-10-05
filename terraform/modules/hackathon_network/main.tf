@@ -308,6 +308,47 @@ resource "aws_vpc_security_group_egress_rule" "to_core" {
   to_port                      = 8000
 }
 
+# llm-gateway (core host :8080): the engine host calls it with its own bearer token (consumer ENGINE). The platform is a
+# gateway consumer too (SUPPORT_PLATFORM) but has no gateway path in this change; open it by adding "platform" below.
+resource "aws_vpc_security_group_ingress_rule" "gateway_from" {
+  for_each                     = toset(["engine"])
+  security_group_id            = aws_security_group.core.id
+  description                  = "llm-gateway on the core host, from ${each.key}"
+  referenced_security_group_id = local.sg_ids[each.key]
+  ip_protocol                  = "tcp"
+  from_port                    = 8080
+  to_port                      = 8080
+}
+
+resource "aws_vpc_security_group_egress_rule" "to_gateway" {
+  for_each                     = toset(["engine"])
+  security_group_id            = local.sg_ids[each.key]
+  description                  = "llm-gateway on the core host"
+  referenced_security_group_id = aws_security_group.core.id
+  ip_protocol                  = "tcp"
+  from_port                    = 8080
+  to_port                      = 8080
+}
+
+# Platform internal listener (:8081, only /api/v1/internal/grants/*): agent-core's grant_active check from the core host.
+resource "aws_vpc_security_group_ingress_rule" "platform_internal_from_core" {
+  security_group_id            = aws_security_group.platform.id
+  description                  = "Grant check (internal listener) from the core host"
+  referenced_security_group_id = aws_security_group.core.id
+  ip_protocol                  = "tcp"
+  from_port                    = 8081
+  to_port                      = 8081
+}
+
+resource "aws_vpc_security_group_egress_rule" "core_to_platform_internal" {
+  security_group_id            = aws_security_group.core.id
+  description                  = "Grant check on the platform internal listener"
+  referenced_security_group_id = aws_security_group.platform.id
+  ip_protocol                  = "tcp"
+  from_port                    = 8081
+  to_port                      = 8081
+}
+
 resource "aws_vpc_security_group_egress_rule" "dns" {
   for_each          = { for p in setproduct(local.workloads, ["tcp", "udp"]) : "${p[0]}-${p[1]}" => { sg = p[0], proto = p[1] } }
   security_group_id = local.sg_ids[each.value.sg]

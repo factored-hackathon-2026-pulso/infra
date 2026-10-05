@@ -28,7 +28,7 @@ locals {
   }
   has_db_volume      = var.db_volume_size_gb > 0
   instance_memory_mb = lookup(local.memory_by_type, var.instance_type, 2048)
-  allowed_ports      = { core = concat(["8000:8000"], var.db_volume_size_gb > 0 ? ["5432:5432"] : []), platform = ["80:80"], engine = ["8080:8080"] }[var.workload]
+  allowed_ports      = { core = concat(["8000:8000", "8080:8080"], var.db_volume_size_gb > 0 ? ["5432:5432"] : []), platform = ["80:80", "8081:8081"], engine = ["8080:8080"] }[var.workload]
   bundle_key_prefix  = "${var.bundle_prefix}${var.workload}/"
 
   service_env_names = concat({
@@ -71,6 +71,7 @@ locals {
     "PRIVATE_ZONE_NAME=${trimsuffix(data.aws_route53_zone.private.name, ".")}",
     ],
     length(var.compose_files) > 1 ? ["COMPOSE_FILE=${join(":", var.compose_files)}"] : [],
+    [for k in sort(keys(var.extra_env)) : "${k}=${var.extra_env[k]}"],
     [""],
   ))
 

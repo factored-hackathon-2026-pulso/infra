@@ -149,3 +149,14 @@ variable "extra_bundle_files" {
   default     = {}
   description = "Additional non-secret files published into the bundle (path relative to the bundle root -> content), for example the Postgres compose override and initdb scripts."
 }
+
+variable "extra_env" {
+  description = "Extra KEY=VALUE lines for the host .env (compose interpolation). Non-secret only: the .env is an S3 object. Used for the agent-core serve pieces (AGENTCORE_PIECE_*)."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition     = alltrue([for k, v in var.extra_env : can(regex("^[A-Z][A-Z0-9_]*$", k)) && !strcontains(v, "\n")])
+    error_message = "extra_env keys must be UPPER_SNAKE and values single-line."
+  }
+}

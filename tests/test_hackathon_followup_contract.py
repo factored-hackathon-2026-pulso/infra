@@ -25,19 +25,20 @@ class StateKeyTest(unittest.TestCase):
 class BuildContextTest(unittest.TestCase):
     def test_codebuild_projects_use_the_staged_contexts(self):
         for line in (
-            'dockerfile = "core-bridge/Dockerfile", context_dir = "core-bridge", core_context_dir = "agent-core"',
+            '"core-runtime"         = { repository = "${var.ecr_repository_prefix}/core-runtime" }',
             'dockerfile = "backend/Dockerfile", context_dir = "backend"',
             'dockerfile = "frontend/Dockerfile", context_dir = "frontend"',
         ):
             self.assertIn(line, ENV_MAIN)
 
-    def test_docs_describe_backend_frontend_and_core_bridge(self):
+    def test_docs_describe_backend_frontend_and_agent_core_image(self):
         text = read("docs", "service-deployment.md")
         self.assertIn("backend/Dockerfile", text)
         self.assertIn("frontend/Dockerfile", text)
         self.assertIn("-ViteApiUrl", text)
-        self.assertIn("context `core-bridge/`", text)
-        self.assertIn("contracts", text)
+        self.assertNotIn("core-bridge/Dockerfile", text)
+        self.assertIn("agent-core's OWN image", text)
+        self.assertIn("-AgentCoreCommit", text)
 
 
 class SecretsTest(unittest.TestCase):

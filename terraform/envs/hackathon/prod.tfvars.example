@@ -27,7 +27,12 @@ images = {
 # profile       = "free_plan"   # or "prod"
 # database_mode = "container"   # container | rds (null = derived from the profile)
 # edge_enabled  = true          # false: come up without CloudFront (staged apply)
-# images.core may carry an optional digest-pinned ECR mirror: postgres = "<registry>/pulso-prod/postgres@sha256:..."
+# images.core.core is built from agent-core's own Dockerfile at a pinned commit (aws-prod.ps1 images -Service agent-core -AgentCoreDir ... -AgentCoreCommit ...). images.core may carry an optional digest-pinned ECR mirror: postgres = "<registry>/pulso-prod/postgres@sha256:..."
+
+# The shared Core is agent-core's own `agentcore serve` (ADR 0009). Three of its pieces have no real implementation in agent-core
+# yet; give their modulo:atributo here when agent-core ships them (null = the Core refuses to start, fail closed; no demo doubles).
+# agent_core_serve_pieces = { transcript = "<module>:<attr>", calibration = "<module>:<attr>", classifier = "<module>:<attr>" }
+# agent_keys_suffix       = "hk1"   # goes in the generated key ids; a new value publishes new keys next to the old (docs/secrets-keys.md)
 
 # Optional levers (defaults shown).
 # enable_waf           = false   # about 8 USD per month; default false in free_plan, true in prod
