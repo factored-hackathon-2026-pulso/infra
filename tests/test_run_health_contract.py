@@ -173,3 +173,64 @@ class ObservabilityForwarder(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AutoHeal(unittest.TestCase):
+    UNIT = (COMPUTE / "templates" / "user_data.sh.tftpl").read_text(encoding="utf-8")
+
+    def test_timer_restarts_unhealthy_pulso_and_agent_core_and_never_prints_env(self):
+        self.assertIn("/usr/local/bin/pulso-autoheal", self.UNIT)
+        self.assertRegex(self.UNIT, r"(?m)^OnUnitActiveSec=60s?$")
+        self.assertRegex(self.UNIT, r"AUTOHEAL_SERVICES:-pulso agent-core")
+        self.assertIn("health=unhealthy", self.UNIT)
+        self.assertIn("docker restart", self.UNIT)
+        self.assertNotIn("docker inspect \"$id\" --format '{{.Config.Env", self.UNIT)
+        self.assertIn("systemctl enable --now pulso-autoheal.timer", self.UNIT)
+
+    def test_restart_storms_are_bounded(self):
+        self.assertIn("AUTOHEAL_MAX_PER_HOUR", self.UNIT)
+
+
+class DbBootstrapJob(unittest.TestCase):
+    PG = load(BUNDLE / "core" / "compose.postgres.yaml")
+    SCRIPT = BUNDLE / "core" / "bootstrap" / "pulso-db-bootstrap.sh"
+
+    def test_job_is_a_one_shot_as_the_master_after_a_healthy_postgres(self):
+        job = self.PG["pulso-db-bootstrap"]
+        self.assertEqual(job["restart"], "no")
+        self.assertEqual(job["env_file"], ["/run/pulso/env/db.env"])
+        self.assertEqual(job["depends_on"]["postgres"]["condition"], "service_healthy")
+        self.assertEqual(job["image"], "${POSTGRES_IMAGE:-postgres:16.4}")
+        self.assertIn("./initdb/sql:/sql:ro", job["volumes"])
+
+    def test_script_is_idempotent_quiet_and_waits_for_the_engine_roles(self):
+        text = self.SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("30_pulso_logins.sql", text)
+        self.assertIn("pulso_app", text)
+        self.assertNotRegex(text, r"(?m)^\s*(set -x|echo .*PASSWORD)")
+        self.assertIn(">/dev/null", text)
+        self.assertRegex(text, r"exit 0")
+
+    def test_script_ships_in_the_core_bundle_and_data_mode_has_a_real_value(self):
+        env_main = (TF / "envs" / "hackathon" / "main.tf").read_text(encoding="utf-8")
+        self.assertIn("bootstrap/pulso-db-bootstrap.sh", env_main)
+        ssm = (DATA / "ssm.tf").read_text(encoding="utf-8")
+        self.assertRegex(ssm, r'"engine/pulso/PULSO_DATA_MODE"\s*=\s*"dataset"')
+        self.assertNotRegex(ssm, r'"engine/pulso/PULSO_DATA_MODE"\s*=\s*"CHANGE_ME"')
+
+
+class LoopJobSlot(unittest.TestCase):
+    LOOP = BUNDLE / "engine" / "compose.loop.yaml"
+
+    def test_loop_job_is_opt_in_unwired_and_names_its_env_contract(self):
+        svc = load(self.LOOP)["pulso-loop"]
+        self.assertEqual(svc["image"], "${PULSO_IMAGE:?set}")
+        self.assertEqual(svc["restart"], "no")
+        env = svc["environment"]
+        self.assertEqual(env["PULSO_MODEL_PORT"], "gateway")
+        self.assertEqual(env["PULSO_CORE_PORT"], "live")
+        self.assertEqual(env["STEPS_RUNNER_EXE"], "/usr/local/bin/steps_cli")
+        text = self.LOOP.read_text(encoding="utf-8")
+        self.assertIn("SLOT", text)
+        self.assertIn("PULSO_SERVICE_SEED_HEX", text)
+        self.assertNotIn("compose.loop.yaml", (TF / "envs" / "hackathon" / "main.tf").read_text(encoding="utf-8"))

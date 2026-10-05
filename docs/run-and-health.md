@@ -19,7 +19,7 @@ Variable NAMES only. Values come from Terraform-generated keys in the single Sec
 | Secrets | rendered to `/run/pulso/env/<service>.env` (tmpfs, 0600) and `/run/pulso/files/<service>/` (0400, uid 10001). Never in `.env`, never in compose. |
 | User | every app container runs as uid 10001 (`user:` in compose or `USER` in the image). Bind-mounted data dirs must therefore be owned by 10001: `pulso-stack-prepare` does that for `/srv/data/pulso`, `/srv/data/exporter`, `/srv/data/tools`, `/srv/data/agent`. |
 | Logs | stdout and stderr, JSON where the service supports it, `json-file` 10 MB x 3 per container, shipped to CloudWatch Logs when the agent is enabled. |
-| Restart | `restart: unless-stopped` for long-running services, `"no"` for one-shot migrations. **Docker does not restart an unhealthy container**; only `deploy-stack.sh` looks at health, during a deploy (section 5). |
+| Restart | `restart: unless-stopped` for long-running services, `"no"` for one-shot migrations. **Docker does not restart an unhealthy container**: `pulso-autoheal.timer` does for pulso and agent-core (section 6.1) and `deploy-stack.sh` looks at health during a deploy (section 5). |
 | Health rule of a deploy | every container healthy or exited 0, twice in a row, within 300 s; otherwise the previous digests are restored. |
 
 ## 2. Per service
@@ -56,11 +56,11 @@ Variable NAMES only. Values come from Terraform-generated keys in the single Sec
 | Image | root `Dockerfile`: node 22 (console), `rust:1-bookworm` (build, `--locked`, `CARGO_BUILD_JOBS=1`), `debian:bookworm-slim` runtime, uid 10001, 98.1 MB measured earlier on Podman, `HEALTHCHECK` present (only kept by `--format docker` builds). Bases are tag-pinned, two of them floating. |
 | Command | `ENTRYPOINT ["/usr/local/bin/pulso"]`, `CMD ["run"]`. |
 | Environment (secrets) | `PULSO_DATABASE_URL`, `PULSO_ADMIN_TOKEN`, `PULSO_DEBUG_TOKEN` (the last two generated, at least 24 characters, different: without them the process exits 2), `PULSO_LLM_GATEWAY_KEY`, `PULSO_SERVICE_SEED_HEX`. |
-| Environment (SSM) | `PULSO_DATA_MODE` (**placeholder, an operator must set `dataset` or `platform`**), `PULSO_SERVICE_KID`, `PULSO_LLM_GATEWAY=enabled`, `PULSO_BASE_PATH=/pulso`, `PULSO_CORE_ADDR`, `PULSO_LLM_GATEWAY_ADDR` (IP literals: the client refuses DNS names for plaintext), `PIPELINE_ROOT`. From compose: `PULSO_STORAGE_BUCKET`, `PULSO_STORAGE_PREFIX`, `PULSO_CORE_URL`. Baked in the image: `PULSO_LISTEN_ADDR=0.0.0.0:8080`, `PULSO_ALLOW_NON_LOOPBACK=1`, `PULSO_CONSOLE_DIR`, `PULSO_WORK_DIR`, `PULSO_STORE_DIR`. |
+| Environment (SSM) | `PULSO_DATA_MODE` (`dataset`), `PULSO_SERVICE_KID`, `PULSO_LLM_GATEWAY=enabled`, `PULSO_BASE_PATH=/pulso`, `PULSO_CORE_ADDR`, `PULSO_LLM_GATEWAY_ADDR` (IP literals: the client refuses DNS names for plaintext), `PIPELINE_ROOT`. From compose: `PULSO_STORAGE_BUCKET`, `PULSO_STORAGE_PREFIX`, `PULSO_CORE_URL`. Baked in the image: `PULSO_LISTEN_ADDR=0.0.0.0:8080`, `PULSO_ALLOW_NON_LOOPBACK=1`, `PULSO_CONSOLE_DIR`, `PULSO_WORK_DIR`, `PULSO_STORE_DIR`. |
 | Port, volume | 8080 behind the Caddy proxy (CloudFront reaches only the proxy, which keeps the `/pulso` prefix and hides `/internal`); `/srv/data/pulso` -> `/var/lib/pulso`. |
 | Probe | `["CMD", "pulso", "healthcheck"]` = GET `/pulso/readyz` on loopback; 15 s / 5 s / 5 retries / **60 s start period**. `/healthz` is process-up, `/readyz` is 200 only when migrations are applied, the database answers and every task is alive (503 reasons: `migrations_pending`, `migrations_failed`, `db_unreachable`, `task_starting`, `task_dead`, `shutting_down`). The proxy waits for it (`service_healthy`). |
 | Restart | `unless-stopped`; exit codes 0 clean, 1 task died or startup failure, 2 refused configuration (a crash loop with a named reason in the log), 3 cut at the shutdown deadline. Compose does not restart a dead task that keeps the process alive and not ready. `stop_grace_period` 70 s over `PULSO_SHUTDOWN_GRACE_SECS` 25. |
-| Order | Postgres is on the core host: no compose dependency across hosts. `pulso` binds first, retries the migrations every 2 s while the database is unreachable and reports `db_unreachable`. **First boot needs the human database steps** (`docs/db-bootstrap.md`: the engine migrations as master, then `30_pulso_logins.sql`), otherwise the application role cannot log in and the deploy rolls back. |
+| Order | Postgres is on the core host: no compose dependency across hosts. `pulso` binds first, retries the migrations every 2 s while the database is unreachable and reports `db_unreachable`. **First boot**: the DSN is the master role until `pulso-db-bootstrap` has enabled the `pulso_app` login (section 6.2), then the secret is switched to `pulso_app`. |
 | Limits | 512 MB on a 2 GiB host. |
 | Not in the image | `steps_cli`, the Python scorers and the demo-loop scripts. `pulso run` is the monitor and worker over platform or dataset sources; the value loop of the demos is driven from the engine repo (see `docs/prodlike-rehearsal.md`). |
 
@@ -107,10 +107,27 @@ render, pull (running containers untouched), `up -d`, wait healthy twice, otherw
 `DEPLOY_RESULT=rolled_back`. `-Rollback` re-deploys the previous digest from the parameter history. Details:
 [the build and release runbook](runbooks/build-and-release.md).
 
-## 6. Open decisions (not in code)
+## 6. Decisions taken and what remains
 
-1. Wire the OTLP forwarder (secret keys `LANGFUSE__*`, service env `langfuse`, `FORWARDER_IMAGE`, the compose fragment).
-2. Restart unhealthy containers automatically (an autoheal sidecar or a systemd timer): today a hung but running container stays.
-3. Which process runs the improvement loop on the engine host: `pulso run` (monitor and worker) or a driver with `steps_cli`.
-4. First-boot database bootstrap order for the engine role: keep it manual or run the engine migrations from a one-shot job.
-5. Pin the compose plugin by checksum in `user_data` and mirror `postgres` by digest into ECR.
+1. **Auto-restart (done).** `pulso-autoheal.timer` (every 60 s, from 5 min after boot, `user_data`) restarts containers of the `pulso`
+   project whose health is `unhealthy`, for `AUTOHEAL_SERVICES` (default `pulso agent-core`), at most `AUTOHEAL_MAX_PER_HOUR` (6) per
+   service, so a crash loop is left to the deploy rollback. For other services (`tool-service`, `llm-gateway`, `support-platform-api`)
+   add them to `AUTOHEAL_SERVICES` in the service Environment; they all have probes. Never restarts one-shot jobs.
+2. **Engine database bootstrap (done, one manual switch).** `pulso-db-bootstrap` (core compose, one-shot, Postgres master, quiet,
+   idempotent) enables the `pulso_*` logins with `30_pulso_logins.sql` once the engine's migrations created the roles, and exits 0
+   with a message otherwise. Order: first start with `PULSO__PULSO_DATABASE_URL` as the master role, so the engine migrates; a core
+   deploy (or boot) runs the job; when it logs `logins enabled`, switch the secret to `pulso_app` and redeploy the engine.
+   `PULSO_DATA_MODE` is now `dataset` (SSM, derived).
+3. **Improvement loop on the engine host (partly done).** The engine image gains `steps_cli` (engine repo PR 112). The job is
+   `deploy/hackathon/engine/compose.loop.yaml`, opt-in and unwired, env `PULSO_MODEL_PORT=gateway`, `PULSO_CORE_PORT=live`,
+   `STEPS_RUNNER_EXE`. **Slots (engine code):** the loop-driver subcommand, and minting Ed25519 Core credentials from
+   `PULSO_SERVICE_SEED_HEX` plus `PULSO_SERVICE_KID` for agent-core `serve` (the live port is still bridge-based).
+4. **OTLP forwarder wiring:** deferred until the base cycle works (recipe and fragment exist).
+5. **Host replacement on apply:** accepted (`user_data` changes).
+6. **Supply chain, to do at deploy time (nothing downloaded here):**
+   * compose plugin: from a trusted machine fetch the release asset `docker-compose-linux-x86_64` and its `.sha256` for the pinned
+     `compose_version` (`v2.29.7`), compare, then put the checksum in `user_data` (`echo "<sha256>  file" | sha256sum -c`) before
+     `chmod`; commit the change with the version.
+   * postgres: `podman pull postgres:16.4`, tag `<registry>/prod/postgres:16.4`, push, read the registry digest, store
+     `<registry>/prod/postgres@sha256:<digest>` in SSM `/pulso/core/images/postgres` (the start script renders `POSTGRES_IMAGE`; the
+     compose files already prefer it over the Docker Hub tag).

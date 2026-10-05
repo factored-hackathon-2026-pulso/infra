@@ -326,6 +326,7 @@ def render_all(prefix: str, work: Path = WORK, external_file: Path | None = None
             init = hdir / "initdb"
             (init / "sql").mkdir(parents=True, exist_ok=True)
             shutil.copyfile(bundle / "core" / "initdb" / "10_init.sh", init / "10_init.sh")
+            shutil.copytree(bundle / "core" / "bootstrap", hdir / "bootstrap", dirs_exist_ok=True)
             for sql in sorted(SQL_DIR.glob("*.sql")):
                 shutil.copyfile(sql, init / "sql" / sql.name)
         report["hosts"][host] = sorted(doc["services"])

@@ -47,6 +47,29 @@ services:
         max-file: "3"
     networks: [internal]
 
+  # One-shot, idempotent, as the Postgres master: enables the pulso_* logins (sql/30_pulso_logins.sql) once the engine's first start
+  # has created those roles (its migrations). Waits up to BOOTSTRAP_WAIT_SECS, then exits 0 with a message: rerun by a core deploy.
+  pulso-db-bootstrap:
+    image: ${POSTGRES_IMAGE:-postgres:16.4}
+    entrypoint: ["sh", "/bootstrap/pulso-db-bootstrap.sh"]
+    restart: "no"
+    mem_limit: 128m
+    env_file: [/run/pulso/env/db.env]
+    environment:
+      PGHOST: postgres
+    volumes:
+      - ./bootstrap:/bootstrap:ro
+      - ./initdb/sql:/sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [internal]
+
   core-migrate:
     depends_on:
       postgres:
