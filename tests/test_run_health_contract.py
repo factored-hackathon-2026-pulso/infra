@@ -42,8 +42,8 @@ class GatewayReachability(unittest.TestCase):
     def test_gateway_is_published_for_the_engine_host(self):
         # The network module opens core:8080 from the engine security group; the engine calls <core private IP>:8080.
         self.assertIn("8080:8080", CORE["llm-gateway"].get("ports", []))
-        main = (COMPUTE / "main.tf").read_text(encoding="utf-8")
-        self.assertRegex(main, r'core\s*=\s*concat\(\["8000:8000", "8080:8080"\]')
+        env_main = (TF / "envs" / "hackathon" / "main.tf").read_text(encoding="utf-8")
+        self.assertIn('extra_ports             = concat(["8080:8080"]', env_main)
 
     def test_gateway_uses_the_probe_its_distroless_image_ships(self):
         hc = CORE["llm-gateway"]["healthcheck"]

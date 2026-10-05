@@ -45,7 +45,11 @@ images = {
 # instance_types       = { core = "m7i-flex.large", platform = "t3.small", engine = "t3.small" }   # free_plan; prod: t3.small x3
 # data_volume_size_gb  = { core = 20, platform = 20, engine = 40 }
 # protect_data_volume  = true
-# engine_host_can_load = true    # the engine host runs the data loader (landing/ -> lake/)
+# Privacy: the engine reads aggregates only (docs/shared-postgres.md, report INFRA_DATA_CONNECTIVITY). With the default (true) the engine host
+# role can read landing/ and lake/bronze/ (PII in the clear) and the restricted zone. Build the gold tables where the raw data is and upload
+# only publications (lake/publish/<run>/..., engine/inputs/...): set false and leave the loader to a human or a dedicated role.
+engine_host_can_load = false
+# platform_database_enabled = true   # platform + tool-service databases on the shared Postgres, engine -> platform path (needs agent_services_enabled)
 # uploader_principal_arns    = []   # empty = the account's IAM users and root may upload to landing/
 # break_glass_principal_arns = []
 # loader_role_arns           = []   # extra loader roles; the engine host role is added automatically

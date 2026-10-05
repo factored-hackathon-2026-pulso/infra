@@ -111,7 +111,7 @@ run "agent_services_are_off_by_default" {
     error_message = "Without agent_services_enabled the bundles are unchanged."
   }
   assert {
-    condition     = join(",", module.compute_core.published_ports) == "8000:8000,8080:8080,5432:5432" && join(",", module.compute_platform.published_ports) == "80:80"
+    condition     = join(",", module.compute_core.published_ports) == "8000:8000,5432:5432,8080:8080" && join(",", module.compute_platform.published_ports) == "80:80"
     error_message = "Without agent_services_enabled no new port is published."
   }
   assert {
@@ -229,4 +229,60 @@ run "agent_services_need_both_image_digests" {
     agent_services_enabled = true
   }
   expect_failures = [var.images]
+}
+
+run "platform_database_needs_agent_services" {
+  command = plan
+  variables {
+    platform_database_enabled = true
+  }
+  expect_failures = [var.platform_database_enabled]
+}
+
+run "platform_database_publishes_sql_and_engine_wiring" {
+  command = apply
+  variables {
+    agent_services_enabled    = true
+    platform_database_enabled = true
+    images = {
+      core = {
+        core    = "r/pulso-prod/core-runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        gateway = "r/pulso-prod/llm-gateway@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        agent   = "r/pulso-prod/agent-core-serve@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        tools   = "r/pulso-prod/tool-service@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      }
+      platform = {
+        support_api = "r/support-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        support_web = "r/support-web@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        proxy       = "r/caddy@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+      engine = {
+        pulso = "r/pulso@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        proxy = "r/caddy@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    }
+  }
+
+  assert {
+    condition     = contains(module.compute_core.extra_bundle_keys, "initdb/sql/25_platform_databases.sql") && contains(module.compute_core.extra_bundle_keys, "initdb/sql/26_platform_exporter_grants.sql")
+    error_message = "The platform database SQL and the exporter grants ship with the core bundle."
+  }
+  assert {
+    condition = alltrue([for k in ["PULSO_PLATFORM_URL", "PULSO_REGISTRY_ADDR", "PULSO_ANNOUNCE_TO_PLATFORM", "PULSO_SOURCE_ADAPTER", "PULSO_SOURCE_SCHEMA"] :
+    contains(keys(aws_ssm_parameter.engine_platform), k)])
+    error_message = "The engine learns the platform URL, the serve registry address and the platform event-log adapter from SSM."
+  }
+  assert {
+    condition     = aws_ssm_parameter.engine_platform["PULSO_SOURCE_ADAPTER"].value == "product-postgres" && endswith(aws_ssm_parameter.engine_platform["PULSO_PLATFORM_URL"].name, "/engine/pulso/PULSO_PLATFORM_URL")
+    error_message = "Engine reads the platform through the read-only Postgres role; names are the engine's own variables."
+  }
+}
+
+run "engine_platform_params_absent_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(aws_ssm_parameter.engine_platform) == 0
+    error_message = "No engine -> platform wiring without platform_database_enabled."
+  }
 }

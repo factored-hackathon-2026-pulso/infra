@@ -310,3 +310,30 @@ run "engine_reaches_agent_core_only_with_the_flag" {
     error_message = "The engine reaches agent-core serve on 8001 through security groups only."
   }
 }
+
+run "engine_reaches_the_platform_api_only_with_the_flag" {
+  command = plan
+
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.platform_api_from_engine) == 0 && length(aws_vpc_security_group_egress_rule.engine_to_platform_api) == 0
+    error_message = "Without agent_services_enabled the engine has no path to the platform."
+  }
+}
+
+run "engine_announces_to_the_platform_over_security_groups_only" {
+  command = plan
+  variables {
+    agent_services_enabled = true
+  }
+
+  assert {
+    condition = (
+      aws_vpc_security_group_ingress_rule.platform_api_from_engine[0].from_port == 8000 &&
+      aws_vpc_security_group_ingress_rule.platform_api_from_engine[0].to_port == 8000 &&
+      aws_vpc_security_group_ingress_rule.platform_api_from_engine[0].cidr_ipv4 == null &&
+      aws_vpc_security_group_egress_rule.engine_to_platform_api[0].from_port == 8000 &&
+      aws_vpc_security_group_egress_rule.engine_to_platform_api[0].cidr_ipv4 == null
+    )
+    error_message = "engine -> platform:8000 (announce, evidence), sibling security groups only, never a CIDR."
+  }
+}

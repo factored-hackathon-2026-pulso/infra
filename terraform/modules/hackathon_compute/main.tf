@@ -28,7 +28,7 @@ locals {
   }
   has_db_volume      = var.db_volume_size_gb > 0
   instance_memory_mb = lookup(local.memory_by_type, var.instance_type, 2048)
-  allowed_ports      = concat({ core = concat(["8000:8000", "8080:8080"], var.db_volume_size_gb > 0 ? ["5432:5432"] : []), platform = ["80:80"], engine = ["8080:8080"] }[var.workload], var.extra_ports)
+  allowed_ports      = concat({ core = concat(["8000:8000"], var.db_volume_size_gb > 0 ? ["5432:5432"] : []), platform = ["80:80"], engine = ["8080:8080"] }[var.workload], var.extra_ports)
   bundle_key_prefix  = "${var.bundle_prefix}${var.workload}/"
 
   service_env_names = concat({
@@ -94,9 +94,12 @@ resource "aws_instance" "this" {
   user_data_replace_on_change = true
 
   metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 1
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+    # 2: containers sit one network hop behind the host; with 1 the IMDSv2 token response never reaches them and the SDKs
+    # in agent-core (blob store), the engine (job store) and the aws CLI in sidecars cannot use the instance profile.
+    # IMDSv2 stays required; the change is in place (no replacement).
+    http_put_response_hop_limit = 2
   }
 
   root_block_device {
