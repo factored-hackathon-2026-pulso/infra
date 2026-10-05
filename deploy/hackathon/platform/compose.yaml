@@ -36,6 +36,7 @@ services:
   support-platform-seed:
     image: ${SUPPORT_API_IMAGE:?set}
     profiles: ["seed"]
+    restart: "no"
     command: ["cc-seed", "--profile", "volume"]
     mem_limit: 512m
     user: "10001:10001"
