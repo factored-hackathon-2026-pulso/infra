@@ -25,3 +25,14 @@ if [ -f "$SQL/20_agent_databases.sql" ] && [ -n "${DB_PASSWORD_AGENT_OWNER:-}" ]
   done
   psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -f "$SQL/20_agent_databases.sql"
 fi
+# Platform and tool-service databases (platform_database_enabled; docs/shared-postgres.md): same rule. The exporter grants
+# (sql/26_platform_exporter_grants.sql) are NOT run here: the tables exist only after the platform's first migration.
+if [ -f "$SQL/25_platform_databases.sql" ] && [ -n "${DB_PASSWORD_PLATFORM_OWNER:-}" ]; then
+  for v in DB_PASSWORD_PLATFORM_OWNER DB_PASSWORD_PLATFORM_APP DB_PASSWORD_PLATFORM_EXPORTER_RO DB_PASSWORD_TOOLS_OWNER DB_PASSWORD_TOOLS_APP; do
+    if [ -z "${!v:-}" ] || [ "${!v}" = "CHANGE_ME" ]; then
+      echo "init refused: $v (secret key DB__$v) is unset or still CHANGE_ME" >&2
+      exit 1
+    fi
+  done
+  psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -f "$SQL/25_platform_databases.sql"
+fi

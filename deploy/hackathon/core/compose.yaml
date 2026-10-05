@@ -77,6 +77,10 @@ services:
     restart: unless-stopped
     mem_limit: 128m
     env_file: [/run/pulso/env/common.env, /run/pulso/env/gateway.env]
+    # The engine calls the gateway from its own host (PULSO_LLM_GATEWAY_ADDR=<core private IP>:8080, bearer
+    # PULSO_LLM_GATEWAY_KEY); the core security group admits 8080 from the engine security group only.
+    ports:
+      - "8080:8080"
     # Distroless image has no shell or curl; /healthz :8080 is probed by the proxy-side smoke test.
     healthcheck:
       disable: true

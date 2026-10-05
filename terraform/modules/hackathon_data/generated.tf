@@ -67,9 +67,12 @@ locals {
       "PULSO__PULSO_SERVICE_SEED_HEX" = local.agent_seeds_hex["engine"]
     },
     var.agent_services_enabled ? {
-      "AGENT__AGENTCORE_LLM_GATEWAY_TOKEN"  = random_password.gateway_token["AGENT_SERVE"].result
-      "AGENT__AGENTCORE_GRANTS_TOKEN"       = random_password.internal_service.result
-      "SUPPORT__CC_INTERNAL_SERVICE_TOKEN"  = random_password.internal_service.result
+      "AGENT__AGENTCORE_LLM_GATEWAY_TOKEN" = random_password.gateway_token["AGENT_SERVE"].result
+      "AGENT__AGENTCORE_GRANTS_TOKEN"      = random_password.internal_service.result
+      "SUPPORT__CC_INTERNAL_SERVICE_TOKEN" = random_password.internal_service.result
+      # The engine announces proposals to the platform (POST /api/v1/internal/builder/proposals/announce) with the same bearer:
+      # the platform has one service token today (CC_INTERNAL_SERVICE_TOKEN). Ask: one token per consumer (docs/shared-postgres.md).
+      "PULSO__PULSO_PLATFORM_SERVICE_TOKEN" = random_password.internal_service.result
       "AGENT__AGENTCORE_KEYS_FINGERPRINT"   = "k1:${random_bytes.keys_fingerprint.base64}"
       "AGENT__AGENTCORE_KEYS_TOKEN_MAP"     = "k1:${random_bytes.keys_token_map.base64}"
       "AGENT__AGENTCORE_TOOL_SERVICE_TOKEN" = random_password.tool_service.result

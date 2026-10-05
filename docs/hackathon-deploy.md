@@ -48,7 +48,7 @@ then **platform** and **engine**, which reach Core at `http://core.<zone>:8000`.
 `http://llm-gateway:8080`. Open one SSM session per host and check `systemctl status pulso-stack`. A new digest: re-apply, then
 `sudo systemctl restart pulso-stack` on that host. Per-host bootstrap: the DB bootstrap (step 2) runs from the core or engine session; the SQLite
 for support-platform lives on the platform host volume `/srv/data/support`.
-Core `:8000` is published on the core host and limited by `sg_core_id` to the platform and engine security groups; the gateway is never published.
+Core `:8000` is published on the core host and limited by `sg_core_id` to the platform and engine security groups; the gateway is published only on 8080 to the engine security group.
 
 ## 6. Loading Parquet into the data lake
 1. Upload with `scripts/aws-prod.ps1 upload -Path <dir> -Dataset <name>`: objects land in `s3://<bucket>/landing/<dataset>/` (SSE-KMS). The uploader is your admin identity (by default the account's IAM users and root may write `landing/`).
