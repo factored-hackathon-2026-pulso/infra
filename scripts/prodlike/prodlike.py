@@ -140,7 +140,7 @@ def subnet_for(prefix: str) -> str:
     return f"172.29.{100 + int(hashlib.sha256(prefix.encode()).hexdigest(), 16) % 100}"
 
 
-def render_compose(doc: dict, available: set[str], prefix: str, host_name: str) -> tuple[dict, list[str]]:
+def render_compose(doc: dict, available: set[str], prefix: str, host_name: str, strip_limits: bool = False) -> tuple[dict, list[str]]:
     """Return (rendered compose document, deviations). `available` = image variables that have a local image."""
     doc = copy.deepcopy(doc)
     deviations: list[str] = []
@@ -154,6 +154,8 @@ def render_compose(doc: dict, available: set[str], prefix: str, host_name: str) 
     for name, var in sorted(dropped.items()):
         deviations.append(f"service {name} dropped: no local image for {var} (slot)")
     named_volumes: dict[str, dict] = {}
+    if strip_limits:
+        deviations.append("mem_limit removed from every service: this Podman machine delegates no memory or pids cgroup controller to containers; pids_limit set to 0 (unlimited)")
     for name, svc in services.items():
         deps = svc.get("depends_on")
         if isinstance(deps, dict):
@@ -162,6 +164,9 @@ def render_compose(doc: dict, available: set[str], prefix: str, host_name: str) 
                 del deps[d]
             if not deps:
                 del svc["depends_on"]
+        if strip_limits:
+            svc.pop("mem_limit", None)
+            svc["pids_limit"] = 0  # these machines do not delegate the pids controller either (engine ENGINE_IMAGE.md)
         if "env_file" in svc:
             svc["env_file"] = [re.sub(r"^/run/pulso/env/", "./env/", e) for e in svc["env_file"]]
         vols = []
@@ -197,6 +202,18 @@ def render_compose(doc: dict, available: set[str], prefix: str, host_name: str) 
     doc["name"] = f"{prefix}-{host_name}"
     doc.pop("x-logging", None)
     return doc, deviations
+
+
+PREPARE = ROOT / "terraform" / "modules" / "hackathon_compute" / "templates" / "prepare.sh.tftpl"
+
+
+def app_user_volumes(doc: dict, prepare_text: str) -> list[str]:
+    """Named volumes of the rendered stack whose host directory pulso-stack-prepare gives to uid 10001 (chown / install -o)."""
+    owned: set[str] = set()
+    for line in prepare_text.splitlines():
+        if "10001" in line and re.search(r"\b(chown|install)\b", line):
+            owned |= {slug(p) for p in re.findall(r"/srv/data/[A-Za-z0-9_./-]+", line)}
+    return sorted(v for v in (doc.get("volumes") or {}) if v in owned)
 
 
 def token(n: int = 32) -> str:
@@ -278,7 +295,7 @@ def images_state(prefix: str, work: Path = WORK) -> dict[str, str]:
 
 
 def render_all(prefix: str, work: Path = WORK, external_file: Path | None = None, with_forwarder: bool = False,
-               bundle: Path = BUNDLE) -> dict:
+               bundle: Path = BUNDLE, strip_limits: bool = False) -> dict:
     """Write the rendered stacks. Returns {'deviations': [...], 'slots': [...], 'hosts': {...}}; never secret values."""
     contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
     images = images_state(prefix, work)
@@ -290,7 +307,7 @@ def render_all(prefix: str, work: Path = WORK, external_file: Path | None = None
     for host, files in (("core", CORE_FILES + ([OBSERVABILITY_FILE] if with_forwarder else [])), ("engine", ENGINE_FILES)):
         hdir = work / host
         hdir.mkdir(parents=True, exist_ok=True)
-        doc, dev = render_compose(load_merged(files, bundle), available, prefix, host)
+        doc, dev = render_compose(load_merged(files, bundle), available, prefix, host, strip_limits)
         report["deviations"] += [f"[{host}] {d}" for d in dev]
         (hdir / "compose.yaml").write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8", newline="\n")
         env_dir = hdir / "env"
@@ -409,7 +426,8 @@ def wait_healthy(prefix: str, timeout: int = 300, interval: int = 5) -> None:
 
 
 def cmd_render(a) -> int:
-    rep = render_all(a.prefix, with_forwarder=a.forwarder, external_file=Path(a.gateway_env_file) if a.gateway_env_file else None)
+    rep = render_all(a.prefix, with_forwarder=a.forwarder, strip_limits=a.no_mem_limit,
+                     external_file=Path(a.gateway_env_file) if a.gateway_env_file else None)
     print(f"rendered {WORK} (no secret printed)")
     for h, svcs in rep["hosts"].items():
         print(f"  {h}: {', '.join(svcs)}")
@@ -443,15 +461,46 @@ def cmd_build(a) -> int:
     return 0
 
 
-def cmd_up(a) -> int:
-    cmd_render(a)
+def compose_up(a) -> subprocess.CompletedProcess:
     net = f"{a.prefix}-net"
     if podman("network", "exists", net, check=False).returncode:
         podman("network", "create", "--subnet", f"{subnet_for(a.prefix)}.0/24", net)
+    last = None
     for host in ("core", "engine"):
         if not (WORK / host / "compose.yaml").exists():
             continue
-        run(compose_cmd(a.prefix, host) + ["up", "-d", "--remove-orphans"])
+        # Like pulso-stack-prepare: create the volumes, give the app-user directories to uid 10001, then start.
+        pre = run(compose_cmd(a.prefix, host) + ["up", "--no-start", "--remove-orphans"], check=False, capture=True)
+        if pre.returncode:
+            sys.stdout.write(pre.stdout or "")
+            sys.stderr.write(pre.stderr or "")
+            return pre
+        doc = yaml.safe_load((WORK / host / "compose.yaml").read_text(encoding="utf-8"))
+        helper = next(iter(images_state(a.prefix).values()), None)  # any local image has chown (debian or python)
+        for vol in app_user_volumes(doc, PREPARE.read_text(encoding="utf-8")):
+            if helper:
+                extra = ["--pids-limit=0"] if a.no_mem_limit else []
+                podman("run", "--rm", "--user", "0", *extra, "-v", f"{a.prefix}-{host}_{vol}:/mnt", "--entrypoint", "chown", helper, "10001:10001", "/mnt")
+        last = run(compose_cmd(a.prefix, host) + ["up", "-d", "--remove-orphans"], check=False, capture=True)
+        sys.stdout.write(last.stdout or "")
+        sys.stderr.write(last.stderr or "")
+        if last.returncode:
+            return last
+    return last
+
+
+def cmd_up(a) -> int:
+    cmd_render(a)
+    r = compose_up(a)
+    if r is not None and r.returncode and any(k in (r.stderr or "") + (r.stdout or "") for k in ("memory.max", "controller `pids`", "controller `memory`")) and not a.no_mem_limit:
+        # Some Podman machines (the WSL ones of this project) cannot set cgroup memory limits for containers.
+        print("crun cannot set cgroup limits on this machine: re-rendering without mem_limit and with pids_limit 0 (reported as a deviation)", file=sys.stderr)
+        cmd_down(argparse.Namespace(prefix=a.prefix, volumes=True))
+        a.no_mem_limit = True
+        cmd_render(a)
+        r = compose_up(a)
+    if r is not None and r.returncode:
+        raise RehearsalError("compose up failed")
     wait_healthy(a.prefix, a.timeout)
     print("UP: every container healthy twice in a row (rule of deploy-stack.sh)")
     return 0
@@ -461,6 +510,8 @@ def cmd_down(a) -> int:
     for host in ("engine", "core"):
         if (WORK / host / "compose.yaml").exists():
             run(compose_cmd(a.prefix, host) + ["down"] + (["--volumes"] if a.volumes else []), check=False)
+    if a.volumes:
+        podman("network", "rm", f"{a.prefix}-net", check=False)
     return 0
 
 
@@ -629,6 +680,7 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("--forwarder", action="store_true", help="include the OTLP forwarder sidecars (needs a forwarder image)")
         s.add_argument("--gateway-env-file", help="KEY=VALUE file; only OPENROUTER_API_KEY and JEV_API_KEY are copied, never printed")
         s.add_argument("--timeout", type=int, default=300)
+        s.add_argument("--no-mem-limit", action="store_true", help="drop mem_limit and lift pids_limit (`up` does it by itself when crun cannot set cgroup limits)")
     b = sub.add_parser("build")
     b.add_argument("name", choices=sorted(BUILDS))
     b.add_argument("--src", help="source checkout (build context); default: current directory")

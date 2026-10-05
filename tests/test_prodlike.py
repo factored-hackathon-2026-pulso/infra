@@ -142,6 +142,14 @@ class RenderedCompose(unittest.TestCase):
         for r in (self.core, self.engine):
             self.assertEqual(r["networks"]["internal"], {"external": True, "name": "infb-net"})
 
+    def test_strip_limits_removes_only_mem_limit_and_says_so(self):
+        doc, dev = pl.render_compose(self.core_src, AVAILABLE, "infb", "core", strip_limits=True)
+        for svc in doc["services"].values():
+            self.assertNotIn("mem_limit", svc)
+            self.assertEqual(svc["pids_limit"], 0)
+        self.assertEqual(doc["services"]["llm-gateway"]["healthcheck"], self.core_src["services"]["llm-gateway"]["healthcheck"])
+        self.assertTrue(any("mem_limit removed" in d for d in dev))
+
     def test_prefix_isolates_project_and_subnet(self):
         self.assertEqual(self.core["name"], "infb-core")
         self.assertNotEqual(pl.subnet_for("infb"), pl.subnet_for("other-lane"))
@@ -152,6 +160,17 @@ class RenderedCompose(unittest.TestCase):
         self.assertEqual(agent["depends_on"]["tool-service"]["condition"], "service_healthy")
         self.assertEqual(agent["depends_on"]["llm-gateway"]["condition"], "service_healthy")
         self.assertEqual(agent["healthcheck"], self.core_src["services"]["agent-core"]["healthcheck"])
+
+
+class AppUserDirectories(unittest.TestCase):
+    def test_volumes_that_prepare_gives_to_uid_10001_are_found(self):
+        core, _ = pl.render_compose(pl.load_merged(pl.CORE_FILES), AVAILABLE, "infb", "core")
+        engine, _ = pl.render_compose(pl.load_merged(pl.ENGINE_FILES), AVAILABLE, "infb", "engine")
+        text = pl.PREPARE.read_text(encoding="utf-8")
+        self.assertIn("srv_data_tools_state", pl.app_user_volumes(core, text))
+        self.assertIn("srv_data_pulso", pl.app_user_volumes(engine, text))
+        self.assertNotIn("srv_pgdata", pl.app_user_volumes(core, text), "postgres owns its own volume")
+        self.assertEqual(pl.app_user_volumes(engine, "echo nothing"), [], "without the chown line nothing is prepared")
 
 
 class RenderAllWritesNoSecretToStdout(unittest.TestCase):
