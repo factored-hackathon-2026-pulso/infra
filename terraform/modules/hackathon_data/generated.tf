@@ -20,6 +20,12 @@ locals {
       seed_bits     = "${substr(join("", [for c in split("", replace(k.private_key_pem, "/-----[A-Z ]+-----|[[:space:]]/", "")) : format("%06b", index(local.b64_alphabet, c))]), 128, 256)}00"
     }
   }
+  # The engine reads its service seed as 64 hex characters (PULSO_SERVICE_SEED_HEX): regroup the same 256 seed bits by four.
+  agent_seeds_hex = {
+    for role, k in local.agent_keys : role => join("", [
+      for i in range(64) : format("%x", sum([for j in range(4) : tonumber(substr(k.seed_bits, i * 4 + j, 1)) * pow(2, 3 - j)]))
+    ])
+  }
   agent_seeds = {
     for role, k in local.agent_keys : role => join("", [
       for i in range(43) : local.url_alphabet[sum([for j in range(6) : tonumber(substr(k.seed_bits, i * 6 + j, 1)) * pow(2, 5 - j)])]
@@ -55,17 +61,17 @@ locals {
     {
       # The same value in the service that issues it (GATEWAY__) and in the one that presents it.
       "CORE__AGENTCORE_LLM_GATEWAY_TOKEN"  = random_password.gateway_token["AGENT_CORE"].result
-      "PULSO__PULSO_LLM_GATEWAY_TOKEN"     = random_password.gateway_token["ENGINE"].result
+      "PULSO__PULSO_LLM_GATEWAY_KEY"       = random_password.gateway_token["ENGINE"].result
       "CORE__AGENTCORE_GRANTS_TOKEN"       = random_password.internal_service.result
       "SUPPORT__CC_INTERNAL_SERVICE_TOKEN" = random_password.internal_service.result
       "CORE__AGENTCORE_KEYS_FINGERPRINT"   = "k1:${random_bytes.keys_fingerprint.base64}"
       "CORE__AGENTCORE_KEYS_TOKEN_MAP"     = "k1:${random_bytes.keys_token_map.base64}"
       # Key documents are env values (single-line JSON); the compose entrypoint writes them to /tmp inside the container before the
       # service starts (the start script is part of user_data: changing it would replace the instances).
-      "CORE__IDENTITY_KEYS_JSON"       = local.core_identity_keys
-      "CORE__STAFF_KEYS_JSON"          = local.core_staff_keys
-      "SUPPORT__AGENT_KEYS_JSON"       = local.platform_agent_keys
-      "PULSO__PULSO_CORE_SIGNING_SEED" = local.agent_seeds["engine"]
+      "CORE__IDENTITY_KEYS_JSON"      = local.core_identity_keys
+      "CORE__STAFF_KEYS_JSON"         = local.core_staff_keys
+      "SUPPORT__AGENT_KEYS_JSON"      = local.platform_agent_keys
+      "PULSO__PULSO_SERVICE_SEED_HEX" = local.agent_seeds_hex["engine"]
     },
   )
 }

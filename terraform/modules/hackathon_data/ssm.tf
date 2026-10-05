@@ -28,10 +28,10 @@ locals {
     "core/core/AGENTCORE_BLOB_BUCKET"  = "s3://${local.bucket_name}/core/blobs"
     "core/core/AGENTCORE_SERVE_AGENTS" = "recepcion,disputas,consultas,copiloto-asesor,constructor-chat"
     "engine/pulso/PIPELINE_ROOT"       = "s3://${local.bucket_name}/lake"
-    # Engine -> shared Core credentials (the seed is the secret PULSO__PULSO_CORE_SIGNING_SEED): the kid and the principal.
-    "engine/pulso/PULSO_CORE_KID"          = local.engine_kid
-    "engine/pulso/PULSO_CORE_PRINCIPAL_ID" = "builder"
-    "engine/pulso/PULSO_LLM_GATEWAY"       = "enabled"
+    # Engine -> shared Core credentials, named as the engine reads them (real_core.rs): kid here, seed hex in the secret
+    # PULSO__PULSO_SERVICE_SEED_HEX. The gateway and Core addresses (IP literals) are set in the env root from the host IP.
+    "engine/pulso/PULSO_SERVICE_KID" = local.engine_kid
+    "engine/pulso/PULSO_LLM_GATEWAY" = "enabled"
   }
 }
 

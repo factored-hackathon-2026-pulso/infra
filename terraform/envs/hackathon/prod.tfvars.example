@@ -29,9 +29,9 @@ images = {
 # edge_enabled  = true          # false: come up without CloudFront (staged apply)
 # images.core.core is built from agent-core's own Dockerfile at a pinned commit (aws-prod.ps1 images -Service agent-core -AgentCoreDir ... -AgentCoreCommit ...). images.core may carry an optional digest-pinned ECR mirror: postgres = "<registry>/pulso-prod/postgres@sha256:..."
 
-# The shared Core is agent-core's own `agentcore serve` (ADR 0009). Three of its pieces have no real implementation in agent-core
-# yet; give their modulo:atributo here when agent-core ships them (null = the Core refuses to start, fail closed; no demo doubles).
-# agent_core_serve_pieces = { transcript = "<module>:<attr>", calibration = "<module>:<attr>", classifier = "<module>:<attr>" }
+# The shared Core is agent-core's own `agentcore serve` (ADR 0009). Its transcript, calibration and classifier pieces default to
+# agent-core's real ones; override only to pin another module:attr. Trained artifacts go under deploy/hackathon/core/{calibration,classifier}/.
+# agent_core_serve_pieces = { transcript = "<module>:<attr>" }
 # agent_keys_suffix       = "hk1"   # goes in the generated key ids; a new value publishes new keys next to the old (docs/secrets-keys.md)
 
 # Optional levers (defaults shown).

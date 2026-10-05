@@ -56,15 +56,13 @@ services:
       - agent_core.adapters.classification:field_classifier
       - --grant-active
       - agent_core.adapters.grants:http_grant_active
-      # No real implementation of these three exists in agent-core yet (agent-core docs/specs/TEMAS-ABIERTOS-PENDIENTES.md):
-      # modulo:atributo comes from .env (core_serve_pieces in Terraform). Unset = the serve process refuses to start
-      # (fail closed) and the deploy rolls back; no demo double is ever enabled (the demo switch is never set).
+      # agent-core's real pieces (main 46d7b98+); overridable through .env (agent_core_serve_pieces in Terraform).
       - --transcript
-      - ${AGENTCORE_PIECE_TRANSCRIPT:-}
+      - ${AGENTCORE_PIECE_TRANSCRIPT:-agent_core.composition.transcript:transcript}
       - --calibration
-      - ${AGENTCORE_PIECE_CALIBRATION:-}
+      - ${AGENTCORE_PIECE_CALIBRATION:-agent_core.composition.artifacts:calibration}
       - --classifier
-      - ${AGENTCORE_PIECE_CLASSIFIER:-}
+      - ${AGENTCORE_PIECE_CLASSIFIER:-agent_core.composition.artifacts:classifier_provider}
     restart: unless-stopped
     mem_limit: 768m
     user: "10001:10001"
@@ -77,11 +75,16 @@ services:
       # the engine's own fields. A field no file classifies stays pii_direct (agent-core's safe default).
       AGENTCORE_FIELD_CLASSIFICATION_FILES: /etc/agentcore/field-overlay.json
       # The tool service accepts either name for the bound subject parameter (agent-core scripts/e2e/serve-tools.ps1).
+      # Trained artifacts (data team, unit 6) mounted from the bundle: empty directories mean "nothing passes" for calibration.
+      AGENTCORE_CALIBRATION_DIR: /etc/agentcore/calibration
+      AGENTCORE_CLASSIFIER_ARTIFACTS_DIR: /etc/agentcore/classifier
       AGENTCORE_AUTHZ_BIND_KEYS: subject_ref,customer_id
       # grant_active asks the platform's /api/v1/internal/grants (bearer AGENTCORE_GRANTS_TOKEN) over the internal listener.
       AGENTCORE_GRANTS_URL: http://platform.${PRIVATE_ZONE_NAME:?set}:8081
     volumes:
       - ./field-overlay.json:/etc/agentcore/field-overlay.json:ro
+      - ./calibration:/etc/agentcore/calibration:ro
+      - ./classifier:/etc/agentcore/classifier:ro
     # Reachable from the platform and engine hosts as http://core.<private zone>:8000 (security group limited): /v1/runs,
     # /v1/registry/*, /v1/export/* and /registry-events.
     ports:

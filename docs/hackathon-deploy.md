@@ -61,10 +61,10 @@ What an apply of this change does to a stack built from the previous main (nothi
 adds `tls_private_key` x4, `random_password` x4, `random_bytes` x2 and the SSM parameters `core/core/AGENTCORE_SERVE_AGENTS`, `engine/pulso/PULSO_CORE_KID`,
 `PULSO_CORE_PRINCIPAL_ID`, `PULSO_LLM_GATEWAY`; adds two ingress and two egress security-group rules (core 8080 from engine, platform 8081 from core); updates in place the S3
 bundle objects (core and platform compose, `.env`, `field-overlay.json`, `Caddyfile.internal`) and the two gateway SSM values (they move from placeholders to derived values, `moved` blocks: no
-destroy); the secret version is NOT changed (see [secrets-keys](secrets-keys.md), "Existing secret"). Instances are not replaced (`user_data` is unchanged). No destroys.
+destroy); two SSM values `PULSO_CORE_ADDR`/`PULSO_LLM_GATEWAY_ADDR` (core host private IP) are added; the secret version is NOT changed (see [secrets-keys](secrets-keys.md), "Existing secret"). Instances are not replaced (`user_data` is unchanged). No destroys.
 
-Owner steps, in order: (1) reseed the secret as described in [secrets-keys](secrets-keys.md) (or start from a fresh secret); (2) set the out-of-band keys (`CORE__AGENTCORE_REGISTRY_DSN`,
+Owner steps, in order: (1) `aws-prod.ps1 seed-secret-keys` (merge-only; see [secrets-keys](secrets-keys.md); never `-replace` the secret version); (2) set the out-of-band keys (`CORE__AGENTCORE_REGISTRY_DSN`,
 `CORE__AGENTCORE_EVAL_DSN`, `CORE__AGENTCORE_JEV_API_KEY`, `GATEWAY__OPENROUTER_API_KEY`, and the tool service pair when one exists); (3) build agent-core's image at the pinned commit
-(`images -Service agent-core -AgentCoreDir ... -AgentCoreCommit ...`) and deploy it; (4) set `agent_core_serve_pieces` once agent-core ships the three missing pieces. Until step 4 the Core does not start (fail closed). The platform
+(`images -Service agent-core -AgentCoreDir ... -AgentCoreCommit ...`) and deploy it; (4) set the human-owned `AGENTCORE_TOOL_SERVICE_URL` (SSM) and `CORE__AGENTCORE_TOOL_SERVICE_TOKEN`: they stay `CHANGE_ME` and the Core does not start until then (fail closed). The real transcript, calibration and classifier pieces are the compose defaults; trained artifacts go under `deploy/hackathon/core/calibration/` and `classifier/`. The platform
 needs no key exchange: the Core's key files and the platform's private keys come from the same Terraform apply.
 

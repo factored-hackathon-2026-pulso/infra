@@ -114,3 +114,9 @@ output "engine_core_public_key" {
   description = "Public half of that key (base64url). Public information; the seed is the secret PULSO__PULSO_CORE_SIGNING_SEED."
   value       = module.data.engine_core_public_key
 }
+
+output "generated_secrets" {
+  description = "SENSITIVE. Terraform-generated secret keys, for `aws-prod.ps1 seed-secret-keys` (merge-only reseed of an existing secret)."
+  value       = module.data.generated_secrets
+  sensitive   = true
+}

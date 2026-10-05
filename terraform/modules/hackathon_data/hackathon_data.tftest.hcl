@@ -336,7 +336,7 @@ run "gateway_tokens_are_generated_and_shared_with_their_consumers" {
     error_message = "One gateway token per consumer."
   }
   assert {
-    condition     = local.generated_secrets["GATEWAY__GATEWAY_TOKEN_ENGINE"] == local.generated_secrets["PULSO__PULSO_LLM_GATEWAY_TOKEN"]
+    condition     = local.generated_secrets["GATEWAY__GATEWAY_TOKEN_ENGINE"] == local.generated_secrets["PULSO__PULSO_LLM_GATEWAY_KEY"]
     error_message = "The engine presents the token the gateway issues to ENGINE."
   }
   assert {
@@ -357,7 +357,7 @@ run "ed25519_keys_are_derived_in_the_agent_core_formats" {
   command = plan
 
   assert {
-    condition     = local.agent_seeds["engine"] == "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A"
+    condition     = local.agent_seeds["engine"] == "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A" && local.agent_seeds_hex["engine"] == "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60" && local.generated_secrets["PULSO__PULSO_SERVICE_SEED_HEX"] == local.agent_seeds_hex["engine"]
     error_message = "The seed must be the 32 raw bytes of the PKCS#8 key, base64url without padding."
   }
   assert {
@@ -411,7 +411,7 @@ run "gateway_config_is_derived_not_a_placeholder" {
     error_message = "The only endpoint is the openrouter alias."
   }
   assert {
-    condition     = aws_ssm_parameter.derived["engine/pulso/PULSO_CORE_KID"].value == "pulso-engine-hk1" && aws_ssm_parameter.derived["engine/pulso/PULSO_LLM_GATEWAY"].value == "enabled"
+    condition     = aws_ssm_parameter.derived["engine/pulso/PULSO_SERVICE_KID"].value == "pulso-engine-hk1" && aws_ssm_parameter.derived["engine/pulso/PULSO_LLM_GATEWAY"].value == "enabled"
     error_message = "Engine config: kid and gateway switch."
   }
 }

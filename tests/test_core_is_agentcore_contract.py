@@ -32,17 +32,18 @@ class CoreComposeTest(unittest.TestCase):
         self.assertRegex(CORE, r'llm-gateway:\n(?:.*\n)*?    ports:\n      - "8080:8080"')
 
     def test_platform_and_engine_reach_the_core_and_the_gateway(self):
-        self.assertIn("CC_AGENT_CORE_URL: http://core.", PLATFORM)
+        self.assertIn("PLATFORM_AGENT_CORE_URL: http://core.", PLATFORM)
         self.assertIn("CC_AGENT_KEYS_FILE", PLATFORM)
-        self.assertIn("PULSO_LLM_GATEWAY_ADDR: core.", ENGINE)
+        self.assertIn("PULSO_LLM_GATEWAY_ADDR", ENGINE)
+        self.assertNotRegex(ENGINE, r"PULSO_LLM_GATEWAY_ADDR: core\.")
 
 
 class GeneratedCredentialsTest(unittest.TestCase):
     def test_engine_credentials_are_generated_by_terraform(self):
         for key in (
-            '"PULSO__PULSO_LLM_GATEWAY_TOKEN"',
+            '"PULSO__PULSO_LLM_GATEWAY_KEY"',
             '"CORE__AGENTCORE_LLM_GATEWAY_TOKEN"',
-            '"PULSO__PULSO_CORE_SIGNING_SEED"',
+            '"PULSO__PULSO_SERVICE_SEED_HEX"',
             '"CORE__STAFF_KEYS_JSON"',
             '"CORE__IDENTITY_KEYS_JSON"',
         ):

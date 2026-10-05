@@ -187,8 +187,8 @@ run "platform_reaches_the_core_and_serves_the_grant_check" {
   }
 
   assert {
-    condition     = local.compose.services["support-platform-api"].environment["CC_AGENT_CORE_URL"] == "http://core.$${PRIVATE_ZONE_NAME:?set}:8000" && local.compose.services["support-platform-api"].environment["CC_AGENT_KEYS_FILE"] == "/tmp/agent-keys.json"
-    error_message = "The platform backend gets CC_AGENT_CORE_URL and CC_AGENT_KEYS_FILE together."
+    condition     = local.compose.services["support-platform-api"].environment["PLATFORM_AGENT_CORE_URL"] == "http://core.$${PRIVATE_ZONE_NAME:?set}:8000" && strcontains(join(" ", local.compose.services["support-platform-api"].entrypoint), "export CC_AGENT_KEYS_FILE=/tmp/agent-keys.json CC_AGENT_CORE_URL=")
+    error_message = "The entrypoint exports CC_AGENT_CORE_URL and CC_AGENT_KEYS_FILE together, and only when the keys are seeded (no crash loop on an unseeded secret)."
   }
   assert {
     condition     = local.compose.services["internal-proxy"].ports == ["8081:8081"] && contains(local.allowed_ports, "8081:8081")
@@ -207,8 +207,8 @@ run "engine_reaches_the_gateway_and_the_core" {
   }
 
   assert {
-    condition     = local.compose.services["pulso"].environment["PULSO_LLM_GATEWAY_ADDR"] == "core.$${PRIVATE_ZONE_NAME:?set}:8080" && local.compose.services["pulso"].environment["PULSO_CORE_ADDR"] == "core.$${PRIVATE_ZONE_NAME:?set}:8000"
-    error_message = "The engine addresses the gateway (8080) and the Core (8000) by private DNS name."
+    condition     = !contains(keys(local.compose.services["pulso"].environment), "PULSO_LLM_GATEWAY_ADDR") && !contains(keys(local.compose.services["pulso"].environment), "PULSO_CORE_ADDR")
+    error_message = "The engine addresses (IP literals) come from SSM, not from compose (the engine client rejects DNS names)."
   }
 }
 

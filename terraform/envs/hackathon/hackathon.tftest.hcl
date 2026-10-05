@@ -217,9 +217,7 @@ run "core_is_agent_cores_own_image_and_bundle" {
   command = apply
   variables {
     agent_core_serve_pieces = {
-      transcript  = "pieces.real:transcript"
-      calibration = "pieces.real:calibration"
-      classifier  = "pieces.real:classifier"
+      transcript = "pieces.real:transcript"
     }
   }
 
@@ -230,6 +228,14 @@ run "core_is_agent_cores_own_image_and_bundle" {
   assert {
     condition     = contains(keys(local.core_files), "field-overlay.json") && contains(keys(local.core_files), "compose.postgres.yaml")
     error_message = "The core bundle ships the field-classification overlay next to the Postgres override."
+  }
+  assert {
+    condition     = contains(keys(local.core_files), "calibration/.keep") && contains(keys(local.core_files), "classifier/.keep")
+    error_message = "The calibration and classifier artifact directories are bundled (empty, with a .keep) and mounted by compose."
+  }
+  assert {
+    condition     = aws_ssm_parameter.engine_core_addr["PULSO_CORE_ADDR"].name == "/pulso/engine/pulso/PULSO_CORE_ADDR" && endswith(aws_ssm_parameter.engine_core_addr["PULSO_LLM_GATEWAY_ADDR"].name, "PULSO_LLM_GATEWAY_ADDR")
+    error_message = "Engine host gets the Core and gateway addresses as SSM values (IP literals from the core host)."
   }
   assert {
     condition     = output.engine_core_kid == "pulso-engine-hk1" && length(output.engine_core_public_key) == 43

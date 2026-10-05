@@ -67,3 +67,9 @@ output "engine_core_public_key" {
   description = "Public half (base64url, 32 bytes) of the engine's Ed25519 key, as listed in the Core's key files (public information)."
   value       = local.agent_keys["engine"].public_b64url
 }
+
+output "generated_secrets" {
+  description = "SENSITIVE. Every key Terraform generates for the secret (name -> value). Read only by `aws-prod.ps1 seed-secret-keys`, which merges the missing ones into an existing secret and never prints a value."
+  value       = local.generated_secrets
+  sensitive   = true
+}

@@ -36,9 +36,14 @@ locals {
 
   # Core host bundle: the field-classification overlay mounted into agent-core, plus (container database mode) the Postgres
   # compose override and the repository SQL run by the initdb script.
+  core_dir = "${path.module}/../../../deploy/hackathon/core"
+  # Trained artifacts travel with the release: every file under core/calibration/ and core/classifier/ is bundled and mounted
+  # read-only (AGENTCORE_CALIBRATION_DIR, AGENTCORE_CLASSIFIER_ARTIFACTS_DIR). The directories ship a .keep so they exist.
+  core_artifact_files = { for f in fileset(local.core_dir, "{calibration,classifier}/**") : f => file("${local.core_dir}/${f}") }
   core_files = merge({
-    "field-overlay.json" = file("${path.module}/../../../deploy/hackathon/core/field-overlay.json")
+    "field-overlay.json" = file("${local.core_dir}/field-overlay.json")
     },
+    local.core_artifact_files,
     local.core_db_files
   )
 
@@ -145,7 +150,7 @@ module "compute_core" {
   extra_service_envs      = local.container_db ? ["db"] : []
   compose_files           = local.container_db ? ["compose.yaml", "compose.postgres.yaml"] : ["compose.yaml"]
   extra_bundle_files      = local.core_files
-  extra_env               = { for k, v in coalesce(var.agent_core_serve_pieces, {}) : "AGENTCORE_PIECE_${upper(k)}" => v }
+  extra_env               = { for k, v in var.agent_core_serve_pieces : "AGENTCORE_PIECE_${upper(k)}" => v if v != null }
   tags                    = local.tags
 }
 
@@ -272,4 +277,17 @@ module "deployers" {
     }
   }
   project_arns = module.image_builder.project_arns
+}
+
+# Engine -> Core and gateway addresses. The engine client only accepts IP literals (or localhost) for plaintext hosts, so these
+# are the core host's private IP, not its DNS name. The IP changes if the core instance is replaced: the next apply rewrites them.
+resource "aws_ssm_parameter" "engine_core_addr" {
+  for_each = {
+    PULSO_CORE_ADDR        = "${module.compute_core.private_ip}:8000"
+    PULSO_LLM_GATEWAY_ADDR = "${module.compute_core.private_ip}:8080"
+  }
+  name  = "${module.data.ssm_prefix}/engine/pulso/${each.key}"
+  type  = "String"
+  value = each.value
+  tags  = local.tags
 }

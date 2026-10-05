@@ -179,13 +179,13 @@ variable "db_volume_size_gb" {
 }
 
 variable "agent_core_serve_pieces" {
-  description = "modulo:atributo of the three `agentcore serve` pieces that have no real implementation in agent-core yet: transcript, calibration, classifier (agent-core docs/specs/TEMAS-ABIERTOS-PENDIENTES.md). Written to the core host .env as AGENTCORE_PIECE_*; null leaves them empty and `agentcore serve` refuses to start (fail closed, the deploy rolls back). Demo doubles (testing.*) are not in the image and AGENTCORE_ALLOW_DEMO is never set."
+  description = "Optional overrides of the `module:attr` of the three `agentcore serve` pieces. Defaults are agent-core's real ones (agent_core.composition.transcript:transcript, agent_core.composition.artifacts:calibration and :classifier_provider), set in the core compose. Written to the core host .env as AGENTCORE_PIECE_*."
   type = object({
-    transcript  = string
-    calibration = string
-    classifier  = string
+    transcript  = optional(string)
+    calibration = optional(string)
+    classifier  = optional(string)
   })
-  default = null
+  default = {}
 }
 
 variable "agent_keys_suffix" {
