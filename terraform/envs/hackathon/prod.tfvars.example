@@ -35,10 +35,29 @@ images = {
 #   and in images.core:
 #     agent = "<registry>/pulso-prod/agent-core-serve@sha256:REPLACE_WITH_64_HEX_DIGEST"
 #     tools = "<registry>/pulso-prod/tool-service@sha256:REPLACE_WITH_64_HEX_DIGEST"
-# agent_serve_args: the default already lists the seven real pieces of agent-core main; override only to append flags
-#   such as --agents or --lang-thresholds /run/files/LANG_THRESHOLDS (with a FILES__AGENT__LANG_THRESHOLDS secret key).
+# agent_serve_args: OPTIONAL extra serve arguments, empty by default (the seven real pieces are serve's defaults); never testing.* doubles.
+# images.core.core (the old core-bridge image) is no longer needed with agent services on. docs/agent-core-serve.md.
+# agent_serve_agents = "recepcion,disputas,consultas,copiloto-asesor"   # AGENTCORE_SERVE_AGENTS
 # Calibration and classifier artifacts: upload to s3://<bucket>/core/artifacts/{calibrations,classifiers}/ (docs/agent-services.md).
 
+# Improvement loop on the engine host (docs/engine-loop.md): `pulso loop` as a systemd one-shot. Needs agent_services_enabled and the
+# ENGPROD engine image (python3 and the regression scripts inside).
+# engine_loop_enabled      = true
+# engine_loop_interval     = "6h"
+# engine_loop_cells_source = "bank"       # bank | e0 | synthetic (synthetic only with engine_loop_profile = "demo")
+# engine_loop_profile      = "standard"
+#
+# OTLP forwarder sidecars (docs/otlp-forwarder.md, off by default). Needs the same digest in images.core.forwarder and
+# images.engine.forwarder, and the secret keys LANGFUSE__LANGFUSE_PUBLIC_KEY and _SECRET_KEY.
+# otlp_forwarder_enabled = true
+# otlp_trace_content     = false            # true exports prompts and responses
+# langfuse_base_url      = "https://us.cloud.langfuse.com"
+#
+# Engine key rotation (docs/agent-core-serve.md section 7): add, then mint, then retire. Each step needs a secret merge afterwards.
+# engine_extra_key_suffixes = ["hk2"]
+# engine_active_key_suffix  = "hk2"
+# engine_retire_base_key    = true
+#
 # Optional levers (defaults shown).
 # enable_waf           = false   # about 8 USD per month; default false in free_plan, true in prod
 # enabled              = { core = true, platform = true, engine = true }   # per-host kill switch

@@ -1,0 +1,35 @@
+# OTLP forwarder sidecar on the engine host (otlp_forwarder_enabled; docs/otlp-forwarder.md). Off by default. The forwarder
+# (engine repo scripts/o11y/otlp_forwarder.py) listens on 127.0.0.1 ONLY, so the sidecar shares the network namespace of its producer
+# (`pulso`) and the producers talk to http://127.0.0.1:4318. The Langfuse keys live only in langfuse.env (secret keys
+# LANGFUSE__LANGFUSE_BASE_URL, _PUBLIC_KEY, _SECRET_KEY); `pulso` never sees them.
+# The engine binary has no OTLP exporter of its own today [U]: the story traces and scores are posted by scripts/o11y/* to the
+# forwarder, and PULSO_O11Y_FORWARDER_ENDPOINT / PULSO_O11Y_CAPTURE_CONTENT are the names those scripts read. The loop job joins the
+# same namespace (compose.loop.observability.yaml, merged only when the loop job is also enabled).
+# Content: PULSO_O11Y_CAPTURE_CONTENT is "0" unless the Terraform variable otlp_trace_content is true (docs/otlp-forwarder.md).
+services:
+  pulso:
+    environment:
+      PULSO_O11Y_FORWARDER_ENDPOINT: http://127.0.0.1:4318
+      PULSO_O11Y_CAPTURE_CONTENT: ${OTLP_TRACE_CONTENT:-0}
+
+  otlp-forwarder-engine:
+    image: ${FORWARDER_IMAGE:?set}
+    network_mode: "service:pulso"
+    restart: unless-stopped
+    mem_limit: 96m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/langfuse.env]
+    depends_on:
+      pulso:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:4318/healthz', timeout=2)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

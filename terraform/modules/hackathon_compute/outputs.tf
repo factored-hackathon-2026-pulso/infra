@@ -18,3 +18,7 @@ output "compose_files" { value = var.compose_files }
 output "published_ports" { value = local.allowed_ports }
 output "service_env_names" { value = local.service_env_names }
 output "extra_bundle_keys" { value = sort(keys(var.extra_bundle_files)) }
+output "bundle_env" {
+  description = "The bundle .env (compose interpolation, non-secret): bucket, zone, COMPOSE_FILE and the extra_env knobs. Image references are never in it."
+  value       = local.env_text
+}

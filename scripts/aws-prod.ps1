@@ -275,6 +275,8 @@ $script:Services = [ordered]@{
     'tool-service'         = @{ Key = 'tools'; Workloads = @('core'); Aliases = @('tools') }
     # Automatic loader (auto_loader_enabled, docs/auto-loader.md): the data-pipeline repository's own Dockerfile.
     'data-pipeline'        = @{ Key = 'pipeline'; Workloads = @('engine'); Aliases = @('pipeline') }
+    # OTLP forwarder sidecars (otlp_forwarder_enabled, docs/otlp-forwarder.md): the engine repo's scripts/o11y packaged by docker/otlp-forwarder.Dockerfile.
+    'otlp-forwarder'       = @{ Key = 'forwarder'; Workloads = @('core', 'engine'); Aliases = @('forwarder') }
 }
 
 function Resolve-Service([string]$Name) {
@@ -665,8 +667,8 @@ function Read-SecretValue([string]$Prompt) {
 }
 
 function Invoke-SetSecret($p, $id) {
-    if ($p.SecretKey -cnotmatch '^((COMMON|CORE|GATEWAY|SUPPORT|PULSO|AGENT|TOOLS|DB|LOADER)__[A-Z][A-Z0-9_]*|FILES__(AGENT|SUPPORT)__[A-Z][A-Z0-9_]*)$') {
-        throw '-SecretKey must be <SERVICE>__<VAR> with SERVICE one of COMMON, CORE, GATEWAY, SUPPORT, PULSO, AGENT, TOOLS, DB, LOADER (for example GATEWAY__OPENROUTER_API_KEY), or FILES__<AGENT|SUPPORT>__<NAME> for a value the host writes as a file.'
+    if ($p.SecretKey -cnotmatch '^((COMMON|CORE|GATEWAY|SUPPORT|PULSO|AGENT|TOOLS|DB|LOADER|LANGFUSE)__[A-Z][A-Z0-9_]*|FILES__(AGENT|SUPPORT)__[A-Z][A-Z0-9_]*)$') {
+        throw '-SecretKey must be <SERVICE>__<VAR> with SERVICE one of COMMON, CORE, GATEWAY, SUPPORT, PULSO, AGENT, TOOLS, DB, LOADER, LANGFUSE (for example GATEWAY__OPENROUTER_API_KEY), or FILES__<AGENT|SUPPORT>__<NAME> for a value the host writes as a file.'
     }
     $name = "$($script:EcrPrefix)/hackathon"
     $prof = $p.Profile

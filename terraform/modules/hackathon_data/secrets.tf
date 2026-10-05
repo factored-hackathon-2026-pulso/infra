@@ -33,7 +33,10 @@ locals {
   # Shared Postgres, platform and tool-service databases (docs/shared-postgres.md). The DSN names of the platform follow
   # support-platform's deploy-env contract (CC_DATABASE_URL exists in secret_keys; the migrate DSN is the owner role, assumed name).
   # The engine reads the platform event log through the read-only role (PULSO_PG_PRODUCT_DSN, adapter product-postgres).
-  loader_keys      = var.auto_loader_enabled ? ["LOADER__PSEUDONYM_KEY"] : []
+  loader_keys = var.auto_loader_enabled ? ["LOADER__PSEUDONYM_KEY"] : []
+  # OTLP forwarder (docs/otlp-forwarder.md): Langfuse project keys for the sidecars (service env "langfuse"); the base URL is
+  # not secret and lives in SSM (ssm.tf). Out of band, placeholder CHANGE_ME until the human puts them.
+  langfuse_keys    = var.otlp_forwarder_enabled ? ["LANGFUSE__LANGFUSE_PUBLIC_KEY", "LANGFUSE__LANGFUSE_SECRET_KEY"] : []
   platform_db_keys = var.platform_database_enabled ? ["SUPPORT__CC_MIGRATE_DATABASE_URL", "PULSO__PULSO_PG_PRODUCT_DSN"] : []
 
   # Host-consumed keys are <SERVICE>__<VAR>: the compute start script (pulso-stack-prepare) writes VAR into
@@ -57,6 +60,7 @@ locals {
     local.agent_secret_keys,
     local.platform_db_keys,
     local.loader_keys,
+    local.langfuse_keys,
   )
 
   # Generated keys (generated.tf) replace the placeholder of the same name; the rest stay CHANGE_ME for out-of-band values.

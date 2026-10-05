@@ -177,6 +177,51 @@ variable "agent_keys_suffix" {
   }
 }
 
+variable "otlp_forwarder_enabled" {
+  description = "Seed the Langfuse secret keys and SSM base URL for the OTLP forwarder sidecars (docs/otlp-forwarder.md). Off by default."
+  type        = bool
+  default     = false
+}
+
+variable "langfuse_base_url" {
+  description = "Langfuse base URL the forwarder posts to (https; the forwarder refuses a non-loopback http upstream). Not secret."
+  type        = string
+  default     = "https://us.cloud.langfuse.com"
+
+  validation {
+    condition     = can(regex("^https://[a-z0-9.-]+$", var.langfuse_base_url))
+    error_message = "langfuse_base_url must be https://<host> with no path."
+  }
+}
+
+variable "engine_extra_key_suffixes" {
+  description = "Rotation of the engine's Ed25519 key (agent-core docs/serve-env.md section 8): suffixes of EXTRA keys, kid pulso-engine-<suffix>, published beside the first key in identity-keys and staff-keys. Empty = no rotation in progress."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for s in var.engine_extra_key_suffixes : can(regex("^[a-z0-9][a-z0-9-]{0,23}$", s)) && s != var.agent_keys_suffix]) && length(distinct(var.engine_extra_key_suffixes)) == length(var.engine_extra_key_suffixes)
+    error_message = "engine_extra_key_suffixes are distinct, differ from agent_keys_suffix, lowercase letters, digits and dashes (max 24 characters)."
+  }
+}
+
+variable "engine_active_key_suffix" {
+  description = "Which engine key the engine MINTS with (PULSO_SERVICE_KID and the seed). Null = the first key (agent_keys_suffix). Set to an engine_extra_key_suffixes entry after the new key is published and reloaded by serve."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.engine_active_key_suffix == null || var.engine_active_key_suffix == var.agent_keys_suffix || contains(var.engine_extra_key_suffixes, coalesce(var.engine_active_key_suffix, "-"))
+    error_message = "engine_active_key_suffix must be agent_keys_suffix or one of engine_extra_key_suffixes."
+  }
+}
+
+variable "engine_retire_base_key" {
+  description = "Drop the first engine key (kid pulso-engine-<agent_keys_suffix>) from the published documents, the last step of a rotation. Needs another key to be active."
+  type        = bool
+  default     = false
+}
+
 variable "auto_loader_enabled" {
   description = "Seed the secret key of the automatic loader (LOADER__PSEUDONYM_KEY, the data pipeline's pseudonymisation HMAC key; out of band). Off by default."
   type        = bool

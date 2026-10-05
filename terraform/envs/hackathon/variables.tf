@@ -76,6 +76,11 @@ variable "images" {
     condition     = !var.agent_services_enabled || (contains(keys(var.images.core), "agent") && contains(keys(var.images.core), "tools"))
     error_message = "agent_services_enabled needs images.core.agent (agent-core serve) and images.core.tools (tool-service)."
   }
+
+  validation {
+    condition     = !var.otlp_forwarder_enabled || (contains(keys(var.images.core), "forwarder") && contains(keys(var.images.engine), "forwarder"))
+    error_message = "otlp_forwarder_enabled needs images.core.forwarder and images.engine.forwarder (digest of the OTLP forwarder image)."
+  }
 }
 
 variable "agent_services_enabled" {
@@ -97,13 +102,104 @@ variable "platform_database_enabled" {
 
 variable "agent_serve_args" {
   type        = string
-  default     = "--tools agent_core.adapters.tools:http_tool_executor --authz agent_core.adapters.policy_authz:policy_authz --field-classifier agent_core.composition.classification:field_classifier --grant-active agent_core.adapters.grants:http_grant_active --transcript agent_core.composition.transcript:transcript --calibration agent_core.composition.artifacts:calibration --classifier agent_core.composition.artifacts:classifier_provider"
-  description = "Piece flags of `agentcore serve`: module:attribute of the seven REAL pieces of agent-core main (serve refuses testing.* without the demo flag). Append --agents or --lang-thresholds as needed."
+  default     = ""
+  description = "OPTIONAL extra arguments of `agentcore serve` (AGENT_SERVE_ARGS in .env). The seven real pieces are serve's defaults (agent-core docs/serve-env.md section 2), so the default is empty; set only for a deliberate override such as --agents. Never a testing.* piece, never a demo-doubles switch."
 
   validation {
-    condition     = !strcontains(var.agent_serve_args, "testing.") && !can(regex("[\\r\\n]", var.agent_serve_args))
-    error_message = "agent_serve_args takes real pieces on one line, never testing.* doubles."
+    condition     = !strcontains(var.agent_serve_args, "testing.") && !can(regex("(?i)allow[-_]?(doubles|demo)", var.agent_serve_args)) && !can(regex("[\r\n]", var.agent_serve_args))
+    error_message = "agent_serve_args is one line and never takes testing.* doubles or an allow-doubles switch (AGENTCORE_ALLOW_DOUBLES is prohibited in deployments)."
   }
+}
+
+variable "agent_serve_agents" {
+  type        = string
+  default     = "recepcion,disputas,consultas,copiloto-asesor"
+  description = "AGENTCORE_SERVE_AGENTS: agents (comma separated) whose `prod` release serve checks at start (it only warns)."
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9_-]*(,[a-z0-9][a-z0-9_-]*)*$", var.agent_serve_agents))
+    error_message = "agent_serve_agents is a comma separated list of agent ids."
+  }
+}
+
+variable "otlp_forwarder_enabled" {
+  type        = bool
+  default     = false
+  description = "OTLP forwarder sidecars (docs/otlp-forwarder.md, decision B1): one in the network namespace of llm-gateway and one of agent-core on the core host, one of pulso on the engine host, each the single loopback egress to Langfuse. Needs images.core.forwarder and images.engine.forwarder (digest of the forwarder image) and the secret keys LANGFUSE__LANGFUSE_PUBLIC_KEY and _SECRET_KEY. Off by default."
+}
+
+variable "otlp_trace_content" {
+  type        = bool
+  default     = false
+  description = "Export prompt and response content to Langfuse (LLM_GATEWAY_TRACE_CONTENT, AGENTCORE_TRACE_CONTENT, PULSO_O11Y_CAPTURE_CONTENT). Default false: only structure and timings leave the host. Full content is authorized for Langfuse US by the owner, but it is still a deliberate switch."
+}
+
+variable "langfuse_base_url" {
+  type        = string
+  default     = "https://us.cloud.langfuse.com"
+  description = "Langfuse base URL for the forwarder (https, not secret)."
+}
+
+variable "engine_loop_enabled" {
+  type        = bool
+  default     = false
+  description = "The improvement-loop job on the engine host (docs/engine-loop.md): `pulso loop` as a systemd one-shot with a timer, minted registry credentials, the S3 inputs mirror. Needs agent_services_enabled (the Core is agent-core serve) and an engine image with python3 and the regression scripts. Off by default."
+
+  validation {
+    condition     = !var.engine_loop_enabled || var.agent_services_enabled
+    error_message = "engine_loop_enabled needs agent_services_enabled: the loop writes proposals to agent-core serve."
+  }
+}
+
+variable "engine_loop_interval" {
+  type        = string
+  default     = "6h"
+  description = "Time between the end of a loop run and the next (systemd span: 90min, 6h, 1d)."
+
+  validation {
+    condition     = can(regex("^[0-9]+(min|h|d)$", var.engine_loop_interval))
+    error_message = "engine_loop_interval is a number plus min, h or d."
+  }
+}
+
+variable "engine_loop_cells_source" {
+  type        = string
+  default     = "bank"
+  description = "PULSO_CELLS_SOURCE of the loop: what the cells are. bank (the loader's bank cells, default), e0, or synthetic (demo profile only)."
+
+  validation {
+    condition     = contains(["bank", "e0", "synthetic"], var.engine_loop_cells_source)
+    error_message = "engine_loop_cells_source is bank, e0 or synthetic."
+  }
+}
+
+variable "engine_loop_profile" {
+  type        = string
+  default     = "standard"
+  description = "PULSO_PROFILE of the loop: standard (default) or demo (lower support floors; the engine refuses it unless the cells are synthetic)."
+
+  validation {
+    condition     = contains(["standard", "demo"], var.engine_loop_profile) && (var.engine_loop_profile != "demo" || var.engine_loop_cells_source == "synthetic")
+    error_message = "engine_loop_profile is standard or demo, and demo only with engine_loop_cells_source = synthetic."
+  }
+}
+
+variable "engine_extra_key_suffixes" {
+  type        = list(string)
+  default     = []
+  description = "Engine key rotation, step 1: suffixes of extra engine Ed25519 keys (kid pulso-engine-<suffix>) published beside the first key. docs/agent-core-serve.md section 5."
+}
+
+variable "engine_active_key_suffix" {
+  type        = string
+  default     = null
+  description = "Engine key rotation, step 2: which engine key the engine mints with (null = the first key)."
+}
+
+variable "engine_retire_base_key" {
+  type        = bool
+  default     = false
+  description = "Engine key rotation, step 3: stop publishing the first engine key."
 }
 
 variable "enable_waf" {

@@ -1,14 +1,31 @@
-# Agent services on the core host (agent_services_enabled; docs/agent-services.md): agent-core `serve` for
-# support-platform and the tool-service it calls. Merged over compose.yaml (and compose.postgres.yaml) through
-# COMPOSE_FILE in .env (written by Terraform). core-runtime keeps 8000; agent-core serve publishes 8001, reachable only
-# from the platform security group. tool-service is internal: only agent-core calls it, over the compose network.
-# Secrets: /run/pulso/env/agent.env and tools.env (secret keys AGENT__* and TOOLS__*); files (key sets, field grants,
-# overlay) under /run/pulso/files/agent (secret keys FILES__AGENT__*). The piece flags of `serve` come from
-# AGENT_SERVE_ARGS in .env (Terraform variable agent_serve_args): real pieces only, never demo doubles.
+# Agent services on the core host (agent_services_enabled; docs/agent-services.md, docs/agent-core-serve.md): agent-core's OWN
+# image running `agentcore serve` (the shared Core of ADR 0009) and the tool-service it calls. Merged over compose.yaml (and
+# compose.postgres.yaml) through COMPOSE_FILE in .env (written by Terraform). The contract is agent-core docs/serve-env.md; every
+# variable name of that document is accounted for in docs/agent-core-serve.md and checked by tests/test_agent_core_serve_contract.py.
+#
+# Replaces the core-bridge wiring: core-migrate, core-runtime and core-exporter (the improvement-engine core-bridge image) are put
+# behind the profile "legacy-core-bridge", so with the agent services on they are never created. They stay in compose.yaml only so
+# the bundle without agent services is unchanged. CORE_IMAGE then aliases the agent image (main.tf) so interpolation succeeds.
+#
+# Secrets (names only here): /run/pulso/env/agent.env (secret keys AGENT__*) and tools.env (TOOLS__*); key files under
+# /run/pulso/files/agent (FILES__AGENT__*). AGENTCORE_ALLOW_DOUBLES is NEVER set anywhere in this bundle (agent-core refuses its
+# demo-double pieces without it, which is the production behaviour); tests/test_agent_core_serve_contract.py enforces it.
 services:
+  core-migrate:
+    profiles: ["legacy-core-bridge"]
+
+  core-runtime:
+    profiles: ["legacy-core-bridge"]
+
+  core-exporter:
+    profiles: ["legacy-core-bridge"]
+
+  # One pass with the OWNER DSNs (CREATE on the agent databases) before serve starts, on every deploy. `agentcore migrate` takes a
+  # transaction advisory lock and compares the schema digest stored in the database, so it is idempotent and safe if two instances
+  # race; it also re-applies the grants of --app-role. In container mode its ordering after a healthy Postgres is added by
+  # compose.agents.postgres.yaml; the engine's pulso-db-bootstrap is independent of this chain (docs/agent-core-serve.md).
   agent-core-migrate:
     image: ${AGENT_IMAGE:?set}
-    # Owner DSNs only here (CREATE on the agent databases); serve runs with the app role.
     entrypoint:
       - sh
       - -c
@@ -17,10 +34,6 @@ services:
     mem_limit: 256m
     user: "10001:10001"
     env_file: [/run/pulso/env/common.env, /run/pulso/env/agent.env]
-    depends_on:
-      # core-migrate waits for a healthy Postgres in container mode (compose.postgres.yaml).
-      core-migrate:
-        condition: service_completed_successfully
     logging:
       driver: json-file
       options:
@@ -30,53 +43,102 @@ services:
 
   agent-core:
     image: ${AGENT_IMAGE:?set}
+    # Configuration is environment-only (serve-env.md section 1); the seven real pieces are serve's defaults, so no piece flag is
+    # needed. AGENT_SERVE_ARGS stays as an optional extra (for example --agents); never a demo-double piece.
     command: >-
       serve --host 0.0.0.0 --port 8001
-      --identity-keys /run/files/IDENTITY_KEYS --staff-keys /run/files/STAFF_KEYS --registry-api
-      ${AGENT_SERVE_ARGS:?set}
+      ${AGENT_SERVE_ARGS:-}
     restart: unless-stopped
     mem_limit: 768m
     user: "10001:10001"
+    # serve validates its whole environment before opening the port and exits 2 naming each bad variable (never a value).
     env_file: [/run/pulso/env/common.env, /run/pulso/env/agent.env]
     environment:
-      AGENTCORE_LLM_GATEWAY_URL: http://llm-gateway:8080
+      # The migration owner DSNs belong to the one-shot above only; serve runs with the app role.
+      AGENTCORE_MIGRATE_DSN: ""
+      AGENTCORE_MIGRATE_EVAL_DSN: ""
+      # --- core, registry API and identity (serve-env.md sections 1 and 6)
+      AGENTCORE_REGISTRY_API: "1"
+      AGENTCORE_IDENTITY_KEYS_FILE: /run/files/IDENTITY_KEYS
+      # The platform's staff public keys and the engine's builder key (kid = SSM PULSO_SERVICE_KID); rotation by kid, no restart.
+      AGENTCORE_STAFF_KEYS_FILE: /run/files/STAFF_KEYS
+      AGENTCORE_KEYS_RELOAD_SECONDS: "5"
+      AGENTCORE_SERVE_AGENTS: ${AGENT_SERVE_AGENTS:-recepcion,disputas,consultas,copiloto-asesor}
+      AGENTCORE_FX_RATES_FILE: /run/files/FX_RATES
+      # --- the seven real pieces (serve-env.md section 2)
       AGENTCORE_TOOL_SERVICE_URL: http://tool-service:8080
-      # grant_active: the platform API, published on the platform host to the core security group only.
-      AGENTCORE_GRANTS_URL: http://platform.${PRIVATE_ZONE_NAME:?set}:8000
-      AGENTCORE_AUTHZ_BIND_KEYS: subject_ref,customer_id
+      AGENTCORE_TOOL_SERVICE_TIMEOUT_S: "10"
       AGENTCORE_AUTHZ_FIELD_GRANTS_FILE: /run/files/FIELD_GRANTS
-      # The current publication's catalog (synced by the start script) plus the engine's own fields.
-      AGENTCORE_FIELD_CLASSIFICATION_FILES: /catalog/field_classification.json,/run/files/FIELD_OVERLAY
-      # Calibration (<run_id>.json) and classifier (<ref>.json) artifacts of the data team, synced by the start script
-      # from s3://<bucket>/core/artifacts/{calibrations,classifiers}/.
+      AGENTCORE_AUTHZ_BIND_KEYS: subject_ref,customer_id
       AGENTCORE_CALIBRATION_DIR: /artifacts/calibrations
       AGENTCORE_CLASSIFIER_ARTIFACTS_DIR: /artifacts/classifiers
-      # Fixed rate table of the engine tool convertir_moneda (not a market source; secret key FILES__AGENT__FX_RATES).
-      AGENTCORE_FX_RATES_FILE: /run/files/FX_RATES
-      # The platform's staff public keys, also for `agentcore registry --verifier ...:staff_verifier` (seed import).
-      AGENTCORE_STAFF_KEYS_FILE: /run/files/STAFF_KEYS
+      # The current publication's catalog (synced by the start script) plus the engine's own fields (later files win).
+      AGENTCORE_FIELD_CLASSIFICATION_FILES: /catalog/field_classification.json,/run/files/FIELD_OVERLAY
+      # grant_active: the platform API, published on the platform host to the core security group only.
+      AGENTCORE_GRANTS_URL: http://platform.${PRIVATE_ZONE_NAME:?set}:8000
+      AGENTCORE_GRANTS_TIMEOUT_S: "3"
+      AGENTCORE_GRANTS_CACHE_TTL_S: "5"
+      # --- external dependencies (section 3); the token comes from agent.env
+      AGENTCORE_LLM_GATEWAY_URL: http://llm-gateway:8080
+      # --- operation (section 4): migrations are the one-shot's job (the app role has no DDL), readiness, load caps, shutdown
+      AGENTCORE_AUTO_MIGRATE: "0"
+      AGENTCORE_READY_REQUIRE_LLM_GATEWAY: "1"
+      AGENTCORE_READY_REQUIRE_TOOL_SERVICE: "1"
+      # Load caps sized by the instance (Terraform local agent_limits -> .env): beyond MAX_INFLIGHT serve answers 503 with
+      # Retry-After 1 (probes never count); WORKER_THREADS bounds sync-route concurrency; DB_POOL_MAX is per process and must stay
+      # far below Postgres max_connections (100, shared with platform, tools and engine).
+      AGENTCORE_MAX_INFLIGHT: ${AGENT_MAX_INFLIGHT:-16}
+      AGENTCORE_WORKER_THREADS: ${AGENT_WORKER_THREADS:-12}
+      AGENTCORE_DB_POOL_MAX: ${AGENT_DB_POOL_MAX:-6}
+      # Must stay below stop_grace_period (docker kills at that deadline); uvicorn drains in-flight requests until then.
+      AGENTCORE_SHUTDOWN_GRACE_SECONDS: "25"
     volumes:
       - /run/pulso/files/agent:/run/files:ro
       - /srv/data/tools/current:/catalog:ro
       - /srv/data/agent/artifacts:/artifacts:ro
-    # Reachable from the platform host as http://core.<private zone>:8001 (security group limited).
+    # Reachable from the platform and engine hosts as http://core.<private zone>:8001 (security group limited). The image default
+    # is 8000 (its own HEALTHCHECK probes it); this host serves 8001 because the address is baked into the platform and engine env.
     ports:
       - "8001:8001"
+    stop_grace_period: 30s
     depends_on:
       agent-core-migrate:
         condition: service_completed_successfully
-      # /healthz of both is liveness only: a tool-service without a publication still starts (it answers
-      # data_unavailable); agent-core's own /readyz reports the tool-service reachability.
+      # /healthz of both is liveness only; serve's own /readyz also checks the tool-service and the gateway (the two
+      # AGENTCORE_READY_REQUIRE_* switches above).
       tool-service:
         condition: service_healthy
       llm-gateway:
         condition: service_healthy
+    # /healthz is liveness (the process answers); /readyz is readiness (database, key files, and the two switches above). The
+    # container health follows readiness because deploy-stack.sh and the consumers' depends_on gate on it. First start can run
+    # the schema check and load the artifacts, hence the long start period.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8001/readyz', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [internal]
+
+  # `agentcore sweep --once` closes expired runs as abandoned (serve-env.md section 7). Not part of `up` (profile): run by the
+  # pulso-agent-sweep.timer on the core host (deploy/hackathon/core/sweep). Same app-role environment as serve.
+  agent-core-sweep:
+    image: ${AGENT_IMAGE:?set}
+    command: ["sweep", "--once"]
+    profiles: ["sweep"]
+    restart: "no"
+    mem_limit: 256m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/agent.env]
+    environment:
+      AGENTCORE_MIGRATE_DSN: ""
+      AGENTCORE_MIGRATE_EVAL_DSN: ""
     logging:
       driver: json-file
       options:

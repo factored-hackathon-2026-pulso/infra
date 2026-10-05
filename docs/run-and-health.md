@@ -73,7 +73,7 @@ Variable NAMES only. Values come from Terraform-generated keys in the single Sec
 | Environment | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` (`langfuse.env`, out of band), `PULSO_O11Y_ALLOW_EXTERNAL=1` (baked: the upstream is external). |
 | Port | 4318 on **127.0.0.1 only** (no bind option). On a host it is therefore a sidecar in the network namespace of its producer (`network_mode: service:<producer>`), see `deploy/hackathon/core/compose.observability.yaml`. |
 | Probe / restart | `/healthz` (counts only, no content), 15 s / 5 s / 5 / 10 s; `unless-stopped`. It queues in memory: a restart loses unsent spans. |
-| State | **Defined, not wired into Terraform**: needs a decision (section 6). The engine has no OTel exporter; its story traces are posted by `scripts/o11y/engine_trace.py`. |
+| State | **Wired behind `otlp_forwarder_enabled`, off by default** ([otlp-forwarder](otlp-forwarder.md)): sidecars on the core host (gateway, agent-core) and the engine host (pulso). The engine has no OTel exporter; its story traces are posted by `scripts/o11y/engine_trace.py`. |
 | Limits | 96 MB each. |
 
 ### agent-core serve and the platform
@@ -118,11 +118,10 @@ render, pull (running containers untouched), `up -d`, wait healthy twice, otherw
    with a message otherwise. Order: first start with `PULSO__PULSO_DATABASE_URL` as the master role, so the engine migrates; a core
    deploy (or boot) runs the job; when it logs `logins enabled`, switch the secret to `pulso_app` and redeploy the engine.
    `PULSO_DATA_MODE` is now `dataset` (SSM, derived).
-3. **Improvement loop on the engine host (partly done).** The engine image gains `steps_cli` (engine repo PR 112). The job is
-   `deploy/hackathon/engine/compose.loop.yaml`, opt-in and unwired, env `PULSO_MODEL_PORT=gateway`, `PULSO_CORE_PORT=live`,
-   `STEPS_RUNNER_EXE`. **Slots (engine code):** the loop-driver subcommand, and minting Ed25519 Core credentials from
-   `PULSO_SERVICE_SEED_HEX` plus `PULSO_SERVICE_KID` for agent-core `serve` (the live port is still bridge-based).
-4. **OTLP forwarder wiring:** deferred until the base cycle works (recipe and fragment exist).
+3. **Improvement loop on the engine host (wired, off by default).** `pulso loop` is a systemd one-shot with a timer
+   (`engine_loop_enabled`), minted Ed25519 credentials and an S3 inputs mirror: [engine-loop](engine-loop.md). The old slots
+   (loop-driver subcommand, minting) were closed by the engine's ENGPROD change; the job still needs the ENGPROD engine image.
+4. **OTLP forwarder wiring (done, off by default):** [otlp-forwarder](otlp-forwarder.md).
 5. **Host replacement on apply:** accepted (`user_data` changes).
 6. **Supply chain, to do at deploy time (nothing downloaded here):**
    * compose plugin: from a trusted machine fetch the release asset `docker-compose-linux-x86_64` and its `.sha256` for the pinned
