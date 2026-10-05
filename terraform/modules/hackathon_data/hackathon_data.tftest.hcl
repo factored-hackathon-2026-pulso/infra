@@ -210,7 +210,7 @@ run "one_secret_holds_every_sensitive_key" {
     error_message = "One secret named <prefix>/hackathon."
   }
   assert {
-    condition     = alltrue([for k in ["RDS_MASTER_PASSWORD", "CORE__AGENTCORE_REGISTRY_DSN", "CORE__AGENTCORE_EVAL_DSN", "CORE__AGENTCORE_LLM_GATEWAY_TOKEN", "GATEWAY__GATEWAY_TOKEN_ENGINE", "GATEWAY__JEV_API_KEY", "SUPPORT__CC_SESSION_SECRET", "SUPPORT__CC_TOTP_SECRET_KEY", "SUPPORT__CC_DATABASE_URL", "PULSO__PULSO_DATABASE_URL", "PULSO__PULSO_ADMIN_TOKEN", "DB_PASSWORD_CORE_OWNER", "DB_PASSWORD_PULSO_LOADER"] : contains(keys(jsondecode(aws_secretsmanager_secret_version.this.secret_string)), k)])
+    condition     = alltrue([for k in ["RDS_MASTER_PASSWORD", "CORE__AGENTCORE_REGISTRY_DSN", "CORE__AGENTCORE_EVAL_DSN", "CORE__AGENTCORE_LLM_GATEWAY_TOKEN", "GATEWAY__GATEWAY_TOKEN_ENGINE", "GATEWAY__JEV_API_KEY", "SUPPORT__CC_SESSION_SECRET", "SUPPORT__CC_TOTP_SECRET_KEY", "SUPPORT__CC_DATABASE_URL", "PULSO__PULSO_DATABASE_URL", "PULSO__PULSO_ADMIN_TOKEN", "PULSO__PULSO_DEBUG_TOKEN", "DB_PASSWORD_CORE_OWNER", "DB_PASSWORD_PULSO_LOADER"] : contains(keys(jsondecode(aws_secretsmanager_secret_version.this.secret_string)), k)])
     error_message = "Secret JSON is missing a documented key."
   }
   assert {

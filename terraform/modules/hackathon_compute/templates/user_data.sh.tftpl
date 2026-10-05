@@ -53,9 +53,14 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/srv/stack
 ExecStartPre=/usr/local/bin/pulso-stack-prepare
-ExecStart=/usr/bin/docker compose -p pulso up -d --remove-orphans
+# --force-recreate: /run/pulso is tmpfs, so after a reboot the bind sources of the old containers (env files, key files) are gone;
+# the unit only runs at boot or by hand (deploys use deploy-stack.sh), so recreating here is cheap and always correct.
+ExecStart=/usr/bin/docker compose -p pulso up -d --remove-orphans --force-recreate
 ExecStop=/usr/bin/docker compose -p pulso down
 TimeoutStartSec=600
+# A transient S3, SSM, ECR or Secrets Manager error in pulso-stack-prepare must not leave the host up with nothing running.
+Restart=on-failure
+RestartSec=30
 TimeoutStopSec=120
 
 [Install]
@@ -63,6 +68,50 @@ WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
 systemctl enable --now pulso-stack
+# Docker does not restart an unhealthy container (restart policies look at exit only): a timer does, for the services named in
+# AUTOHEAL_SERVICES (default pulso and agent-core; add others, for example tool-service llm-gateway, in the unit Environment).
+# At most AUTOHEAL_MAX_PER_HOUR restarts per service, so a crash loop is left to the deploy rollback and the alarms. Prints no env.
+cat > /usr/local/bin/pulso-autoheal <<'AUTOHEAL'
+#!/bin/bash
+set -uo pipefail
+SERVICES="$${AUTOHEAL_SERVICES:-pulso agent-core}"
+MAX="$${AUTOHEAL_MAX_PER_HOUR:-6}"
+STATE=/run/pulso-autoheal
+mkdir -p "$STATE"
+for svc in $SERVICES; do
+  for id in $(docker ps -q --filter label=com.docker.compose.project=pulso --filter label=com.docker.compose.service="$svc" --filter health=unhealthy); do
+    now=$(date +%s)
+    recent=$(awk -v n="$now" 'n-$1<3600' "$STATE/$svc" 2>/dev/null | wc -l)
+    if [ "$recent" -ge "$MAX" ]; then echo "autoheal: $svc restarted $recent times in the last hour, leaving it"; continue; fi
+    echo "$now" >> "$STATE/$svc"
+    echo "autoheal: restarting $svc (health=unhealthy)"
+    docker restart "$id" >/dev/null
+  done
+done
+AUTOHEAL
+chmod 755 /usr/local/bin/pulso-autoheal
+cat > /etc/systemd/system/pulso-autoheal.service <<'UNIT'
+[Unit]
+Description=Restart unhealthy Pulso containers
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pulso-autoheal
+UNIT
+cat > /etc/systemd/system/pulso-autoheal.timer <<'UNIT'
+[Unit]
+Description=Pulso autoheal every minute
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=60s
+
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now pulso-autoheal.timer
 %{ if cloudwatch ~}
 cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CW'
 {"logs":{"logs_collected":{"files":{"collect_list":[{"file_path":"/var/lib/docker/containers/*/*-json.log","log_group_name":"${log_group}","log_stream_name":"{instance_id}"}]}}}}

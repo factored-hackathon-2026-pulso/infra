@@ -1,0 +1,51 @@
+# OPT-IN, NOT WIRED into Terraform (decision pending, docs/run-and-health.md section 6). OTLP forwarder sidecars on the core
+# host: the single egress to Langfuse Cloud for llm-gateway and agent-core. The forwarder listens on 127.0.0.1 only, so each
+# sidecar shares the network namespace of its producer; the producer exports to http://127.0.0.1:4318 (OTEL_EXPORTER_OTLP_ENDPOINT
+# in its own env). The Langfuse keys live ONLY in langfuse.env (secret keys LANGFUSE__LANGFUSE_BASE_URL, _PUBLIC_KEY,
+# _SECRET_KEY, service env "langfuse"); the producers never see them. The engine host has no sidecar: the engine has no OTel
+# exporter, its story traces are posted by scripts/o11y/engine_trace.py (run by a person) to a forwarder.
+# To wire: add "langfuse" to extra_service_envs, this file to compose_files, FORWARDER_IMAGE to images.core, the three secret keys.
+services:
+  otlp-forwarder-gateway:
+    image: ${FORWARDER_IMAGE:?set}
+    network_mode: "service:llm-gateway"
+    restart: unless-stopped
+    mem_limit: 96m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/langfuse.env]
+    depends_on:
+      llm-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:4318/healthz', timeout=2)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  otlp-forwarder-agent:
+    image: ${FORWARDER_IMAGE:?set}
+    network_mode: "service:agent-core"
+    restart: unless-stopped
+    mem_limit: 96m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/langfuse.env]
+    depends_on:
+      agent-core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:4318/healthz', timeout=2)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -41,6 +41,7 @@ locals {
     "initdb/sql/00_databases_roles.sql" = file("${path.module}/../../modules/hackathon_data/sql/00_databases_roles.sql")
     "initdb/sql/10_core_grants.sql"     = file("${path.module}/../../modules/hackathon_data/sql/10_core_grants.sql")
     "initdb/sql/30_pulso_logins.sql"    = file("${path.module}/../../modules/hackathon_data/sql/30_pulso_logins.sql")
+    "bootstrap/pulso-db-bootstrap.sh"   = file("${path.module}/../../../deploy/hackathon/core/bootstrap/pulso-db-bootstrap.sh")
   } : {}
 
   # Agent services (docs/agent-services.md): agent-core serve and tool-service on the core host, the platform side.

@@ -1,0 +1,55 @@
+{
+  "_doc": "Env contract of the local prod-like rehearsal: variable NAMES per rendered env file (/run/pulso/env/<file>.env on a host), where infra gets each value, and how the rehearsal fills it locally. 'infra' is the exact key Terraform uses (secret key in secrets.tf/generated.tf, or SSM key in ssm.tf); tests/test_prodlike.py checks every non-null 'infra' string against the Terraform sources, so this file cannot drift silently. Values are NEVER stored here.",
+  "consumers": ["AGENT_CORE", "AGENT_SERVE", "ENGINE", "SUPPORT_PLATFORM"],
+  "files": {
+    "common": [
+      {"name": "ORIGIN_VERIFY", "infra": "COMMON__ORIGIN_VERIFY", "kind": "terraform-generated", "local": "token"}
+    ],
+    "gateway": [
+      {"name": "GATEWAY_CONSUMERS", "infra": "core/gateway/GATEWAY_CONSUMERS", "kind": "ssm-derived", "local": "gateway_consumers"},
+      {"name": "LLM_ENDPOINTS", "infra": "core/gateway/LLM_ENDPOINTS", "kind": "ssm-derived", "local": "llm_endpoints"},
+      {"name": "GATEWAY_TOKEN_<CONSUMER>", "infra": "GATEWAY__GATEWAY_TOKEN_", "kind": "terraform-generated", "local": "per_consumer_token"},
+      {"name": "OPENROUTER_API_KEY", "infra": "OPENROUTER_API_KEY", "kind": "secrets-manager-out-of-band", "local": "external"},
+      {"name": "OPENAI_API_KEY", "infra": "OPENAI_API_KEY", "kind": "secrets-manager-out-of-band", "local": "placeholder"},
+      {"name": "ANTHROPIC_API_KEY", "infra": "ANTHROPIC_API_KEY", "kind": "secrets-manager-out-of-band", "local": "placeholder"},
+      {"name": "GOOGLE_API_KEY", "infra": "GOOGLE_API_KEY", "kind": "secrets-manager-out-of-band", "local": "placeholder"},
+      {"name": "JEV_API_KEY", "infra": "GATEWAY__JEV_API_KEY", "kind": "secrets-manager-out-of-band", "local": "external"}
+    ],
+    "tools": [
+      {"name": "TOOL_SERVICE_TOKENS", "infra": "TOOLS__TOOL_SERVICE_TOKENS", "kind": "terraform-generated", "local": "tool_tokens"}
+    ],
+    "db": [
+      {"name": "POSTGRES_PASSWORD", "infra": "DB__POSTGRES_PASSWORD", "kind": "secrets-manager-out-of-band", "local": "token"},
+      {"name": "DB_PASSWORD_CORE_OWNER", "infra": "DB_PASSWORD_CORE_OWNER", "kind": "secrets-manager-out-of-band", "local": "token"},
+      {"name": "DB_PASSWORD_CORE_APP", "infra": "DB_PASSWORD_CORE_APP", "kind": "secrets-manager-out-of-band", "local": "token"},
+      {"name": "DB_PASSWORD_CORE_EVAL_APP", "infra": "DB_PASSWORD_CORE_EVAL_APP", "kind": "secrets-manager-out-of-band", "local": "token"},
+      {"name": "DB_PASSWORD_CORE_EXPORTER_RO", "infra": "DB_PASSWORD_CORE_EXPORTER_RO", "kind": "secrets-manager-out-of-band", "local": "token"},
+      {"name": "DB_PASSWORD_PULSO_APP", "infra": "DB_PASSWORD_PULSO_APP", "kind": "secrets-manager-out-of-band", "local": "token"},
+      {"name": "DB_PASSWORD_PULSO_LOADER", "infra": "DB_PASSWORD_PULSO_LOADER", "kind": "secrets-manager-out-of-band", "local": "token"},
+      {"name": "DB_PASSWORD_AGENT_OWNER", "infra": "DB_PASSWORD_AGENT_OWNER", "kind": "secrets-manager-out-of-band", "local": "token"},
+      {"name": "DB_PASSWORD_AGENT_APP", "infra": "DB_PASSWORD_AGENT_APP", "kind": "secrets-manager-out-of-band", "local": "token"}
+    ],
+    "pulso": [
+      {"name": "PULSO_DATABASE_URL", "infra": "PULSO__PULSO_DATABASE_URL", "kind": "secrets-manager-out-of-band", "local": "pulso_dsn"},
+      {"name": "PULSO_ADMIN_TOKEN", "infra": "PULSO__PULSO_ADMIN_TOKEN", "kind": "terraform-generated", "local": "token"},
+      {"name": "PULSO_DEBUG_TOKEN", "infra": "PULSO__PULSO_DEBUG_TOKEN", "kind": "terraform-generated", "local": "token"},
+      {"name": "PULSO_LLM_GATEWAY_KEY", "infra": "PULSO__PULSO_LLM_GATEWAY_KEY", "kind": "terraform-generated", "local": "engine_gateway_token"},
+      {"name": "PULSO_SERVICE_SEED_HEX", "infra": "PULSO__PULSO_SERVICE_SEED_HEX", "kind": "terraform-generated", "local": "hex64"},
+      {"name": "PULSO_SERVICE_KID", "infra": "engine/pulso/PULSO_SERVICE_KID", "kind": "ssm-derived", "local": "const:pulso-engine-local"},
+      {"name": "PULSO_LLM_GATEWAY", "infra": "engine/pulso/PULSO_LLM_GATEWAY", "kind": "ssm-derived", "local": "const:enabled"},
+      {"name": "PULSO_BASE_PATH", "infra": "engine/pulso/PULSO_BASE_PATH", "kind": "ssm-derived", "local": "const:/pulso"},
+      {"name": "PULSO_DATA_MODE", "infra": "engine/pulso/PULSO_DATA_MODE", "kind": "ssm-out-of-band", "local": "const:dataset"},
+      {"name": "PULSO_CORE_ADDR", "infra": "PULSO_CORE_ADDR", "kind": "ssm-derived", "local": "core_addr"},
+      {"name": "PULSO_LLM_GATEWAY_ADDR", "infra": "PULSO_LLM_GATEWAY_ADDR", "kind": "ssm-derived", "local": "gateway_addr"}
+    ]
+  },
+  "compose_environment": {
+    "_doc": "Set by the compose files themselves (environment:) from .env variables, not from env files.",
+    "variables": ["BUCKET_NAME", "CORE_BLOB_PREFIX", "PULSO_STORAGE_PREFIX", "PRIVATE_ZONE_NAME"]
+  },
+  "slots": {
+    "agent": ["AGENTCORE_REGISTRY_DSN", "AGENTCORE_EVAL_DSN", "AGENTCORE_MIGRATE_DSN", "AGENTCORE_MIGRATE_EVAL_DSN", "AGENTCORE_LLM_GATEWAY_TOKEN", "AGENTCORE_JEV_API_KEY", "AGENTCORE_KEYS_FINGERPRINT", "AGENTCORE_KEYS_TOKEN_MAP", "AGENTCORE_TOOL_SERVICE_TOKEN", "AGENTCORE_GRANTS_TOKEN"],
+    "support": ["CC_SESSION_SECRET", "CC_TOTP_SECRET_KEY", "CC_DATABASE_URL", "CC_INTERNAL_SERVICE_TOKEN", "CC_CORS_ORIGINS", "CC_PUBLIC_APP_URL"],
+    "_doc": "Filled when agent-core serve and the platform images exist (briefs in docs/reports-claude/ASKS). The names are infra's today; the teams' env documents (serve-env.md) are authoritative and may rename them."
+  }
+}

@@ -41,7 +41,7 @@ services:
       core-migrate:
         condition: service_completed_successfully
       llm-gateway:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
       interval: 15s
@@ -77,12 +77,17 @@ services:
     restart: unless-stopped
     mem_limit: 128m
     env_file: [/run/pulso/env/common.env, /run/pulso/env/gateway.env]
-    # The engine calls the gateway from its own host (PULSO_LLM_GATEWAY_ADDR=<core private IP>:8080, bearer
-    # PULSO_LLM_GATEWAY_KEY); the core security group admits 8080 from the engine security group only.
+    # Published for the engine host (core security group: 8080 from the engine security group only); the engine calls
+    # http://<core private IP>:8080. Agent-core and the core runtime use the compose network name instead.
     ports:
       - "8080:8080"
-    # Distroless image has no shell or curl; /healthz :8080 is probed by the proxy-side smoke test.
+    # The distroless image has no shell or curl, but the binary probes itself: `llm-gateway -healthcheck` GETs
+    # /healthz on its own listener (liveness only; the gateway has no dependency to check, provider errors are per call).
     healthcheck:
-      disable: true
+      test: ["CMD", "/llm-gateway", "-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     logging: *logging
     networks: [internal]

@@ -12,7 +12,6 @@ locals {
     "core/core/AGENTCORE_DAILY_BUDGET_USD" = "CHANGE_ME"
     "platform/support/CC_CORS_ORIGINS"     = "CHANGE_ME"
     "platform/support/CC_PUBLIC_APP_URL"   = "CHANGE_ME"
-    "engine/pulso/PULSO_DATA_MODE"         = "CHANGE_ME"
   }
 
   # Gateway config: consumers name the env var that holds each token (the values are generated, generated.tf); the only
@@ -24,8 +23,11 @@ locals {
     "core/gateway/GATEWAY_CONSUMERS" = local.gateway_consumers_json
     "core/gateway/LLM_ENDPOINTS"     = local.llm_endpoints_json
     # Engine -> shared Core, named as the engine reads them (real_core.rs): kid here, seed hex in PULSO__PULSO_SERVICE_SEED_HEX.
-    "engine/pulso/PULSO_SERVICE_KID"  = local.engine_kid
-    "engine/pulso/PULSO_LLM_GATEWAY"  = "enabled"
+    "engine/pulso/PULSO_SERVICE_KID" = local.engine_kid
+    "engine/pulso/PULSO_LLM_GATEWAY" = "enabled"
+    "engine/pulso/PULSO_BASE_PATH"   = "/pulso"
+    # Bank aggregates (the dataset adapters); the platform events path is the other value, set by changing this parameter.
+    "engine/pulso/PULSO_DATA_MODE"    = "dataset"
     "core/core/AGENTCORE_BLOB_BUCKET" = "s3://${local.bucket_name}/core/blobs"
     "engine/pulso/PIPELINE_ROOT"      = "s3://${local.bucket_name}/lake"
   }

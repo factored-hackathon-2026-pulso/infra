@@ -1,0 +1,28 @@
+# OPT-IN, NOT WIRED into Terraform. The improvement-loop job on the engine host: same image as `pulso` (it ships steps_cli), run
+# on demand or by a timer with `docker compose -p pulso -f compose.yaml -f compose.loop.yaml run --rm pulso-loop`.
+# SLOTS, owned by engine code and agent-core (docs/run-and-health.md section 6):
+#  - SLOT command: the loop driver subcommand does not exist in `pulso` yet (today it is scripts/demo-loop, PowerShell and Python).
+#  - SLOT Core credentials: against agent-core `serve` (not core-bridge) the engine must MINT Ed25519 credentials from
+#    PULSO_SERVICE_SEED_HEX and PULSO_SERVICE_KID (both already rendered into pulso.env). `PULSO_CORE_PORT=live` today wants the
+#    bridge variables (PULSO_BRIDGE_ADDR, PULSO_HUMAN_*): engine work, not infra. Registry address: PULSO_CORE_ADDR (core IP:8001).
+services:
+  pulso-loop:
+    image: ${PULSO_IMAGE:?set}
+    command: ["${PULSO_LOOP_COMMAND:?SLOT: the loop driver subcommand}"]
+    restart: "no"
+    mem_limit: 768m
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/pulso.env]
+    environment:
+      PULSO_MODEL_PORT: gateway
+      PULSO_CORE_PORT: live
+      STEPS_RUNNER_EXE: /usr/local/bin/steps_cli
+      PULSO_WORK_DIR: /var/lib/pulso/work
+      PULSO_CORE_URL: http://core.${PRIVATE_ZONE_NAME:?set}:8001
+    volumes:
+      - /srv/data/pulso:/var/lib/pulso
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [internal]
