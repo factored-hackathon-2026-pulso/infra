@@ -5,9 +5,15 @@ service. This repository does not own the engine's local runtime or test
 harness: `improvement-engine` owns Compose/Podman, fixtures, PostgreSQL,
 LocalStack and integration CI.
 
-## AWS prod (start here)
+> **State checked against `main` at `74851d4` (5 October 2026).** This repository contains deployable Terraform and operational tooling, not proof of an AWS deployment. The intended product environments are `staging` and `prod`; `prod` is the hackathon demo environment, not a live bank production environment.
 
-One account, one environment (`prod`, us-east-1), deployed from your machine with `scripts/aws-prod.ps1`. Start at [docs/README.md](docs/README.md) and the one-page [docs/aws-prod-quickstart.md](docs/aws-prod-quickstart.md).
+## Environments and operator entry point
+
+Start with [docs/README.md](docs/README.md), then use the [AWS production-demo quickstart](docs/aws-prod-quickstart.md) only when you have explicit environment/account authorization. The engine owns the local Windows-first Podman/LocalStack stack; this repository owns AWS Terraform and its manual operational procedures.
+
+The Terraform tree also retains `buildbox` and `hackathon` roots alongside `staging` and `prod`. The product's two named environments are staging and prod, but these additional roots have not disappeared: the `hackathon` root still has its own validation/tests and the buildbox root serves a separate temporary build-host purpose. Hosted Terraform fmt/init/validate validates staging and prod; inspect `.github/workflows/ci.yml` for the distinct test coverage before assuming every root receives the same gate. Do not select an environment by directory name alone: check its README, backend/state key, account, region and current deployment-status documentation.
+
+`terraform/envs/staging` and `terraform/envs/prod` are the maintained product roots. Both default workloads off. The `terraform/envs/hackathon` composition and helper scripts are separately retained compatibility/demo paths and should not be mistaken for an additional approved long-lived product environment.
 
 ## Terraform baseline
 
@@ -29,9 +35,11 @@ to the source/artifact object paths it consumes at runtime.
 
 `staging` is the validation environment. `prod` is the demo environment for
 the hackathon; it is not a banking production deployment. Staging validates
-before a separately authorized production-demo change. There is deliberately no
-plan, apply or deployment workflow yet: CI only formats and validates both
-roots without credentials or a remote backend.
+before a separately authorized production-demo change. Hosted CI performs
+credential-free formatting and validation for the two product roots and does
+not apply Terraform or deploy workloads. The repository also contains
+separately tested manual deployment/release scripts; they require deliberate
+operator configuration and authorization.
 
 Copy an environment's `backend.hcl.example` outside Git and supply it only via
 approved deployment configuration. State, plan files, credentials, data and PII
