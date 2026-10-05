@@ -86,8 +86,8 @@ variable "agent_services_enabled" {
 
 variable "agent_serve_args" {
   type        = string
-  default     = "--tools agent_core.adapters.tools:http_tool_executor --authz agent_core.adapters.policy_authz:policy_authz --field-classifier agent_core.adapters.classification:field_classifier --grant-active agent_core.adapters.grants:http_grant_active"
-  description = "Piece flags of `agentcore serve` (module:attribute of REAL pieces; serve refuses testing.* without the demo flag). Add --transcript, --calibration and --classifier once agent-core ships them, and --agents/--lang-thresholds as needed. The path of --field-classifier moves to agent_core.composition.classification with agent-core PR #38."
+  default     = "--tools agent_core.adapters.tools:http_tool_executor --authz agent_core.adapters.policy_authz:policy_authz --field-classifier agent_core.composition.classification:field_classifier --grant-active agent_core.adapters.grants:http_grant_active --transcript agent_core.composition.transcript:transcript --calibration agent_core.composition.artifacts:calibration --classifier agent_core.composition.artifacts:classifier_provider"
+  description = "Piece flags of `agentcore serve`: module:attribute of the seven REAL pieces of agent-core main (serve refuses testing.* without the demo flag). Append --agents or --lang-thresholds as needed."
 
   validation {
     condition     = !strcontains(var.agent_serve_args, "testing.") && !can(regex("[\\r\\n]", var.agent_serve_args))

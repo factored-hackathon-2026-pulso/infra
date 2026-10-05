@@ -27,7 +27,7 @@ platform host                                core host (m7i-flex.large, free_pla
 | `/run/pulso/files/<svc>/<NAME>` | secret keys `FILES__<SVC>__<NAME>` written as files (tmpfs, 0400, uid 10001) by the start script |
 | `/srv/data/tools/data/publish/` | data-pipeline's current publication, synced at every start from `lake/publish/` |
 | network | `module.network`: platform -> core:8001, core -> platform:8000 (sibling security groups only) |
-| IAM | `module.iam`: the core role reads `lake/publish/*` (`var.core_read_prefixes`) |
+| IAM | `module.iam`: the core role reads `lake/publish/*` and `core/artifacts/*` (`var.core_read_prefixes`) |
 | bucket policy | `module.data`: `gold_restricted` (published `.duckdb` and `lake/gold_restricted/`) is PII: only loader, break-glass and the core role (`var.restricted_reader_role_arns`) read it |
 
 `core-runtime` (the engine's composed image, improvement-engine `core-bridge`) is untouched: support-platform needs
@@ -55,10 +55,10 @@ platform host                                core host (m7i-flex.large, free_pla
    .\scripts\aws-prod.ps1 images -Profile pulso-prod -Service agent-core-serve -SourceDir D:\src\agent-core
    .\scripts\aws-prod.ps1 images -Profile pulso-prod -Service tool-service -SourceDir D:\src\tool-service
    ```
-4. `agent_serve_args`: the piece flags of `serve`. The default names the four real pieces that exist today (tools,
-   authz, field classifier, grant_active). `serve` refuses to start until transcript, calibration and classifier
-   are real too: add `--transcript`, `--calibration`, `--classifier` with the agent-core paths when they ship. Demo
-   doubles (`testing.*`) are rejected by the variable and by `serve` itself.
+4. `agent_serve_args`: the piece flags of `serve`. The default names the seven real pieces of agent-core main
+   (tools, authz, field classifier, grant_active, transcript in Postgres, calibration and classifier from artifact
+   directories). Override it only to append flags (`--agents`, `--lang-thresholds`). Demo doubles (`testing.*`) are
+   rejected by the variable and by `serve` itself.
 5. Set the secret values (below), then `plan` and `apply`. A secret that already exists keeps its keys
    (`ignore_changes`): add the new keys with `set-secret`, Terraform does not add them to an existing secret.
 6. Database: see below (new volume: automatic; existing volume: one command).
@@ -114,6 +114,22 @@ and `field_classification.json` to `/srv/data/tools/data/publish/<run>/`, the ca
 starts. A new publication is picked up at the next `pulso-stack` restart or deploy. Filed PQRs live in
 `/srv/data/tools/state/filed_pqrs.db` on the snapshotted data volume.
 
+## Calibration and classifier artifacts
+
+`serve` reads calibrations (`<run_id>.json`) from `AGENTCORE_CALIBRATION_DIR` and classifier artifacts (`<ref>.json`)
+from `AGENTCORE_CLASSIFIER_ARTIFACTS_DIR`. They are data team output, uploaded once by an admin (the core role only
+reads `core/artifacts/`):
+
+```powershell
+aws s3 sync D:\artifacts\calibrations s3://<bucket>/core/artifacts/calibrations/ --profile pulso-prod
+aws s3 sync D:\artifacts\classifiers s3://<bucket>/core/artifacts/classifiers/ --profile pulso-prod
+```
+
+The start script mirrors both prefixes to `/srv/data/agent/artifacts/` (read-only mount `/artifacts`) at every start;
+restart `pulso-stack` after an upload. Empty prefixes still give empty directories: `serve` starts, an absent
+calibration means threshold 1.0 (nothing passes) and a decision model that names a missing classifier artifact fails
+when used. The transcript needs nothing here: it lives in the agent database (`agentcore migrate` creates its table).
+
 ## Checks after a start
 
 ```bash
@@ -124,7 +140,8 @@ curl -s -o /dev/null -w "%{http_code}" http://core.pulso.internal:8001/readyz   
 
 ## Open (not solved here)
 
-- agent-core `serve` still needs real transcript, calibration and classifier pieces; until they exist it exits 2.
+- The real calibration and classifier artifacts (data team) do not exist yet; without them every decision stays below
+  threshold.
 - Tools that are the engine's own (`obtener_handoff`, `leer_transcript`, `convertir_moneda`, `seleccionar`) are not
   served by tool-service: agent-core must route them locally.
 - Loading the agents into the registry (`agentcore registry import`) and a staff credential for it.

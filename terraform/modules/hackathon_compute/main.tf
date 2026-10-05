@@ -53,6 +53,7 @@ locals {
     registry      = var.ecr_registry_url
     # tool-service reads data-pipeline's publication from local disk: synced at every start (agent services).
     sync_publication   = contains(local.service_env_names, "tools")
+    sync_artifacts     = contains(local.service_env_names, "agent")
     publication_prefix = trim(var.publication_prefix, "/")
   })
 
