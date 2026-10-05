@@ -33,6 +33,7 @@ locals {
   # Shared Postgres, platform and tool-service databases (docs/shared-postgres.md). The DSN names of the platform follow
   # support-platform's deploy-env contract (CC_DATABASE_URL exists in secret_keys; the migrate DSN is the owner role, assumed name).
   # The engine reads the platform event log through the read-only role (PULSO_PG_PRODUCT_DSN, adapter product-postgres).
+  loader_keys      = var.auto_loader_enabled ? ["LOADER__PSEUDONYM_KEY"] : []
   platform_db_keys = var.platform_database_enabled ? ["SUPPORT__CC_MIGRATE_DATABASE_URL", "PULSO__PULSO_PG_PRODUCT_DSN"] : []
 
   # Host-consumed keys are <SERVICE>__<VAR>: the compute start script (pulso-stack-prepare) writes VAR into
@@ -55,6 +56,7 @@ locals {
     local.db_password_keys,
     local.agent_secret_keys,
     local.platform_db_keys,
+    local.loader_keys,
   )
 
   # Generated keys (generated.tf) replace the placeholder of the same name; the rest stay CHANGE_ME for out-of-band values.

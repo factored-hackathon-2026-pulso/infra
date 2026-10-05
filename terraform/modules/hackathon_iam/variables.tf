@@ -103,3 +103,20 @@ variable "ecr_push_repository_arns" {
   description = "ECR repositories the core host may push to when enable_host_builder is true."
   default     = []
 }
+
+variable "loader_role_enabled" {
+  description = "Create the dedicated loader role (read landing/ and lake/, write lake/; nothing else) that ONLY the engine host role may assume, with an external id (docs/auto-loader.md). The engine host gets sts:AssumeRole on it and nothing else."
+  type        = bool
+  default     = false
+}
+
+variable "loader_external_id" {
+  description = "ExternalId required by the loader role trust policy (a guard against confused use, not a secret: the principal restriction is the control)."
+  type        = string
+  default     = "pulso-loader"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9+=,.@:/-]{2,128}$", var.loader_external_id))
+    error_message = "ExternalId must be 2-128 characters from the STS allowed set."
+  }
+}

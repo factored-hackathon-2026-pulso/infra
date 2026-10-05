@@ -43,7 +43,7 @@ Host security groups allow no SSH. Core and the gateway are never exposed to Clo
 |---|---|---|
 | core | core-migrate (one-shot), core-runtime, core-exporter, llm-gateway | 20 GB gp3 at `/srv`, daily DLM snapshots, 3 kept |
 | platform | support-platform-api, support-platform-web, proxy (Caddy) | 20 GB; SQLite of support-platform lives here |
-| engine | pulso, proxy (Caddy); the data loader runs here by default (`engine_host_can_load`) | 40 GB |
+| engine | pulso, proxy (Caddy); the automatic loader (`auto_loader_enabled`) runs here, assuming a dedicated role | 40 GB |
 
 Compose bundles are published to `engine/deploy/<workload>/` in the bucket and synced on every start by the `pulso-stack` systemd unit. Env files are rendered into tmpfs (`/run/pulso/env`) from the host's slice of the one secret and from SSM.
 

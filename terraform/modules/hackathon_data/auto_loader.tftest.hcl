@@ -1,0 +1,29 @@
+mock_provider "aws" {}
+mock_provider "random" {}
+
+variables {
+  name_prefix   = "pulso-hk"
+  region        = "us-east-1"
+  vpc_id        = "vpc-0123456789abcdef0"
+  database_mode = "container"
+  db_subnet_ids = []
+  sg_db_id      = null
+}
+
+# Separate file: the secret version ignores later secret_string changes.
+
+run "auto_loader_seeds_only_the_pseudonym_key" {
+  command = apply
+  variables {
+    auto_loader_enabled = true
+  }
+
+  assert {
+    condition     = nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))["LOADER__PSEUDONYM_KEY"] == "CHANGE_ME"
+    error_message = "The pipeline's pseudonymisation key is set out of band; Terraform seeds the placeholder."
+  }
+  assert {
+    condition     = length([for k in keys(nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))) : k if startswith(k, "LOADER__")]) == 1
+    error_message = "One loader secret key; the loader role credentials are never stored (STS at run time)."
+  }
+}

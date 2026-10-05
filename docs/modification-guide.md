@@ -47,7 +47,8 @@ A compute module needs: workload name (`core`, `platform`, `engine`), subnet, se
 | `ecr_registry_url` | derived | `<account id>.dkr.ecr.<region>.amazonaws.com` |
 | `images` | required | digest-pinned full image refs per host |
 | `enable_waf` | `true` | WAFv2 on the distribution |
-| `engine_host_can_load` | `true` | loader policy on the engine host role |
+| `engine_host_can_load` | `false` | loader policy on the engine host role (opt-in, PII access) |
+| `auto_loader_enabled` | `false` | dedicated loader role + systemd timer on the engine host ([auto-loader](auto-loader.md)) |
 | `loader_role_arns` | `[]` | extra loader roles |
 | `uploader_principal_arns` | `[]` (account users and root) | may PUT to `landing/` |
 | `break_glass_principal_arns` | `[]` (account users and root) | exempt from the PII deny |

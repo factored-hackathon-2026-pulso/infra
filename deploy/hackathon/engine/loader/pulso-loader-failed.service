@@ -1,0 +1,6 @@
+[Unit]
+Description=Pulso loader failed (marker for the operator)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'date -u +%%FT%%TZ > /srv/data/loader/FAILED; logger -t pulso-loader -p user.err "loader run failed; see journalctl -u pulso-loader and engine/loader/status/last.json"'

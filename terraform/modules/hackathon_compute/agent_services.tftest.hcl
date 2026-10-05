@@ -127,3 +127,51 @@ run "extra_ports_are_host_colon_container" {
   }
   expect_failures = [var.extra_ports]
 }
+
+run "engine_host_installs_the_loader_only_with_the_loader_env" {
+  command = apply
+  variables {
+    workload           = "engine"
+    extra_service_envs = ["loader"]
+    extra_bundle_files = { "loader/pulso-loader.sh" = "#!/bin/bash\n" }
+  }
+
+  assert {
+    condition = (
+      strcontains(local.prepare_script, "systemctl enable --now pulso-loader.timer") &&
+      strcontains(local.prepare_script, "/srv/stack/loader/pulso-loader.sh") &&
+      strcontains(local.prepare_script, "fallocate -l 4G /srv/data/swapfile")
+    )
+    error_message = "The loader units, script and the swap file are installed by the start script when the loader env is on."
+  }
+  assert {
+    condition     = !strcontains(local.prepare_script, "assume-role") && !strcontains(local.prepare_script, "AWS_SECRET_ACCESS_KEY")
+    error_message = "The start script never handles the loader credentials: the loader script assumes the role at run time."
+  }
+}
+
+run "hosts_without_the_loader_env_install_nothing" {
+  command = apply
+  variables {
+    workload = "engine"
+  }
+
+  assert {
+    condition     = !strcontains(local.prepare_script, "pulso-loader") && !strcontains(local.prepare_script, "swapfile")
+    error_message = "Without the loader env the engine start script is unchanged."
+  }
+}
+
+run "loader_swap_can_be_disabled_and_is_bounded" {
+  command = apply
+  variables {
+    workload           = "engine"
+    extra_service_envs = ["loader"]
+    loader_swap_gb     = 0
+  }
+
+  assert {
+    condition     = strcontains(local.prepare_script, "pulso-loader.timer") && !strcontains(local.prepare_script, "swapfile")
+    error_message = "loader_swap_gb = 0 installs the loader without a swap file."
+  }
+}

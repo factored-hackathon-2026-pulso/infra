@@ -39,7 +39,7 @@ everything is verified offline (mock providers, `terraform validate`, `terraform
   `/pulso/<workload>/*`, S3 `engine/deploy/<workload>/*` (list and get), its own prefixes (core: `core/blobs`; engine: `engine/`, read
   `lake/gold_masked`, `lake/gold_analytics`), ECR pull for its own repositories, logs under `/<name>/*`.
 - Bucket policy is deny-only (TLS, PII prefixes only for loader/break-glass, `landing/` reads only via the S3 endpoint). Core and platform host roles
-  never touch `landing/` or `lake/bronze/`; the engine host role does only while `engine_host_can_load` is true (default), as the loader. Lifecycle expires only `tmp/` and `logs/` (test-guarded), so
+  never touch `landing/` or `lake/bronze/`; the engine host role does only if `engine_host_can_load` is set true (default false); the loader role of `auto_loader_enabled` does. Lifecycle expires only `tmp/` and `logs/` (test-guarded), so
   `engine/deploy/` is never expired.
 - Secret keys are `<SERVICE>__<VAR>` (CORE, GATEWAY, SUPPORT, PULSO; COMMON optional); `DB_PASSWORD_*` and `RDS_MASTER_PASSWORD` are unprefixed.
 - SSM parameters are `/pulso/<workload>/<service>/<VAR>`; the start script reads `<prefix>/<workload>/<service>`.
@@ -73,7 +73,7 @@ everything is verified offline (mock providers, `terraform validate`, `terraform
 
 AWS profile name (never in the repo) and the ECR `images` digests (`scripts/aws-prod.ps1 images` writes them), then the secret values.
 Everything else has a default: `region` and `cloudfront_waf_region` are us-east-1, `ecr_registry_url` is derived, uploaders and break-glass
-default to the account users and root, the engine host is the loader (`engine_host_can_load`). Budget, GitHub OIDC and CloudTrail are optional and off.
+default to the account users and root, the engine host is not a loader unless `engine_host_can_load` is set true. Budget, GitHub OIDC and CloudTrail are optional and off.
 
 ## Open risks (unverified until the first apply)
 

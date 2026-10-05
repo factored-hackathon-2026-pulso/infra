@@ -26,7 +26,7 @@ locals {
   waf          = var.enable_waf == null ? !local.free_plan : var.enable_waf
   host_builder = var.enable_host_builder == null ? local.free_plan : var.enable_host_builder
   instance_types = coalesce(var.instance_types, local.free_plan ?
-    { core = "m7i-flex.large", platform = "t3.small", engine = "t3.small" } :
+    { core = "m7i-flex.large", platform = "t3.small", engine = var.auto_loader_enabled ? "c7i-flex.large" : "t3.small" } :
   { core = "t3.small", platform = "t3.small", engine = "t3.small" })
   compute_type = coalesce(var.image_builder_compute_type, local.free_plan ? "BUILD_GENERAL1_SMALL" : "BUILD_GENERAL1_MEDIUM")
   container_db = local.db_mode == "container"
@@ -65,7 +65,9 @@ locals {
   account_principals  = ["arn:aws:iam::${local.account_id}:user/*", "arn:aws:iam::${local.account_id}:root"]
   uploader_principals = length(var.uploader_principal_arns) > 0 ? var.uploader_principal_arns : local.account_principals
   break_glass         = length(var.break_glass_principal_arns) > 0 ? var.break_glass_principal_arns : local.account_principals
-  loader_roles        = var.engine_host_can_load ? distinct(concat(var.loader_role_arns, [module.iam.instance_role_arn_engine])) : var.loader_role_arns
+  loader_roles        = distinct(concat(var.loader_role_arns, var.engine_host_can_load ? [module.iam.instance_role_arn_engine] : [], var.auto_loader_enabled ? [module.iam.loader_role_arn] : []))
+  loader_external_id  = "${var.name_prefix}-loader-${local.account_id}"
+  loader_on           = var.auto_loader_enabled
 
   # ECR repositories per host, derived from the digest-pinned image references (repo@sha256:...).
   ecr_arns = {
@@ -106,6 +108,7 @@ module "data" {
   # tool-service on the core host reads data-pipeline's restricted publication (gold_restricted, PII in the clear).
   agent_services_enabled      = local.agents
   platform_database_enabled   = local.platform_db
+  auto_loader_enabled         = local.loader_on
   agent_keys_suffix           = var.agent_keys_suffix
   restricted_reader_role_arns = local.restricted_readers
   tags                        = local.tags
@@ -120,9 +123,11 @@ module "iam" {
   secret_arn                = module.data.secret_arn
   kms_key_arn               = module.data.kms_key_arn
 
-  # Engine host: loader by default (engine_host_can_load); otherwise only the masked and analytics zones.
+  # Engine host: reads only the masked and analytics zones by default; loader policy only if engine_host_can_load is set true.
   # Core and platform never read landing/ or lake/bronze/ (the bucket policy denies them).
   engine_can_load           = var.engine_host_can_load
+  loader_role_enabled       = local.loader_on
+  loader_external_id        = local.loader_external_id
   engine_lake_read_prefixes = ["lake/gold_masked", "lake/gold_analytics"]
   # tool-service syncs the current publication (latest.json, gold_restricted.duckdb, field_classification.json).
   # agent-core serve syncs its calibration and classifier artifacts from core/artifacts/.
@@ -214,7 +219,16 @@ module "compute_engine" {
   kms_key_arn             = module.data.kms_key_arn
   ecr_registry_url        = local.ecr_registry_url
   images                  = var.images.engine
-  tags                    = local.tags
+  extra_service_envs      = local.loader_on ? ["loader"] : []
+  loader_swap_gb          = local.loader_on ? var.loader_swap_gb : 0
+  extra_bundle_files = local.loader_on ? {
+    "loader/pulso-loader.sh"             = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader.sh")
+    "loader/check_cells_k.py"            = file("${path.module}/../../../deploy/hackathon/engine/loader/check_cells_k.py")
+    "loader/pulso-loader.service"        = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader.service")
+    "loader/pulso-loader.timer"          = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader.timer")
+    "loader/pulso-loader-failed.service" = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader-failed.service")
+  } : {}
+  tags = local.tags
 }
 
 module "edge" {
@@ -254,6 +268,10 @@ locals {
     "agent-core-serve" = { repository = "${var.ecr_repository_prefix}/agent-core-serve" }
     "tool-service"     = { repository = "${var.ecr_repository_prefix}/tool-service" }
   } : {}
+  # The data-pipeline image (dbt + DuckDB) is built from its own repository; digest in images.engine.pipeline.
+  loader_build_services = local.loader_on ? {
+    "data-pipeline" = { repository = "${var.ecr_repository_prefix}/data-pipeline" }
+  } : {}
 }
 
 module "image_builder" {
@@ -264,7 +282,7 @@ module "image_builder" {
   bucket_name  = module.data.bucket_name
   kms_key_arn  = module.data.kms_key_arn
   ecr_registry = local.ecr_registry_url
-  services     = merge(local.build_services, local.agent_build_services)
+  services     = merge(local.build_services, local.agent_build_services, local.loader_build_services)
   compute_type = local.compute_type
   tags         = local.tags
 }
@@ -287,9 +305,9 @@ module "deployers" {
       build_services = ["support-platform-api", "support-platform-web"]
     }
     engine = {
-      image_keys     = ["pulso"]
-      repositories   = ["${var.ecr_repository_prefix}/pulso-engine"]
-      build_services = ["pulso-engine"]
+      image_keys     = concat(["pulso"], local.loader_on ? ["pipeline"] : [])
+      repositories   = concat(["${var.ecr_repository_prefix}/pulso-engine"], local.loader_on ? ["${var.ecr_repository_prefix}/data-pipeline"] : [])
+      build_services = concat(["pulso-engine"], keys(local.loader_build_services))
     }
   }
   project_arns = module.image_builder.project_arns
@@ -323,6 +341,26 @@ resource "aws_ssm_parameter" "engine_platform" {
     PULSO_SOURCE_SCHEMA        = "public"
   } : {}
   name  = "${module.data.ssm_prefix}/engine/pulso/${each.key}"
+  type  = "String"
+  value = each.value
+  tags  = local.tags
+}
+
+# Automatic loader configuration (non-secret), rendered into loader.env on the engine host only (service "loader"). The
+# pseudonymisation key is the secret LOADER__PSEUDONYM_KEY; the loader role credentials are never stored anywhere.
+resource "aws_ssm_parameter" "engine_loader" {
+  for_each = local.loader_on ? merge({
+    LOADER_ROLE_ARN       = module.iam.loader_role_arn
+    LOADER_EXTERNAL_ID    = local.loader_external_id
+    LOADER_BUCKET         = module.data.bucket_name
+    LOADER_REGION         = var.region
+    LOADER_K_MIN          = "10"
+    LOADER_DATASET_PREFIX = "landing/bank"
+    LOADER_MEMORY         = var.loader_memory
+    LOADER_CPUS           = var.loader_cpus
+    LOADER_DUCKDB_MEMORY  = var.loader_duckdb_memory
+  }, var.loader_cells_cmd == "" ? {} : { LOADER_CELLS_CMD = var.loader_cells_cmd }, var.loader_table_batches == "" ? {} : { LOADER_TABLE_BATCHES = var.loader_table_batches }) : {}
+  name  = "${module.data.ssm_prefix}/engine/loader/${each.key}"
   type  = "String"
   value = each.value
   tags  = local.tags

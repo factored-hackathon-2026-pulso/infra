@@ -7,6 +7,9 @@ locals {
   partition  = data.aws_partition.current.partition
   account_id = data.aws_caller_identity.current.account_id
   bucket_arn = "arn:${local.partition}:s3:::${var.s3_bucket_name}"
+  # Fixed name, so the engine policy and the boundary can name it without a reference cycle.
+  loader_role_name = "${var.name}-loader"
+  loader_role_arn  = "arn:${local.partition}:iam::${local.account_id}:role/${local.loader_role_name}"
 
   workloads = {
     core     = { ecr = var.ecr_repository_arns_core, rw = var.core_s3_prefixes, ro = var.core_read_prefixes }
@@ -124,6 +127,14 @@ locals {
           Resource = "${local.bucket_arn}/engine/build-out/*"
         },
       ] : [],
+      w == "engine" && var.loader_role_enabled ? [
+        {
+          Sid      = "AssumeTheLoaderRoleOnly"
+          Effect   = "Allow"
+          Action   = ["sts:AssumeRole"]
+          Resource = [local.loader_role_arn]
+        },
+      ] : [],
       length(c.ro) == 0 ? [] : [
         {
           Sid      = "ObjectReadOnly"
@@ -142,7 +153,14 @@ resource "aws_iam_policy" "boundary" {
   tags        = var.tags
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat(var.loader_role_enabled ? [
+      {
+        Sid      = "AllowAssumingTheLoaderRole"
+        Effect   = "Allow"
+        Action   = ["sts:AssumeRole"]
+        Resource = [local.loader_role_arn]
+      },
+      ] : [], [
       {
         Sid      = "AllowWithinIdentityPolicy"
         Effect   = "Allow"
@@ -155,7 +173,7 @@ resource "aws_iam_policy" "boundary" {
         Action   = ["iam:*", "organizations:*", "account:*"]
         Resource = "*"
       },
-    ]
+    ])
   })
 }
 
@@ -202,4 +220,60 @@ resource "aws_iam_instance_profile" "host" {
   name_prefix = "${var.name}-${each.key}-"
   role        = aws_iam_role.host[each.key].name
   tags        = var.tags
+}
+
+# The automatic loader (docs/auto-loader.md): one role, assumable ONLY by the engine host role (with the external id), with the
+# loader's S3 and KMS access and nothing else (no Secrets Manager, SSM, ECR, IAM). The bucket policy lists it as a loader
+# (loader_role_arns), so the PII Deny statements exempt exactly this role.
+resource "aws_iam_role" "loader" {
+  count                = var.loader_role_enabled ? 1 : 0
+  name                 = local.loader_role_name
+  permissions_boundary = aws_iam_policy.boundary.arn
+  max_session_duration = 3600
+  tags                 = merge(var.tags, { Workload = "loader" })
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = "sts:AssumeRole"
+      Principal = { AWS = aws_iam_role.host["engine"].arn }
+      Condition = { StringEquals = { "sts:ExternalId" = var.loader_external_id } }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "loader" {
+  count = var.loader_role_enabled ? 1 : 0
+  name  = "loader-s3"
+  role  = aws_iam_role.loader[0].id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadLandingAndLake"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:GetObjectVersion"]
+        Resource = ["${local.bucket_arn}/landing/*", "${local.bucket_arn}/lake/*"]
+      },
+      {
+        Sid      = "WriteLake"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:AbortMultipartUpload"]
+        Resource = ["${local.bucket_arn}/lake/*"]
+      },
+      {
+        Sid       = "ListLandingAndLake"
+        Effect    = "Allow"
+        Action    = ["s3:ListBucket"]
+        Resource  = [local.bucket_arn]
+        Condition = { StringLike = { "s3:prefix" = ["landing/*", "lake/*"] } }
+      },
+      {
+        Sid      = "UseDataKey"
+        Effect   = "Allow"
+        Action   = ["kms:GenerateDataKey", "kms:Decrypt", "kms:DescribeKey"]
+        Resource = [var.kms_key_arn]
+      },
+    ]
+  })
 }
