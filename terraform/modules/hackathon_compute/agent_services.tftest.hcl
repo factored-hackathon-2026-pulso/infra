@@ -103,7 +103,7 @@ run "agent_host_syncs_the_calibration_and_classifier_artifacts" {
   }
 
   assert {
-    condition     = strcontains(local.prepare_script, "s3://$BUCKET/core/artifacts/") && strcontains(local.prepare_script, "for d in calibrations classifiers") && strcontains(local.prepare_script, "/srv/data/agent/artifacts/$d/")
+    condition     = strcontains(local.prepare_script, "s3://$BUCKET/core/artifacts/") && strcontains(local.prepare_script, "for d in calibrations classifiers registry-seed") && strcontains(local.prepare_script, "/srv/data/agent/artifacts/$d/")
     error_message = "With agent-core on the host, the start script syncs core/artifacts/ (calibrations, classifiers) to the read-only mount."
   }
 }

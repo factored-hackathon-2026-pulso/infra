@@ -51,6 +51,10 @@ services:
       # from s3://<bucket>/core/artifacts/{calibrations,classifiers}/.
       AGENTCORE_CALIBRATION_DIR: /artifacts/calibrations
       AGENTCORE_CLASSIFIER_ARTIFACTS_DIR: /artifacts/classifiers
+      # Fixed rate table of the engine tool convertir_moneda (not a market source; secret key FILES__AGENT__FX_RATES).
+      AGENTCORE_FX_RATES_FILE: /run/files/FX_RATES
+      # The platform's staff public keys, also for `agentcore registry --verifier ...:staff_verifier` (seed import).
+      AGENTCORE_STAFF_KEYS_FILE: /run/files/STAFF_KEYS
     volumes:
       - /run/pulso/files/agent:/run/files:ro
       - /srv/data/tools/current:/catalog:ro
