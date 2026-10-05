@@ -50,6 +50,47 @@ aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --region "$REGION"
     printf '%s=%s\n' "$var" "$val" >> "/run/pulso/env/$svc.env"
   done
 chmod 600 /run/pulso/env/*.env
+
+# Files: secret keys "FILES__<SERVICE>__<NAME>" -> /run/pulso/files/<service>/<NAME> (tmpfs, 0400, uid 10001 = the app
+# user of the images). For values that are files to the services (key sets, grants); never rendered as env lines.
+rm -rf /run/pulso/files
+install -d -m 755 /run/pulso/files
+for s in $SERVICES; do install -d -m 500 -o 10001 -g 10001 "/run/pulso/files/$s"; done
+SECRET_JSON="$(aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --region "$REGION" --query SecretString --output text)"
+printf '%s' "$SECRET_JSON" | jq -r 'keys[] | select(test("^FILES__(${svc_regex})__[A-Z0-9_]+$"))' |
+  while read -r key; do
+    svc="$(printf '%s' "$key" | cut -d_ -f3 | tr 'A-Z' 'a-z')"
+    name="$${key#FILES__*__}"
+    out="/run/pulso/files/$svc/$name"
+    printf '%s' "$SECRET_JSON" | jq -j --arg k "$key" '.[$k] | tostring' > "$out"
+    chown 10001:10001 "$out"; chmod 400 "$out"
+  done
+unset SECRET_JSON
+%{ if sync_publication ~}
+# tool-service: copy the CURRENT publication of data-pipeline (s3://<bucket>/${publication_prefix}/latest.json -> its run)
+# to /srv/data/tools/data/publish, pointer last. Only gold_restricted.duckdb and field_classification.json are copied
+# (the core role may read nothing else that matters). A missing publication is a warning: tool-service answers
+# data_unavailable until one exists, the rest of the stack still starts.
+install -d -m 755 -o 10001 -g 10001 /srv/data/tools /srv/data/tools/data /srv/data/tools/data/publish /srv/data/tools/state /srv/data/tools/current
+if aws s3 cp "s3://$BUCKET/${publication_prefix}/latest.json" /srv/data/tools/latest.json.new --region "$REGION" --only-show-errors; then
+  RUN_PATH="$(jq -r '.path // empty' /srv/data/tools/latest.json.new)"
+  if [[ "$RUN_PATH" =~ ^publish/[A-Za-z0-9._-]+$ ]]; then
+    RUN_DIR="/srv/data/tools/data/$RUN_PATH"
+    install -d -m 755 -o 10001 -g 10001 "$RUN_DIR"
+    for f in gold_restricted.duckdb field_classification.json; do
+      [ -s "$RUN_DIR/$f" ] || aws s3 cp "s3://$BUCKET/${publication_prefix}/$${RUN_PATH#publish/}/$f" "$RUN_DIR/$f" --region "$REGION" --only-show-errors
+    done
+    chown -R 10001:10001 "$RUN_DIR"
+    install -m 444 -o 10001 -g 10001 "$RUN_DIR/field_classification.json" /srv/data/tools/current/field_classification.json
+    install -m 444 -o 10001 -g 10001 /srv/data/tools/latest.json.new /srv/data/tools/data/publish/latest.json
+  else
+    echo "WARNING: ${publication_prefix}/latest.json has an unexpected path; tool-service keeps its previous publication" >&2
+  fi
+  rm -f /srv/data/tools/latest.json.new
+else
+  echo "WARNING: no publication at s3://$BUCKET/${publication_prefix}/latest.json; tool-service answers data_unavailable" >&2
+fi
+%{ endif ~}
 %{ if workload != "core" ~}
 # Fail closed: the proxy enforces X-Origin-Verify from this value; without it the stack must not start.
 grep -q '^ORIGIN_VERIFY=.\+' /run/pulso/env/common.env || { echo "secret key COMMON__ORIGIN_VERIFY is missing or empty" >&2; exit 1; }

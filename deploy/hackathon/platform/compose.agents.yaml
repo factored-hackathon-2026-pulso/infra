@@ -1,0 +1,17 @@
+# Platform side of the agent services (agent_services_enabled; docs/agent-services.md). Merged over compose.yaml through
+# COMPOSE_FILE in .env (written by Terraform).
+# - support-platform calls agent-core serve on the core host (http://core.<private zone>:8001).
+# - The API is also published on 8000 for agent-core's grant_active check (GET /api/v1/internal/grants/{ref}, bearer
+#   CC_INTERNAL_SERVICE_TOKEN from the secret key SUPPORT__CC_INTERNAL_SERVICE_TOKEN); only the core security group
+#   reaches it. CloudFront still reaches only the proxy on 80, which refuses /api/v1/internal/*.
+# - Files (secret keys FILES__SUPPORT__*): the platform's private signing keys for agent-core and the bank customer links.
+services:
+  support-platform-api:
+    ports:
+      - "8000:8000"
+    environment:
+      CC_AGENT_CORE_URL: http://core.${PRIVATE_ZONE_NAME:?set}:8001
+      CC_AGENT_KEYS_FILE: /run/files/AGENT_PRIVATE_KEYS
+      CC_BANK_CUSTOMER_LINKS_FILE: /run/files/BANK_CUSTOMER_LINKS
+    volumes:
+      - /run/pulso/files/support:/run/files:ro

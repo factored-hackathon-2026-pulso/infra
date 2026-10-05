@@ -29,6 +29,12 @@ variable "core_s3_prefixes" {
   default     = ["core/blobs"]
 }
 
+variable "core_read_prefixes" {
+  type        = list(string)
+  description = "Read-only key prefixes for the core host, for example lake/publish when tool-service runs there (agent services). Empty by default."
+  default     = []
+}
+
 variable "engine_s3_prefixes" {
   type        = list(string)
   description = "Key prefixes the engine may read and write."

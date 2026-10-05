@@ -16,7 +16,19 @@ locals {
   # Container mode renders the role passwords into db.env on the core host (DB__DB_PASSWORD_<ROLE> -> DB_PASSWORD_<ROLE>,
   # read by the initdb script); RDS mode keeps the unprefixed keys used by docs/db-bootstrap.md.
   db_password_prefix = var.database_mode == "container" ? "DB__" : ""
-  db_password_keys   = [for r in ["CORE_OWNER", "CORE_APP", "CORE_EVAL_APP", "CORE_EXPORTER_RO", "PULSO_APP", "PULSO_LOADER", "PULSO_RAW_RO", "PULSO_AUGMENTED_RO", "PULSO_PRODUCT_RO"] : "${local.db_password_prefix}DB_PASSWORD_${r}"]
+  db_password_roles  = concat(["CORE_OWNER", "CORE_APP", "CORE_EVAL_APP", "CORE_EXPORTER_RO", "PULSO_APP", "PULSO_LOADER", "PULSO_RAW_RO", "PULSO_AUGMENTED_RO", "PULSO_PRODUCT_RO"], var.agent_services_enabled ? ["AGENT_OWNER", "AGENT_APP"] : [])
+  db_password_keys   = [for r in local.db_password_roles : "${local.db_password_prefix}DB_PASSWORD_${r}"]
+
+  # Agent services (docs/agent-services.md): agent-core serve renders agent.env, tool-service tools.env. FILES__<SVC>__<NAME>
+  # keys are written by the start script as files (0400, uid 10001) under /run/pulso/files/<svc>/<NAME>, never as env.
+  agent_secret_keys = var.agent_services_enabled ? concat(
+    [for k in ["AGENTCORE_REGISTRY_DSN", "AGENTCORE_EVAL_DSN", "AGENTCORE_MIGRATE_DSN", "AGENTCORE_MIGRATE_EVAL_DSN", "AGENTCORE_LLM_GATEWAY_TOKEN",
+      "AGENTCORE_JEV_API_KEY", "AGENTCORE_KEYS_FINGERPRINT", "AGENTCORE_KEYS_TOKEN_MAP", "AGENTCORE_TOOL_SERVICE_TOKEN",
+    "AGENTCORE_GRANTS_TOKEN"] : "AGENT__${k}"],
+    ["TOOLS__TOOL_SERVICE_TOKENS", "GATEWAY__GATEWAY_TOKEN_AGENT_SERVE", "SUPPORT__CC_INTERNAL_SERVICE_TOKEN"],
+    [for f in ["IDENTITY_KEYS", "STAFF_KEYS", "FIELD_GRANTS", "FIELD_OVERLAY"] : "FILES__AGENT__${f}"],
+    [for f in ["AGENT_PRIVATE_KEYS", "BANK_CUSTOMER_LINKS"] : "FILES__SUPPORT__${f}"],
+  ) : []
 
   # Host-consumed keys are <SERVICE>__<VAR>: the compute start script (pulso-stack-prepare) writes VAR into
   # /run/pulso/env/<service>.env for the services of its own host. DB_PASSWORD_* and RDS_MASTER_PASSWORD are for
@@ -36,6 +48,7 @@ locals {
     var.database_mode == "container" ? ["DB__POSTGRES_PASSWORD"] : [],
     # database role passwords (used by docs/db-bootstrap.md)
     local.db_password_keys,
+    local.agent_secret_keys,
   )
 
   secret_placeholders = { for k in local.secret_keys : k => "CHANGE_ME" }

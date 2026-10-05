@@ -14,8 +14,9 @@
 		@unverified not header X-Origin-Verify {$ORIGIN_VERIFY}
 		respond @unverified "forbidden" 403
 
-		# Core and gateway /internal routes never leave the docker network.
-		@internal path /internal /internal/* /api/internal /api/internal/*
+		# Core and gateway /internal routes never leave the docker network; the platform's own /api/v1/internal/*
+		# (grant_active) is for agent-core over the VPC on :8000, never for CloudFront.
+		@internal path /internal /internal/* /api/internal /api/internal/* /api/v1/internal /api/v1/internal/*
 		respond @internal "not found" 404
 
 		# REST and WebSocket (/api/v1/ws) share this upstream; Caddy upgrades WebSockets itself.

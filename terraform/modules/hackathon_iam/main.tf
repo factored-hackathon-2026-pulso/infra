@@ -9,7 +9,7 @@ locals {
   bucket_arn = "arn:${local.partition}:s3:::${var.s3_bucket_name}"
 
   workloads = {
-    core     = { ecr = var.ecr_repository_arns_core, rw = var.core_s3_prefixes, ro = [] }
+    core     = { ecr = var.ecr_repository_arns_core, rw = var.core_s3_prefixes, ro = var.core_read_prefixes }
     platform = { ecr = var.ecr_repository_arns_platform, rw = [], ro = [] }
     engine   = { ecr = var.ecr_repository_arns_engine, rw = var.engine_s3_prefixes, ro = var.engine_can_load ? ["landing", "lake"] : var.engine_lake_read_prefixes }
   }
