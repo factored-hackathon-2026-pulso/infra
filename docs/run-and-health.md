@@ -28,7 +28,7 @@ Variable NAMES only. Values come from Terraform-generated keys in the single Sec
 
 | | |
 |---|---|
-| Image | `Dockerfile` in the repo: `golang:1.27` build, `gcr.io/distroless/static-debian12:nonroot` runtime, static binary, tag-pinned bases (digest pinning is a release-time step, see the runbook). Not measured here. |
+| Image | `Dockerfile` in the repo: `golang:1.27` build, `gcr.io/distroless/static-debian12:nonroot` runtime, static binary, tag-pinned bases (digest pinning is a release-time step, see the runbook). 17 MB, amd64 (built with Podman in this lane). tool-service image: 250 MB. |
 | Command | `ENTRYPOINT ["/llm-gateway"]`, no arguments. |
 | Environment | `GATEWAY_CONSUMERS` and `LLM_ENDPOINTS` (SSM, derived), `GATEWAY_TOKEN_<CONSUMER>` for AGENT_CORE, AGENT_SERVE, ENGINE, SUPPORT_PLATFORM (Terraform-generated), `OPENROUTER_API_KEY` and the other provider keys (out of band), `JEV_API_KEY` (out of band); optional `LISTEN_ADDR`, `MAX_BODY_BYTES`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `LLM_GATEWAY_TRACE_CONTENT`. Invalid config exits 2. |
 | Port | 8080. Published to the host so the engine host can call `<core private IP>:8080`; the core security group allows it from the engine security group only. Compose-network peers use `llm-gateway:8080`. |
