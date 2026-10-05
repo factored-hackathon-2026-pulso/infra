@@ -154,7 +154,8 @@ resource "aws_cloudfront_distribution" "this" {
       dynamic "vpc_origin_config" {
         for_each = var.origin_mode == "vpc" ? [1] : []
         content {
-          vpc_origin_id = aws_cloudfront_vpc_origin.this[origin.key].id
+          vpc_origin_id       = aws_cloudfront_vpc_origin.this[origin.key].id
+          origin_read_timeout = 60 # the platform waits for the Core up to 55 s (docs/platform-contract.md)
         }
       }
 
@@ -166,6 +167,7 @@ resource "aws_cloudfront_distribution" "this" {
           https_port             = 443
           origin_protocol_policy = var.origin_protocol_policy
           origin_ssl_protocols   = ["TLSv1.2"]
+          origin_read_timeout    = 60 # the platform waits for the Core up to 55 s (docs/platform-contract.md)
         }
       }
 

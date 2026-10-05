@@ -1,6 +1,11 @@
 {
 	auto_https off
 	admin off
+	# CloudFront reaches this proxy from VPC (private) addresses: keep the viewer's X-Forwarded-For and append (the API takes
+	# the right-most address that is not a trusted proxy as the client).
+	servers {
+		trusted_proxies static private_ranges
+	}
 }
 
 # ORIGIN_VERIFY is rendered into common.env from the secret key COMMON__ORIGIN_VERIFY (the host refuses to start
@@ -20,7 +25,10 @@
 		respond @internal "not found" 404
 
 		# REST and WebSocket (/api/v1/ws) share this upstream; Caddy upgrades WebSockets itself.
-		reverse_proxy /api/* support-platform-api:8000
+		# The viewer always uses https (CloudFront terminates TLS): the API needs it for the scheme of absolute URLs and wss.
+		reverse_proxy /api/* support-platform-api:8000 {
+			header_up X-Forwarded-Proto https
+		}
 		reverse_proxy support-platform-web:80
 	}
 }

@@ -37,7 +37,7 @@ locals {
   # OTLP forwarder (docs/otlp-forwarder.md): Langfuse project keys for the sidecars (service env "langfuse"); the base URL is
   # not secret and lives in SSM (ssm.tf). Out of band, placeholder CHANGE_ME until the human puts them.
   langfuse_keys    = var.otlp_forwarder_enabled ? ["LANGFUSE__LANGFUSE_PUBLIC_KEY", "LANGFUSE__LANGFUSE_SECRET_KEY"] : []
-  platform_db_keys = var.platform_database_enabled ? ["SUPPORT__CC_MIGRATE_DATABASE_URL", "PULSO__PULSO_PG_PRODUCT_DSN"] : []
+  platform_db_keys = var.platform_database_enabled ? ["MIGRATE__CC_DATABASE_URL", "PULSO__PULSO_PG_PRODUCT_DSN"] : []
 
   # Host-consumed keys are <SERVICE>__<VAR>: the compute start script (pulso-stack-prepare) writes VAR into
   # /run/pulso/env/<service>.env for the services of its own host. DB_PASSWORD_* and RDS_MASTER_PASSWORD are for

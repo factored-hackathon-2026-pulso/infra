@@ -43,7 +43,12 @@ class PlatformDatabases(unittest.TestCase):
         self.assertNotRegex(self.sql, r"(?i)GRANT (INSERT|UPDATE|DELETE|ALL)[^;]*platform_exporter_ro")
 
     def test_exporter_grants_are_an_explicit_allow_list(self):
-        self.assertIn("ARRAY['event_log', 'cases']", self.grants)
+        self.assertIn("('event_log',", self.grants)
+        self.assertIn("('cases',", self.grants)
+        self.assertIn("GRANT SELECT (%s)", self.grants)  # column level, never table level
+        self.assertRegex(self.grants, r"case_type")
+        self.assertNotRegex(self.grants, r"GRANT SELECT ON public")
+        self.assertIn("REVOKE UPDATE, DELETE, TRUNCATE ON public.event_log FROM platform_app", self.grants)
         self.assertIn("REVOKE ALL ON ALL TABLES IN SCHEMA public FROM platform_exporter_ro", self.grants)
         self.assertNotRegex(self.grants, r"(?i)GRANT SELECT ON ALL TABLES")
 

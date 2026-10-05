@@ -11,7 +11,16 @@ services:
       - "8000:8000"
     environment:
       CC_AGENT_CORE_URL: http://core.${PRIVATE_ZONE_NAME:?set}:8001
+      CC_AGENT_CORE_TIMEOUT_SECONDS: "55" # below the CloudFront origin read timeout (60 s)
       CC_AGENT_KEYS_FILE: /run/files/AGENT_PRIVATE_KEYS
       CC_BANK_CUSTOMER_LINKS_FILE: /run/files/BANK_CUSTOMER_LINKS
     volumes:
       - /run/pulso/files/support:/run/files:ro
+  # The seed unit reads the same files (links and, through the container, the agent keys file) as the API.
+  support-platform-seed:
+    environment:
+      CC_AGENT_CORE_URL: http://core.${PRIVATE_ZONE_NAME:?set}:8001
+      CC_AGENT_KEYS_FILE: /run/files/AGENT_PRIVATE_KEYS
+      CC_BANK_CUSTOMER_LINKS_FILE: /run/files/BANK_CUSTOMER_LINKS
+  support-platform-migrate:
+    environment: {}

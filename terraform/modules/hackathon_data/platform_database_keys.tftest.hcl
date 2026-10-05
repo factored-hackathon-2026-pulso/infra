@@ -23,7 +23,7 @@ run "platform_database_seeds_roles_dsns_and_the_engine_token" {
     condition = alltrue([for k in [
       "DB__DB_PASSWORD_PLATFORM_OWNER", "DB__DB_PASSWORD_PLATFORM_APP", "DB__DB_PASSWORD_PLATFORM_EXPORTER_RO",
       "DB__DB_PASSWORD_TOOLS_OWNER", "DB__DB_PASSWORD_TOOLS_APP",
-      "SUPPORT__CC_DATABASE_URL", "SUPPORT__CC_MIGRATE_DATABASE_URL", "PULSO__PULSO_PG_PRODUCT_DSN",
+      "SUPPORT__CC_DATABASE_URL", "MIGRATE__CC_DATABASE_URL", "PULSO__PULSO_PG_PRODUCT_DSN",
     ] : contains(keys(nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))), k)])
     error_message = "Role passwords (container mode, DB__ prefix), platform DSNs and the engine's read-only DSN are seeded."
   }

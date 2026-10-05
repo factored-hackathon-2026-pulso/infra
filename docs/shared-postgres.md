@@ -30,7 +30,7 @@ All in the one Secrets Manager secret (names only). Role passwords `DB__DB_PASSW
 | Key | Value shape | Rendered into |
 |---|---|---|
 | `SUPPORT__CC_DATABASE_URL` | `postgresql://platform_app:<pw>@core.<zone>:5432/platform` | platform host `support.env` |
-| `SUPPORT__CC_MIGRATE_DATABASE_URL` (assumed name; align with support-platform `deploy-env.md`) | same, role `platform_owner` | platform host (migration step only) |
+| `MIGRATE__CC_DATABASE_URL` (assumed name; align with support-platform `deploy-env.md`) | same, role `platform_owner` | platform host (migration step only) |
 | `PULSO__PULSO_PG_PRODUCT_DSN` | `postgresql://platform_exporter_ro:<pw>@core.<zone>:5432/platform` | engine host `pulso.env` |
 | `PULSO__PULSO_PLATFORM_SERVICE_TOKEN` | generated, equal to `SUPPORT__CC_INTERNAL_SERVICE_TOKEN` | engine host `pulso.env` |
 

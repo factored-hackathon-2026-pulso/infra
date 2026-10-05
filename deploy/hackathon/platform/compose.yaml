@@ -9,19 +9,72 @@ x-logging: &logging
     max-size: "10m"
     max-file: "3"
 
+# The subnet is pinned so CC_TRUSTED_PROXIES can name it exactly (the API believes X-Forwarded-* only from the proxy).
 networks:
-  internal: {}
+  internal:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
 
 services:
+  # One-shot, owner role (secret key MIGRATE__CC_DATABASE_URL -> migrate.env). Same image as the API; `cc-migrate` reads only
+  # CC_DATABASE_URL. Idempotent and advisory-locked (docs/platform/deploy/database.md in support-platform). Retries while the
+  # Postgres of the core host is still coming up.
+  support-platform-migrate:
+    image: ${SUPPORT_API_IMAGE:?set}
+    command: ["cc-migrate"]
+    restart: on-failure:10
+    mem_limit: 256m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/migrate.env]
+    logging: *logging
+    networks: [internal]
+
+  # On demand (compose profile "seed"): all synthetic content, idempotent. Run once after the migration:
+  #   docker compose -p pulso --profile seed run --rm support-platform-seed
+  # Runs with the API's settings (support.env) and the app role: it needs no DDL. Not part of `up`.
+  support-platform-seed:
+    image: ${SUPPORT_API_IMAGE:?set}
+    profiles: ["seed"]
+    command: ["cc-seed", "--profile", "volume"]
+    mem_limit: 512m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/support.env]
+    environment:
+      CC_ENV: staging
+      CC_MIGRATE_ON_START: "false"
+    volumes:
+      - /run/pulso/files/support:/run/files:ro
+    depends_on:
+      support-platform-migrate:
+        condition: service_completed_successfully
+    logging: *logging
+    networks: [internal]
+
   support-platform-api:
     image: ${SUPPORT_API_IMAGE:?set}
     restart: unless-stopped
     mem_limit: 512m
+    user: "10001:10001"
+    stop_grace_period: 30s # 2 x CC_SHUTDOWN_TIMEOUT_SECONDS (10) + 5
     env_file: [/run/pulso/env/common.env, /run/pulso/env/support.env]
-    volumes:
-      - /srv/data/support:/data
+    # Runtime contract of support-platform (docs/platform/deploy-env.md). Non-secret literals; CC_PUBLIC_APP_URL and CC_CORS_ORIGINS
+    # come from SSM (support.env), the secrets from the secret. staging = the shared environment on synthetic demo data (seeded
+    # accounts, dev MFA code 000000, dev mailbox) behind CloudFront with the production runtime rules.
+    environment:
+      CC_ENV: staging
+      CC_HOST: 0.0.0.0
+      CC_SEED_DEMO_DATA: "true"
+      CC_SEED_DEMO_BANK_LINKS: "true"
+      CC_DEV_MAILBOX: "true"
+      CC_MIGRATE_ON_START: "false" # the one-shot above migrates as the owner; the app role has no DDL
+      CC_TRUSTED_PROXIES: '["172.29.0.0/24"]'
+      CC_LOG_FORMAT: json
+    depends_on:
+      support-platform-migrate:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/readyz', timeout=4)"]
       interval: 15s
       timeout: 5s
       retries: 5

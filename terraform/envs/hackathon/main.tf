@@ -249,6 +249,7 @@ module "compute_platform" {
   images                  = var.images.platform
   compose_files           = local.agents ? ["compose.yaml", "compose.agents.yaml"] : ["compose.yaml"]
   extra_bundle_files      = local.platform_agent_files
+  extra_service_envs      = ["migrate"]
   extra_ports             = local.agents ? ["8000:8000"] : []
   tags                    = local.tags
 }
