@@ -29,6 +29,17 @@ images = {
 # edge_enabled  = true          # false: come up without CloudFront (staged apply)
 # images.core may carry an optional digest-pinned ECR mirror: postgres = "<registry>/pulso-prod/postgres@sha256:..."
 
+# Agent services (docs/agent-services.md): agent-core serve (core:8001) and tool-service for support-platform. Turn on
+# only when both images are built AND agent-core ships its real transcript, calibration and classifier pieces; with
+# the flag on, plan requires the two digests below and serve refuses to start without every real piece.
+# agent_services_enabled = true
+#   and in images.core:
+#     agent = "<registry>/pulso-prod/agent-core-serve@sha256:REPLACE_WITH_64_HEX_DIGEST"
+#     tools = "<registry>/pulso-prod/tool-service@sha256:REPLACE_WITH_64_HEX_DIGEST"
+# agent_serve_args = "--tools agent_core.adapters.tools:http_tool_executor --authz agent_core.adapters.policy_authz:policy_authz --field-classifier agent_core.adapters.classification:field_classifier --grant-active agent_core.adapters.grants:http_grant_active --transcript <module:attr> --calibration <module:attr> --classifier <module:attr>"
+#   (the default lists the four real pieces that exist today; the field classifier path moves to
+#    agent_core.composition.classification with agent-core PR #38)
+
 # Optional levers (defaults shown).
 # enable_waf           = false   # about 8 USD per month; default false in free_plan, true in prod
 # enabled              = { core = true, platform = true, engine = true }   # per-host kill switch
