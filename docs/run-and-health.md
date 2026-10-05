@@ -118,10 +118,11 @@ render, pull (running containers untouched), `up -d`, wait healthy twice, otherw
    with a message otherwise. Order: first start with `PULSO__PULSO_DATABASE_URL` as the master role, so the engine migrates; a core
    deploy (or boot) runs the job; when it logs `logins enabled`, switch the secret to `pulso_app` and redeploy the engine.
    `PULSO_DATA_MODE` is now `dataset` (SSM, derived).
-3. **Improvement loop on the engine host (partly done).** The engine image gains `steps_cli` (engine repo PR 112). The job is
-   `deploy/hackathon/engine/compose.loop.yaml`, opt-in and unwired, env `PULSO_MODEL_PORT=gateway`, `PULSO_CORE_PORT=live`,
-   `STEPS_RUNNER_EXE`. **Slots (engine code):** the loop-driver subcommand, and minting Ed25519 Core credentials from
-   `PULSO_SERVICE_SEED_HEX` plus `PULSO_SERVICE_KID` for agent-core `serve` (the live port is still bridge-based).
+3. **Improvement loop on the engine host (job defined, unwired).** The engine image carries `pulso loop` (engine PRs 112, 119, 122): one
+   run of cells to sensor, Scout, Verifier, Builder, regression proof, registry writer and announce. It mints its own Ed25519 `builder`
+   credential from `PULSO_SERVICE_SEED_HEX` + `PULSO_SERVICE_KID` (the public key must be listed under that kid in the Core's staff-keys).
+   The job is `deploy/hackathon/engine/compose.loop.yaml` (command `loop`, env of `docs/dev/ENGINE_PROD.md` in the engine repo), opt-in
+   and not wired to Terraform. Still infra's: sync `engine/inputs/` to `/srv/data/pulso/inputs` and a timer.
 4. **OTLP forwarder wiring:** deferred until the base cycle works (recipe and fragment exist).
 5. **Host replacement on apply:** accepted (`user_data` changes).
 6. **Supply chain, to do at deploy time (nothing downloaded here):**

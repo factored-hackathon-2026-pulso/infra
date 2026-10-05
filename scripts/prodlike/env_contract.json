@@ -41,15 +41,30 @@
       {"name": "PULSO_DATA_MODE", "infra": "engine/pulso/PULSO_DATA_MODE", "kind": "ssm-out-of-band", "local": "const:dataset"},
       {"name": "PULSO_CORE_ADDR", "infra": "PULSO_CORE_ADDR", "kind": "ssm-derived", "local": "core_addr"},
       {"name": "PULSO_LLM_GATEWAY_ADDR", "infra": "PULSO_LLM_GATEWAY_ADDR", "kind": "ssm-derived", "local": "gateway_addr"}
+    ],
+    "agent": [
+      {"name": "AGENTCORE_REGISTRY_DSN", "infra": "AGENT__AGENTCORE_REGISTRY_DSN", "kind": "secrets-manager-out-of-band", "local": "dsn:agent_app:agent_runtime:DB_PASSWORD_AGENT_APP"},
+      {"name": "AGENTCORE_EVAL_DSN", "infra": "AGENT__AGENTCORE_EVAL_DSN", "kind": "secrets-manager-out-of-band", "local": "dsn:agent_app:agent_eval:DB_PASSWORD_AGENT_APP"},
+      {"name": "AGENTCORE_MIGRATE_DSN", "infra": "AGENT__AGENTCORE_MIGRATE_DSN", "kind": "secrets-manager-out-of-band", "local": "dsn:agent_owner:agent_runtime:DB_PASSWORD_AGENT_OWNER"},
+      {"name": "AGENTCORE_MIGRATE_EVAL_DSN", "infra": "AGENT__AGENTCORE_MIGRATE_EVAL_DSN", "kind": "secrets-manager-out-of-band", "local": "dsn:agent_owner:agent_eval:DB_PASSWORD_AGENT_OWNER"},
+      {"name": "AGENTCORE_LLM_GATEWAY_TOKEN", "infra": "AGENT__AGENTCORE_LLM_GATEWAY_TOKEN", "kind": "terraform-generated", "local": "gateway_token:AGENT_SERVE"},
+      {"name": "AGENTCORE_JEV_API_KEY", "infra": "AGENT__AGENTCORE_JEV_API_KEY", "kind": "secrets-manager-out-of-band", "local": "external", "alias": "JEV_API_KEY"},
+      {"name": "AGENTCORE_KEYS_FINGERPRINT", "infra": "AGENT__AGENTCORE_KEYS_FINGERPRINT", "kind": "terraform-generated", "local": "key_set"},
+      {"name": "AGENTCORE_KEYS_TOKEN_MAP", "infra": "AGENT__AGENTCORE_KEYS_TOKEN_MAP", "kind": "terraform-generated", "local": "key_set"},
+      {"name": "AGENTCORE_TOOL_SERVICE_TOKEN", "infra": "AGENT__AGENTCORE_TOOL_SERVICE_TOKEN", "kind": "terraform-generated", "local": "tool_token"},
+      {"name": "AGENTCORE_GRANTS_TOKEN", "infra": "AGENT__AGENTCORE_GRANTS_TOKEN", "kind": "terraform-generated", "local": "internal_token"}
     ]
   },
   "compose_environment": {
     "_doc": "Set by the compose files themselves (environment:) from .env variables, not from env files.",
     "variables": ["BUCKET_NAME", "CORE_BLOB_PREFIX", "PULSO_STORAGE_PREFIX", "PRIVATE_ZONE_NAME"]
   },
+  "agent_files": {
+    "_doc": "Files under /run/pulso/files/agent on the core host (secret keys FILES__AGENT__*). Rendered locally by `prodlike.py state`.",
+    "names": ["IDENTITY_KEYS", "STAFF_KEYS", "FIELD_GRANTS", "FIELD_OVERLAY", "FX_RATES"]
+  },
   "slots": {
-    "agent": ["AGENTCORE_REGISTRY_DSN", "AGENTCORE_EVAL_DSN", "AGENTCORE_MIGRATE_DSN", "AGENTCORE_MIGRATE_EVAL_DSN", "AGENTCORE_LLM_GATEWAY_TOKEN", "AGENTCORE_JEV_API_KEY", "AGENTCORE_KEYS_FINGERPRINT", "AGENTCORE_KEYS_TOKEN_MAP", "AGENTCORE_TOOL_SERVICE_TOKEN", "AGENTCORE_GRANTS_TOKEN"],
-    "support": ["CC_SESSION_SECRET", "CC_TOTP_SECRET_KEY", "CC_DATABASE_URL", "CC_INTERNAL_SERVICE_TOKEN", "CC_CORS_ORIGINS", "CC_PUBLIC_APP_URL"],
+    "support":["CC_SESSION_SECRET", "CC_TOTP_SECRET_KEY", "CC_DATABASE_URL", "CC_INTERNAL_SERVICE_TOKEN", "CC_CORS_ORIGINS", "CC_PUBLIC_APP_URL"],
     "_doc": "Filled when agent-core serve and the platform images exist (briefs in docs/reports-claude/ASKS). The names are infra's today; the teams' env documents (serve-env.md) are authoritative and may rename them."
   }
 }

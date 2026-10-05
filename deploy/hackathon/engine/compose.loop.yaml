@@ -1,23 +1,27 @@
-# OPT-IN, NOT WIRED into Terraform. The improvement-loop job on the engine host: same image as `pulso` (it ships steps_cli), run
-# on demand or by a timer with `docker compose -p pulso -f compose.yaml -f compose.loop.yaml run --rm pulso-loop`.
-# SLOTS, owned by engine code and agent-core (docs/run-and-health.md section 6):
-#  - SLOT command: the loop driver subcommand does not exist in `pulso` yet (today it is scripts/demo-loop, PowerShell and Python).
-#  - SLOT Core credentials: against agent-core `serve` (not core-bridge) the engine must MINT Ed25519 credentials from
-#    PULSO_SERVICE_SEED_HEX and PULSO_SERVICE_KID (both already rendered into pulso.env). `PULSO_CORE_PORT=live` today wants the
-#    bridge variables (PULSO_BRIDGE_ADDR, PULSO_HUMAN_*): engine work, not infra. Registry address: PULSO_CORE_ADDR (core IP:8001).
+# OPT-IN, NOT WIRED into Terraform. The improvement-loop job on the engine host: same image as `pulso` (it ships `pulso loop`, the
+# regression proof's Python and steps_cli), run on demand or by a timer with
+#   docker compose -p pulso -f compose.yaml -f compose.loop.yaml run --rm pulso-loop
+# Contract: engine repo docs/dev/ENGINE_PROD.md (engine PRs 112, 119, 122). `pulso loop` mints its own short-lived Ed25519 `builder`
+# credential for agent-core `serve` from PULSO_SERVICE_SEED_HEX + PULSO_SERVICE_KID (both already in pulso.env; the public key is listed
+# under that kid in the Core's staff-keys), reads the registry address from PULSO_CORE_ADDR (core private IP:8001) and the gateway from
+# PULSO_LLM_GATEWAY_ADDR/KEY. Exit codes: 0 done, 1 could not run, 2 refused config (do not retry), 3 infrastructure failure in a finding,
+# 75 another run holds the lock. Rehearsed with scripts/prodlike/prodlike.py loop (planted SYNTHETIC cells, PULSO_PROFILE=demo).
+# Still to do by infra: sync s3://<bucket>/engine/inputs/ (the cells package) to /srv/data/pulso/inputs before the run, and a timer.
 services:
   pulso-loop:
     image: ${PULSO_IMAGE:?set}
-    command: ["${PULSO_LOOP_COMMAND:?SLOT: the loop driver subcommand}"]
+    command: ["loop"]
     restart: "no"
     mem_limit: 768m
+    # `pulso loop` does not trap SIGTERM: a stop leaves loop.lock (the next run takes it over after PULSO_LOOP_LOCK_TTL_S).
+    stop_grace_period: 30s
     env_file: [/run/pulso/env/common.env, /run/pulso/env/pulso.env]
     environment:
-      PULSO_MODEL_PORT: gateway
-      PULSO_CORE_PORT: live
-      STEPS_RUNNER_EXE: /usr/local/bin/steps_cli
+      PULSO_LOOP_INPUTS_DIR: /var/lib/pulso/inputs
+      # What the cells are: bank | e0 | synthetic. Never defaulted: PULSO_PROFILE=demo is refused for anything but synthetic.
+      PULSO_CELLS_SOURCE: ${PULSO_CELLS_SOURCE:?set bank, e0 or synthetic}
       PULSO_WORK_DIR: /var/lib/pulso/work
-      PULSO_CORE_URL: http://core.${PRIVATE_ZONE_NAME:?set}:8001
+      PULSO_REGISTRY_ENV: shared
     volumes:
       - /srv/data/pulso:/var/lib/pulso
     logging:

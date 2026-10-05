@@ -226,11 +226,14 @@ class LoopJobSlot(unittest.TestCase):
         svc = load(self.LOOP)["pulso-loop"]
         self.assertEqual(svc["image"], "${PULSO_IMAGE:?set}")
         self.assertEqual(svc["restart"], "no")
+        self.assertEqual(svc["command"], ["loop"], "the `pulso loop` subcommand of the engine image (engine PR 119)")
         env = svc["environment"]
-        self.assertEqual(env["PULSO_MODEL_PORT"], "gateway")
-        self.assertEqual(env["PULSO_CORE_PORT"], "live")
-        self.assertEqual(env["STEPS_RUNNER_EXE"], "/usr/local/bin/steps_cli")
+        for name in ("PULSO_LOOP_INPUTS_DIR", "PULSO_CELLS_SOURCE", "PULSO_WORK_DIR", "PULSO_REGISTRY_ENV"):
+            self.assertIn(name, env)
+        self.assertTrue(env["PULSO_CELLS_SOURCE"].startswith("${PULSO_CELLS_SOURCE:?"), "never defaulted: demo floors are refused for non-synthetic data")
+        for gone in ("PULSO_MODEL_PORT", "PULSO_CORE_PORT", "STEPS_RUNNER_EXE", "PULSO_CORE_URL"):
+            self.assertNotIn(gone, env, f"{gone} is not read by `pulso loop` (docs/dev/ENGINE_PROD.md)")
         text = self.LOOP.read_text(encoding="utf-8")
-        self.assertIn("SLOT", text)
+        self.assertIn("ENGINE_PROD.md", text)
         self.assertIn("PULSO_SERVICE_SEED_HEX", text)
         self.assertNotIn("compose.loop.yaml", (TF / "envs" / "hackathon" / "main.tf").read_text(encoding="utf-8"))
