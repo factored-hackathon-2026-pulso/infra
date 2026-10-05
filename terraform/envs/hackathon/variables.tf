@@ -84,6 +84,17 @@ variable "agent_services_enabled" {
   description = "agent-core serve (core:8001) and tool-service on the core host, wired to support-platform (docs/agent-services.md): compose overrides on core and platform, agent.env/tools.env and FILES__ secret keys, the agent databases, core reads the restricted publication, network paths platform<->core. Off by default."
 }
 
+variable "platform_database_enabled" {
+  type        = bool
+  default     = false
+  description = "ONE shared Postgres (core host container) for platform and tool-service next to agent-core's: databases platform and tools, roles platform_owner/platform_app/platform_exporter_ro/tools_owner/tools_app, their secret keys, and the engine's read-only access to the platform event log plus its announce path to the platform (docs/shared-postgres.md). Needs database_mode container (free_plan) and agent_services_enabled. Off by default."
+
+  validation {
+    condition     = !var.platform_database_enabled || var.agent_services_enabled
+    error_message = "platform_database_enabled needs agent_services_enabled (the engine reaches the platform over the agent-services paths)."
+  }
+}
+
 variable "agent_serve_args" {
   type        = string
   default     = "--tools agent_core.adapters.tools:http_tool_executor --authz agent_core.adapters.policy_authz:policy_authz --field-classifier agent_core.composition.classification:field_classifier --grant-active agent_core.adapters.grants:http_grant_active --transcript agent_core.composition.transcript:transcript --calibration agent_core.composition.artifacts:calibration --classifier agent_core.composition.artifacts:classifier_provider"

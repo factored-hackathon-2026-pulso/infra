@@ -44,10 +44,16 @@ locals {
   } : {}
 
   # Agent services (docs/agent-services.md): agent-core serve and tool-service on the core host, the platform side.
-  agents = var.agent_services_enabled
+  agents      = var.agent_services_enabled
+  platform_db = var.platform_database_enabled
   core_agent_files = local.agents ? merge(
     { "compose.agents.yaml" = file("${path.module}/../../../deploy/hackathon/core/compose.agents.yaml") },
     local.container_db ? { "initdb/sql/20_agent_databases.sql" = file("${path.module}/../../modules/hackathon_data/sql/20_agent_databases.sql") } : {},
+    # Shared Postgres: platform and tool-service databases; the exporter grants run by hand after the platform's first migration.
+    local.container_db && local.platform_db ? {
+      "initdb/sql/25_platform_databases.sql"       = file("${path.module}/../../modules/hackathon_data/sql/25_platform_databases.sql")
+      "initdb/sql/26_platform_exporter_grants.sql" = file("${path.module}/../../modules/hackathon_data/sql/26_platform_exporter_grants.sql")
+    } : {},
   ) : {}
   platform_agent_files = local.agents ? { "compose.agents.yaml" = file("${path.module}/../../../deploy/hackathon/platform/compose.agents.yaml") } : {}
   restricted_readers   = local.agents ? [module.iam.instance_role_arn_core] : []
@@ -99,6 +105,7 @@ module "data" {
 
   # tool-service on the core host reads data-pipeline's restricted publication (gold_restricted, PII in the clear).
   agent_services_enabled      = local.agents
+  platform_database_enabled   = local.platform_db
   agent_keys_suffix           = var.agent_keys_suffix
   restricted_reader_role_arns = local.restricted_readers
   tags                        = local.tags
@@ -154,7 +161,7 @@ module "compute_core" {
   extra_service_envs      = concat(local.container_db ? ["db"] : [], local.agents ? ["agent", "tools"] : [])
   compose_files           = concat(["compose.yaml"], local.container_db ? ["compose.postgres.yaml"] : [], local.agents ? ["compose.agents.yaml"] : [])
   extra_bundle_files      = merge(local.core_db_files, local.core_agent_files)
-  extra_ports             = local.agents ? ["8001:8001"] : []
+  extra_ports             = concat(["8080:8080"], local.agents ? ["8001:8001"] : [])
   extra_env               = local.agents ? { AGENT_SERVE_ARGS = var.agent_serve_args } : {}
   tags                    = local.tags
 }
@@ -296,6 +303,25 @@ resource "aws_ssm_parameter" "engine_core_addr" {
     PULSO_CORE_ADDR        = "${module.compute_core.private_ip}:${local.agents ? 8001 : 8000}"
     PULSO_LLM_GATEWAY_ADDR = "${module.compute_core.private_ip}:8080"
   }
+  name  = "${module.data.ssm_prefix}/engine/pulso/${each.key}"
+  type  = "String"
+  value = each.value
+  tags  = local.tags
+}
+
+# Engine -> platform (announce route and evidence, docs/shared-postgres.md) and engine -> serve registry. The engine client
+# accepts only a private IP literal or localhost for plain HTTP (PULSO_PLATFORM_URL, PULSO_REGISTRY_ADDR), so these are the
+# hosts' private IPs; the next apply rewrites them if an instance is replaced. The platform API is published on :8000 for
+# the core and engine security groups only (agent_services_enabled); the proxy on :80 keeps refusing /api/v1/internal/*.
+# The platform event log is read through the read-only database role (PULSO__PULSO_PG_PRODUCT_DSN, adapter product-postgres, schema public).
+resource "aws_ssm_parameter" "engine_platform" {
+  for_each = local.platform_db ? {
+    PULSO_PLATFORM_URL         = "http://${module.compute_platform.private_ip}:8000"
+    PULSO_REGISTRY_ADDR        = "${module.compute_core.private_ip}:8001"
+    PULSO_ANNOUNCE_TO_PLATFORM = "on"
+    PULSO_SOURCE_ADAPTER       = "product-postgres"
+    PULSO_SOURCE_SCHEMA        = "public"
+  } : {}
   name  = "${module.data.ssm_prefix}/engine/pulso/${each.key}"
   type  = "String"
   value = each.value

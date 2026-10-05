@@ -114,6 +114,12 @@ variable "agent_services_enabled" {
   default     = false
 }
 
+variable "platform_database_enabled" {
+  description = "Seed the secret keys of the platform and tool-service databases on the shared Postgres (platform, tools) and the engine's read-only access to the platform event log (docs/shared-postgres.md). Off by default."
+  type        = bool
+  default     = false
+}
+
 variable "host_role_arns" {
   description = "Roles of the host (compute) allowed to read lake/gold_masked, lake/gold_analytics and engine/*, and use core/, engine/, tmp/."
   type        = list(string)

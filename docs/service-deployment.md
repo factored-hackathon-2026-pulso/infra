@@ -133,7 +133,7 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
   .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service tool-service -SourceDir D:\src\tool-service
   .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-core -Service tool-service -FromBuild <build id> -Wait
   ```
-- SSM key `/pulso/core/images/tools`; never published, reached by agent-core at `http://tool-service:8080` (`GET /healthz`, `GET /readyz` also checks the dataset). Reads the publication synced by the start script; secret `TOOLS__TOOL_SERVICE_TOKENS`.
+- SSM key `/pulso/core/images/tools`; published only on 8080 to the engine security group, reached by agent-core at `http://tool-service:8080` (`GET /healthz`, `GET /readyz` also checks the dataset). Reads the publication synced by the start script; secret `TOOLS__TOOL_SERVICE_TOKENS`.
 
 ### support-platform (`support-platform-api`, `support-platform-web`)
 

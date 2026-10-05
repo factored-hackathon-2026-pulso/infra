@@ -66,13 +66,13 @@ run "bundle_rules_core" {
   }
   assert {
     condition = alltrue([for n, s in local.compose.services :
-      (contains(keys(s), "ports") ? contains(local.allowed_ports, one(s.ports)) : true)
+      (contains(keys(s), "ports") ? (contains(local.allowed_ports, one(s.ports)) || (n == "llm-gateway" && one(s.ports) == "8080:8080")) : true)
     ])
-    error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core)."
+    error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core; the gateway 8080 for the engine)."
   }
   assert {
-    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {})), "ports")
-    error_message = "The gateway is never published."
+    condition     = !contains(keys(try(local.compose.services["llm-gateway"], {})), "ports") || one(local.compose.services["llm-gateway"].ports) == "8080:8080"
+    error_message = "The gateway publishes only 8080 (the engine host calls it; the core security group admits the engine security group only)."
   }
   assert {
     condition     = alltrue([for n, s in local.compose.services : can(regex("^[0-9]+m$", s.mem_limit)) && contains(keys(s), "restart")])
@@ -106,7 +106,7 @@ run "bundle_rules_platform" {
     condition = alltrue([for n, s in local.compose.services :
       (contains(keys(s), "ports") ? contains(local.allowed_ports, one(s.ports)) : true)
     ])
-    error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core)."
+    error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core; the gateway 8080 for the engine)."
   }
   assert {
     condition     = !contains(keys(try(local.compose.services["llm-gateway"], {})), "ports")
@@ -144,7 +144,7 @@ run "bundle_rules_engine" {
     condition = alltrue([for n, s in local.compose.services :
       (contains(keys(s), "ports") ? contains(local.allowed_ports, one(s.ports)) : true)
     ])
-    error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core)."
+    error_message = "Only the allowed port is published (proxies 80; core-runtime 8000 on core; the gateway 8080 for the engine)."
   }
   assert {
     condition     = !contains(keys(try(local.compose.services["llm-gateway"], {})), "ports")
@@ -174,6 +174,10 @@ run "defaults_are_hardened" {
   assert {
     condition     = aws_instance.this.metadata_options[0].http_tokens == "required"
     error_message = "IMDSv2 must be required."
+  }
+  assert {
+    condition     = aws_instance.this.metadata_options[0].http_put_response_hop_limit == 2
+    error_message = "Hop limit 2: containers behind the docker bridge must reach IMDSv2 (S3 from agent-core and the engine)."
   }
   assert {
     condition     = aws_instance.this.root_block_device[0].encrypted && aws_instance.this.associate_public_ip_address == false
