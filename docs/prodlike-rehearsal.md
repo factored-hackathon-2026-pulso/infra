@@ -34,8 +34,10 @@ compose command (default `podman compose`). Requirements: Python with PyYAML, Po
 
 ## 2. Deviations (printed by `render`, never hidden)
 
-* absolute host paths (`/srv/...`, `/run/pulso/...`) become named volumes or a local directory; volume ownership therefore comes
-  from the image, so the **ownership bug class is covered by `tests/test_run_health_contract.py`, not by this rehearsal**;
+* absolute host paths (`/srv/...`, `/run/pulso/...`) become named volumes or a local directory. `up` gives the volumes that
+  `prepare.sh.tftpl` chowns to uid 10001 to uid 10001 (parsed from that file), but a named volume over a directory that exists in the
+  image inherits the image's ownership, so for the engine the **ownership bug is covered by `tests/test_run_health_contract.py`, not by this rehearsal**;
+* if crun cannot set cgroup limits (this project's WSL machines), `up` re-renders without `mem_limit` and with `pids_limit: 0` and prints it;
 * published ports bind `127.0.0.1` at 18080 (engine proxy), 18081 (gateway), 15432 (Postgres);
 * secrets are random local values; `OPENROUTER_API_KEY` and `JEV_API_KEY` are copied only from `--gateway-env-file` if given,
   otherwise `CHANGE_ME` (the paid gateway call is then skipped or fails visibly);
@@ -79,6 +81,16 @@ database, expects the engine `/readyz` to be 503 while the proxy `/healthz` stay
 
 ## 5. Exercised status of this design
 
-Written and unit-tested offline (`tests/test_prodlike.py`: rendering invariants, secrets contract, health rule, slots, RAM
-guard). **Not run against Podman by this change**: the host had less than 1 GB of free RAM and other lanes' stacks running, and a
-Rust image build needs about 3 GB; the first live `up` is the next step for whoever has the headroom.
+Offline: `tests/test_prodlike.py` (rendering invariants, secrets contract, health rule, slots, RAM guard, app-user volumes, limit fallback).
+
+Live, on the `pulso-dev` Podman machine (2026-10-05, prefix `infb`, other lanes' stacks running, 1 GB of free RAM so no engine build):
+
+| What | Result |
+|---|---|
+| `build gateway` / `build tools` | built, `linux/amd64`, 17 MB and 250 MB, docker format |
+| `render` + compose accepts the files | networks, volumes and containers were created |
+| `up` | **blocked by the machine, not by the stack**: crun cannot set `memory.max` (the rehearsal then re-renders without `mem_limit`) and then `controller pids is not available`; `docker-compose` cannot send the `--pids-limit=0` that `podman run` accepts here. Needs a Podman that delegates the pids and memory controllers (rootful Linux, or the machine config), or a compose provider that honours `pids_limit: 0` |
+| Same env files, `podman run --pids-limit=0` by hand | gateway: image probe `/llm-gateway -healthcheck` exits 0, `/healthz` 200, `/v1/generate` without bearer 401. tool-service as uid 10001: `/healthz` 200, 7 tools with the bearer, `/readyz` 503 (no publication). With a root-owned `/state` it exits on `unable to open database file`: the same bug class as the engine data dir, which is why `up` now chowns the volumes that `pulso-stack-prepare` gives to uid 10001 |
+
+Not exercised: the engine image (needs about 3 GB of free RAM), Postgres init through the rendered `initdb`, the proxy, `smoke`, `chaos`,
+the forwarder image. The first complete `up` is the next step for whoever has the headroom and a compose-capable machine.
