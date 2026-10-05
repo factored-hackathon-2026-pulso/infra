@@ -54,6 +54,8 @@ locals {
     # tool-service reads data-pipeline's publication from local disk: synced at every start (agent services).
     sync_publication   = contains(local.service_env_names, "tools")
     sync_artifacts     = contains(local.service_env_names, "agent")
+    install_loader     = var.workload == "engine" && contains(local.service_env_names, "loader")
+    loader_swap_gb     = var.loader_swap_gb
     publication_prefix = trim(var.publication_prefix, "/")
   })
 

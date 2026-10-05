@@ -26,3 +26,8 @@ output "boundary_policy_arn" {
   description = "Deny-list permissions boundary attached to every host role."
   value       = aws_iam_policy.boundary.arn
 }
+
+output "loader_role_arn" {
+  description = "ARN of the dedicated loader role, or empty when loader_role_enabled is false."
+  value       = var.loader_role_enabled ? aws_iam_role.loader[0].arn : ""
+}

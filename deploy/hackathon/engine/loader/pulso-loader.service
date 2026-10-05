@@ -1,0 +1,24 @@
+[Unit]
+Description=Pulso automatic data loader (one-shot; assumes the loader role, runs the data pipeline, drops the credentials)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+# A failure is visible three ways: this unit shows "failed" in systemctl/journalctl, the script writes engine/loader/status/last.json,
+# and OnFailure leaves a marker on the data volume.
+OnFailure=pulso-loader-failed.service
+
+[Service]
+Type=oneshot
+# Loader values only (LOADER__* secret keys and /pulso/engine/loader/* SSM): the engine's own env files are never read here and
+# these are never read by the engine containers (compose lists common.env and pulso.env only).
+EnvironmentFile=/run/pulso/env/loader.env
+ExecStart=/usr/local/bin/pulso-loader
+# Do not starve the engine host: the script itself is light (docker run carries --memory/--cpus below), these cap the unit cgroup.
+Nice=10
+IOSchedulingClass=idle
+CPUQuota=100%
+MemoryMax=512M
+TimeoutStartSec=3h
+# Credentials only live in a 0600 file under /run (tmpfs) for the duration of one run.
+PrivateTmp=true
+UMask=0077

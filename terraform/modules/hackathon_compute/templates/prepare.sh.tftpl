@@ -102,6 +102,24 @@ else
   echo "WARNING: no publication at s3://$BUCKET/${publication_prefix}/latest.json; tool-service answers data_unavailable" >&2
 fi
 %{ endif ~}
+%{ if install_loader ~}
+# Automatic loader (docs/auto-loader.md): script, gate and units come from the bundle; the timer polls engine/inbox/READY.json.
+# The loader credentials are never rendered here: the script assumes the loader role itself at run time.
+%{ if loader_swap_gb > 0 ~}
+# Swap on the data volume (not RAM-backed): a safety net under the docker --memory cap, sized by loader_swap_gb.
+if ! swapon --show=NAME --noheadings | grep -q '^/srv/data/swapfile$'; then
+  [ -f /srv/data/swapfile ] || { fallocate -l ${loader_swap_gb}G /srv/data/swapfile && chmod 600 /srv/data/swapfile && mkswap /srv/data/swapfile >/dev/null; }
+  swapon /srv/data/swapfile || echo "WARNING: could not enable swap" >&2
+fi
+%{ endif ~}
+install -d -m 755 /usr/local/lib/pulso-loader
+install -d -m 700 /srv/data/loader /run/pulso/loader
+install -m 755 /srv/stack/loader/pulso-loader.sh /usr/local/bin/pulso-loader
+install -m 644 /srv/stack/loader/check_cells_k.py /usr/local/lib/pulso-loader/check_cells_k.py
+install -m 644 /srv/stack/loader/pulso-loader.service /srv/stack/loader/pulso-loader.timer /srv/stack/loader/pulso-loader-failed.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now pulso-loader.timer
+%{ endif ~}
 %{ if workload != "core" ~}
 # Fail closed: the proxy enforces X-Origin-Verify from this value; without it the stack must not start.
 grep -q '^ORIGIN_VERIFY=.\+' /run/pulso/env/common.env || { echo "secret key COMMON__ORIGIN_VERIFY is missing or empty" >&2; exit 1; }

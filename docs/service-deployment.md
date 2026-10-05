@@ -135,6 +135,15 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
   ```
 - SSM key `/pulso/core/images/tools`; published only on 8080 to the engine security group, reached by agent-core at `http://tool-service:8080` (`GET /healthz`, `GET /readyz` also checks the dataset). Reads the publication synced by the start script; secret `TOOLS__TOOL_SERVICE_TOKENS`.
 
+### data-pipeline (`data-pipeline`, automatic loader only)
+
+- Only with `auto_loader_enabled` ([auto-loader](auto-loader.md)). Image: the `Dockerfile` at the root of the data-pipeline repository (dbt + DuckDB, `ENTRYPOINT python -m pipeline.run`).
+  ```powershell
+  .\scriptsws-prod.ps1 images -Profile pulso-deploy-engine -Service data-pipeline -SourceDir D:\src\data-pipeline
+  .\scriptsws-prod.ps1 deploy -Profile pulso-deploy-engine -Service data-pipeline -FromBuild <build id> -Wait
+  ```
+- SSM key `/pulso/engine/images/pipeline`; not a long-running service: the loader timer starts it per load.
+
 ### support-platform (`support-platform-api`, `support-platform-web`)
 
 - Two images, one host. API: `backend/Dockerfile` (context `backend/`), listens on 8000, health `GET /` (compose check), data in `/data` (the host path `/srv/data/support`). Web: `frontend/Dockerfile` (context `frontend/`), nginx on 80.

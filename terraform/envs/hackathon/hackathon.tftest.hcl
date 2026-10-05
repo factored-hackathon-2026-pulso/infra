@@ -146,12 +146,12 @@ run "prod_defaults_need_no_region_or_registry_input" {
   }
 }
 
-run "engine_host_loads_by_default_and_admins_can_upload" {
+run "no_host_is_a_loader_by_default_and_admins_can_upload" {
   command = apply
 
   assert {
-    condition     = contains(output.loader_role_arns_effective, output.instance_role_arns["engine"]) && length(output.loader_role_arns_effective) == 1
-    error_message = "Exactly one loader by default: the engine host role (mocked roles share one ARN, so core/platform are checked in the iam module tests)."
+    condition     = length(output.loader_role_arns_effective) == 0
+    error_message = "No loader by default: the engine host reads aggregates only; the loader is the dedicated role of auto_loader_enabled or a role in loader_role_arns."
   }
 
   assert {
@@ -165,16 +165,16 @@ run "engine_host_loads_by_default_and_admins_can_upload" {
   }
 }
 
-run "engine_host_can_load_false_removes_the_loader" {
+run "engine_host_can_load_true_adds_the_engine_as_loader" {
   command = apply
 
   variables {
-    engine_host_can_load = false
+    engine_host_can_load = true
   }
 
   assert {
-    condition     = length(output.loader_role_arns_effective) == 0
-    error_message = "With engine_host_can_load=false only explicit loader_role_arns remain."
+    condition     = contains(output.loader_role_arns_effective, output.instance_role_arns["engine"]) && length(output.loader_role_arns_effective) == 1
+    error_message = "Opt-in: the engine host role becomes the loader itself (PII access on the host)."
   }
 }
 

@@ -68,9 +68,9 @@ New host: copy a `module "compute_<name>"` block in `terraform/envs/hackathon/ma
 ## Upload and load data (landing > loader > lake > engine)
 
 1. `.\scripts\aws-prod.ps1 upload -Profile pulso-prod -Path <dir> -Dataset <name> -DryRun`, then without `-DryRun`. Objects go to `landing/<name>/` with SSE-KMS. By default every IAM user and the root of the account may upload (`uploader_principal_arns` empty), because the bucket policy is deny-only and your admin identity policy allows the call.
-2. The engine host role carries the loader policy while `engine_host_can_load` is true: it reads `landing/` and `lake/`, writes `lake/`. Run the data pipeline on the engine host (SSM shell) with `PIPELINE_ROOT=s3://<bucket>/lake` (SSM parameter) to produce `lake/bronze`, `silver`, `gold_masked`, `gold_analytics`.
+2. Loading is automatic with `auto_loader_enabled` ([auto-loader](auto-loader.md)): after the upload, write `engine/inbox/READY.json`; a timer on the engine host assumes the loader role and runs the data pipeline (`lake/bronze`, `silver`, `gold_*`, `publish/`). The engine host role itself carries no loader policy (`engine_host_can_load = false`, the default).
 3. The engine reads only `lake/gold_masked/` and `lake/gold_analytics/` at runtime; core and platform never touch `landing/` or `lake/bronze/`.
-4. To use a dedicated loader instead, set `engine_host_can_load = false` and list its role in `loader_role_arns`.
+4. To use your own loader role instead, list it in `loader_role_arns`. `engine_host_can_load = true` gives the engine host PII access directly and is not recommended.
 
 ## Re-point CloudFront origins
 

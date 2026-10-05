@@ -52,5 +52,5 @@ Core `:8000` is published on the core host and limited by `sg_core_id` to the pl
 
 ## 6. Loading Parquet into the data lake
 1. Upload with `scripts/aws-prod.ps1 upload -Path <dir> -Dataset <name>`: objects land in `s3://<bucket>/landing/<dataset>/` (SSE-KMS). The uploader is your admin identity (by default the account's IAM users and root may write `landing/`).
-2. The engine host role is the loader by default (`engine_host_can_load = true`): it reads `landing/` and `lake/` and writes `lake/`, through the VPC S3 endpoint. Run the data pipeline on the engine host. Core and platform can never read `landing/` or `lake/bronze/` (bucket policy). To use a separate loader role set `engine_host_can_load = false` and list the role in `loader_role_arns`.
+2. The engine host role is not a loader (`engine_host_can_load = false` by default). Loading is done by the dedicated loader role that the engine host assumes in a systemd one-shot (`auto_loader_enabled`, [auto-loader](auto-loader.md)). Core and platform can never read `landing/` or `lake/bronze/` (bucket policy).
 3. At runtime the engine reads `lake/gold_masked/` and `lake/gold_analytics/`; its outputs under `engine/` follow the prefix contract in `terraform/modules/hackathon_data/README.md`.
