@@ -73,6 +73,11 @@ class CoreAgentServices(unittest.TestCase):
         self.assertEqual(env["AGENTCORE_CLASSIFIER_ARTIFACTS_DIR"], "/artifacts/classifiers")
         self.assertIn("/srv/data/agent/artifacts:/artifacts:ro", self.svc["agent-core"]["volumes"])
 
+    def test_fx_table_and_staff_keys_come_from_the_secret_files(self):
+        env = self.svc["agent-core"]["environment"]
+        self.assertEqual(env["AGENTCORE_FX_RATES_FILE"], "/run/files/FX_RATES")
+        self.assertEqual(env["AGENTCORE_STAFF_KEYS_FILE"], "/run/files/STAFF_KEYS")
+
     def test_migrate_uses_the_owner_dsn_and_runs_before_serve(self):
         migrate = self.svc["agent-core-migrate"]
         self.assertEqual(migrate["restart"], "no")

@@ -67,10 +67,10 @@ printf '%s' "$SECRET_JSON" | jq -r 'keys[] | select(test("^FILES__(${svc_regex})
   done
 unset SECRET_JSON
 %{ if sync_artifacts ~}
-# agent-core serve: calibration and classifier artifacts (data team output, uploaded by an admin to
-# s3://<bucket>/core/artifacts/{calibrations,classifiers}/). Mirrored with --delete so a withdrawn artifact goes away;
-# the directories always exist (serve refuses a missing one). A failed sync keeps the previous copy.
-for d in calibrations classifiers; do
+# agent-core serve: calibration and classifier artifacts (data team output) and the registry seed, uploaded by an admin
+# to s3://<bucket>/core/artifacts/{calibrations,classifiers,registry-seed}/. Mirrored with --delete so a withdrawn file
+# goes away; the directories always exist (serve refuses a missing one). A failed sync keeps the previous copy.
+for d in calibrations classifiers registry-seed; do
   install -d -m 755 -o 10001 -g 10001 "/srv/data/agent/artifacts/$d"
   aws s3 sync "s3://$BUCKET/core/artifacts/$d/" "/srv/data/agent/artifacts/$d/" --delete --region "$REGION" --only-show-errors ||
     echo "WARNING: could not sync core/artifacts/$d; agent-core keeps the previous copy" >&2

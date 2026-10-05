@@ -85,6 +85,7 @@ All in the one secret `pulso-prod/hackathon`, set with `.\scripts\aws-prod.ps1 s
 | `FILES__AGENT__IDENTITY_KEYS`, `FILES__AGENT__STAFF_KEYS` | the platform's PUBLIC key files (`gen_agent_keys`: `identity-keys.json`, `staff-keys.json`), one line of JSON |
 | `FILES__AGENT__FIELD_GRANTS` | `[["field","purpose"], ...]`: what data governance lets agents read (empty list: nobody reads any field) |
 | `FILES__AGENT__FIELD_OVERLAY` | agent-core's overlay of engine fields (`scripts/e2e/field-overlay.json`), one line of JSON |
+| `FILES__AGENT__FX_RATES` | fixed rate table of `convertir_moneda`: `{"USD":"1","MXN":"0.055"}` (USD per unit; approximate, not a market source; without it the tool fails closed) |
 | `FILES__SUPPORT__AGENT_PRIVATE_KEYS` | the platform's `private.json` (secret) |
 | `FILES__SUPPORT__BANK_CUSTOMER_LINKS` | `{"CUS-...": "<dataset customer_id>"}` |
 
@@ -130,6 +131,32 @@ restart `pulso-stack` after an upload. Empty prefixes still give empty directori
 calibration means threshold 1.0 (nothing passes) and a decision model that names a missing classifier artifact fails
 when used. The transcript needs nothing here: it lives in the agent database (`agentcore migrate` creates its table).
 
+## Loading the agents (registry seed)
+
+A new agent database has no agents. Load the seed once, with a real admin credential (agent-core verifies it with the
+platform's staff public keys, `FILES__AGENT__STAFF_KEYS`):
+
+1. Upload the seed directory (today agent-core's `tests/fixtures/registry-e2e`) from your machine:
+   ```powershell
+   aws s3 sync D:\src\agent-core\tests\fixtures\registry-e2e s3://<bucket>/core/artifacts/registry-seed/ --delete --profile pulso-prod
+   ```
+   then `sudo systemctl restart pulso-stack` on the core host (the start script mirrors it to
+   `/srv/data/agent/artifacts/registry-seed/`).
+2. On the platform host, sign a two-minute admin credential (support-platform `registry_admin_credential`):
+   ```bash
+   sudo docker compose -p pulso exec support-platform-api python -m cc_platform.scripts.registry_admin_credential --staff-id <staff id>
+   ```
+3. Within two minutes, on the core host (paste the credential at the hidden prompt):
+   ```bash
+   read -rs AGENTCORE_CREDENTIAL && export AGENTCORE_CREDENTIAL
+   sudo -E docker compose -p pulso run --rm --no-deps -e AGENTCORE_CREDENTIAL agent-core \
+     registry --verifier agent_core.composition.registry:staff_verifier import /artifacts/registry-seed
+   unset AGENTCORE_CREDENTIAL
+   ```
+   `import` refuses an agent that already has releases (use a proposal then); it prints the imported releases.
+
+The seed's decision models name calibration runs: put the matching `<run_id>.json` files in `core/artifacts/calibrations/`.
+
 ## Checks after a start
 
 ```bash
@@ -142,8 +169,8 @@ curl -s -o /dev/null -w "%{http_code}" http://core.pulso.internal:8001/readyz   
 
 - The real calibration and classifier artifacts (data team) do not exist yet; without them every decision stays below
   threshold.
-- Tools that are the engine's own (`obtener_handoff`, `leer_transcript`, `convertir_moneda`, `seleccionar`) are not
-  served by tool-service: agent-core must route them locally.
-- Loading the agents into the registry (`agentcore registry import`) and a staff credential for it.
+- The engine's own tools (`seleccionar`, `convertir_moneda`, `obtener_handoff`, `leer_transcript`) are served by
+  agent-core itself from the agent-core version that ships them; the copilot reads the assistant's conversation only
+  when support-platform sends `assistant_session_id` (support-platform version with that change).
 - tool-service image: runs as root and pins `uv:latest`; the bundle runs it as uid 10001, which needs the image's
   `/app` readable by that user.
