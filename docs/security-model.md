@@ -8,7 +8,7 @@ Scope: the single-account prod deployment. This is a hackathon-grade deployment 
 |---|---|---|
 | You (root user today; IAM admin user later) | everything in the account, including reading `landing/` (break-glass and uploader default to the account's users and root) | nothing is blocked by a boundary; root is also exempt from permission boundaries and service control policies do not exist here (no Organizations) |
 | Host roles `core`, `platform`, `engine` (EC2 instance profiles) | read the one secret, `kms:Decrypt`/`GenerateDataKey` on the data key, read their own SSM prefix `/pulso/<workload>/*`, pull their own ECR repositories, read their compose bundle, write logs, use their own bucket prefixes | any IAM, Organizations or account change (permissions boundary `host-boundary` denies `iam:*`, `organizations:*`, `account:*`); core and platform cannot read `landing/` or `lake/bronze/` |
-| Engine host role, while `engine_host_can_load` is true | additionally read `landing/` and `lake/`, write `lake/` (the loader policy) | write `landing/`, delete lake objects |
+| Engine host role | by default reads `lake/gold_masked`, `lake/gold_analytics`, read/write `engine/*`; with `auto_loader_enabled` it may ASSUME the loader role (read `landing/` and `lake/`, write `lake/`); with `engine_host_can_load` true it holds the loader policy itself | write `landing/`, delete lake objects |
 | Uploader principals | PUT into `landing/` | read it (unless also break-glass) |
 | CloudFront | reach the two proxies through VPC origins | reach core, the gateway or the database |
 

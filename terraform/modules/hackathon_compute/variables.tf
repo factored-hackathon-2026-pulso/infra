@@ -177,3 +177,14 @@ variable "extra_bundle_files" {
   default     = {}
   description = "Additional non-secret files published into the bundle (path relative to the bundle root -> content), for example the Postgres compose override and initdb scripts."
 }
+
+variable "loader_swap_gb" {
+  description = "Size in GiB of a swap file on the data volume, created only on a host that runs the automatic loader (0 = none). A safety net under the loader container's memory cap, not a substitute for RAM."
+  type        = number
+  default     = 4
+
+  validation {
+    condition     = var.loader_swap_gb >= 0 && var.loader_swap_gb <= 16
+    error_message = "loader_swap_gb must be 0 to 16."
+  }
+}

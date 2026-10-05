@@ -176,3 +176,9 @@ variable "agent_keys_suffix" {
     error_message = "agent_keys_suffix must be lowercase letters, digits and dashes (max 24 characters)."
   }
 }
+
+variable "auto_loader_enabled" {
+  description = "Seed the secret key of the automatic loader (LOADER__PSEUDONYM_KEY, the data pipeline's pseudonymisation HMAC key; out of band). Off by default."
+  type        = bool
+  default     = false
+}

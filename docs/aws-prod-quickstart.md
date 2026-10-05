@@ -42,7 +42,7 @@ Prerequisites on your machine: PowerShell 7, Terraform >= 1.10, AWS CLI v2, Dock
    .\scripts\aws-prod.ps1 upload -Profile pulso-prod -Path D:\data\e0 -Dataset e0 -DryRun
    .\scripts\aws-prod.ps1 upload -Profile pulso-prod -Path D:\data\e0 -Dataset e0
    ```
-   Then run the loader on the engine host (`engine_host_can_load` is on by default): landing -> lake. See [operations](operations.md).
+   Then upload `landing/` and write `engine/inbox/READY.json`: the automatic loader (`auto_loader_enabled`) does landing -> lake. See [auto-loader](auto-loader.md).
 
 10. **Smoke tests.** `.\scripts\aws-prod.ps1 status -Profile pulso-prod` (instances running, `pulso-stack` active, containers up). Then open `https://<cloudfront domain>/` (platform) and the engine routes under `/pulso/`; the domain is `terraform -chdir=terraform/envs/hackathon output cloudfront_domain_name`.
 

@@ -1,0 +1,123 @@
+#!/bin/bash
+# Pulso automatic data loader (engine host). Run by pulso-loader.service (timer every 5 minutes). Never prints secret values.
+#
+# Flow: poll the inbox marker with the HOST credentials -> compute the run key (sha256 of the marker) -> assume the loader role
+# (STS, external id) -> skip if lake/loader/done/<key>.json exists (idempotent) -> optional cells export + k>=10 gate (a failing gate
+# fails the run BEFORE anything is published) -> data pipeline container (bronze, silver, gold_*; it publishes lake/publish/<run>/ and
+# moves latest.json last) -> upload cells -> done marker -> drop the credentials (trap removes the 0600 file under /run).
+# The loader credentials exist only in the file $CREDS and in subshells/containers started by this script; they are never exported in this
+# shell, never written to the stack .env, never in the engine containers' environment.
+set -euo pipefail
+umask 077
+
+: "${LOADER_ROLE_ARN:?}" "${LOADER_EXTERNAL_ID:?}" "${LOADER_BUCKET:?}" "${LOADER_REGION:?}" "${PSEUDONYM_KEY:?}"
+case "$PSEUDONYM_KEY" in CHANGE_ME|"") echo "loader refused: LOADER__PSEUDONYM_KEY is unset or still CHANGE_ME" >&2; exit 78 ;; esac
+LOADER_MEMORY="${LOADER_MEMORY:-1g}"
+LOADER_CPUS="${LOADER_CPUS:-1.0}"
+LOADER_DUCKDB_MEMORY="${LOADER_DUCKDB_MEMORY:-2GB}"   # DuckDB memory_limit; the docker --memory cap is the hard stop above it
+LOADER_TABLE_BATCHES="${LOADER_TABLE_BATCHES:-}"        # e.g. "customers,products;complaints": ingest_bank table by table
+LOADER_K_MIN="${LOADER_K_MIN:-10}"
+LOADER_DATASET_PREFIX="${LOADER_DATASET_PREFIX:-landing/bank}"
+STATE=/srv/data/loader
+INBOX_KEY="engine/inbox/READY.json"
+STATUS_KEY="engine/loader/status/last.json"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+CHECK="${LOADER_CHECK_CELLS:-/usr/local/lib/pulso-loader/check_cells_k.py}"
+
+mkdir -p "$STATE" /run/pulso/loader
+exec 9>"$STATE/lock"
+flock -n 9 || { echo "another loader run is active"; exit 0; }
+
+log() { logger -t pulso-loader -p "user.${2:-info}" "$1"; echo "$1"; }
+status() { # status <state> <detail>; engine/* is writable by the host role; no data, no secrets
+  printf '{"state":"%s","run":"%s","at":"%s","detail":"%s"}\n' "$1" "${RUN_KEY:-none}" "$(date -u +%FT%TZ)" "$2" |
+    aws s3 cp - "s3://$LOADER_BUCKET/$STATUS_KEY" --region "$LOADER_REGION" --only-show-errors >/dev/null 2>&1 || true
+}
+
+# 1. Marker (host credentials; the marker holds names and checksums only).
+WORK=""; CREDS=""
+cleanup() { rm -f "$CREDS" 2>/dev/null || true; [ -n "$WORK" ] && rm -rf "$WORK" || true; }
+trap cleanup EXIT
+MARKER="$(mktemp /run/pulso/loader/marker.XXXXXX)"
+if ! aws s3 cp "s3://$LOADER_BUCKET/$INBOX_KEY" "$MARKER" --region "$LOADER_REGION" --only-show-errors 2>/dev/null; then
+  rm -f "$MARKER"; exit 0 # nothing to load
+fi
+RUN_KEY="$(sha256sum "$MARKER" | cut -c1-16)"
+trap 'rc=$?; [ $rc -ne 0 ] && { status failed "exit $rc"; log "loader run $RUN_KEY failed (exit $rc)" err; }; rm -f "$MARKER"; cleanup' EXIT
+
+# 2. Assume the loader role. Credentials go to a 0600 file under /run (tmpfs), nowhere else.
+CREDS="/run/pulso/loader/$RUN_KEY.env"
+aws sts assume-role --role-arn "$LOADER_ROLE_ARN" --external-id "$LOADER_EXTERNAL_ID" --role-session-name "pulso-loader-$RUN_KEY" \
+  --duration-seconds 3600 --region "$LOADER_REGION" --query Credentials --output json |
+  jq -r '"AWS_ACCESS_KEY_ID=\(.AccessKeyId)\nAWS_SECRET_ACCESS_KEY=\(.SecretAccessKey)\nAWS_SESSION_TOKEN=\(.SessionToken)"' > "$CREDS"
+# Run a command with the loader credentials, in a subshell: nothing leaks into this shell's environment.
+with_loader() { ( set -a; . "$CREDS"; set +a; AWS_DEFAULT_REGION="$LOADER_REGION"; export AWS_DEFAULT_REGION; "$@" ); }
+
+# 3. Idempotency: the same marker content is never loaded twice (survives host replacement: the proof lives in S3).
+if with_loader aws s3api head-object --bucket "$LOADER_BUCKET" --key "lake/loader/done/$RUN_KEY.json" >/dev/null 2>&1; then
+  log "marker $RUN_KEY already loaded; nothing to do"; rm -f "$MARKER"; exit 0
+fi
+status running "start"
+log "loading marker $RUN_KEY"
+WORK="$STATE/work/$RUN_KEY"; rm -rf "$WORK"; mkdir -p "$WORK/e0" "$WORK/cells" "$WORK/scratch/duckdb_tmp" "$WORK/scratch/tmp"
+chown -R 10001:10001 "$WORK/scratch" # pipeline user; DuckDB spills here (data volume)
+
+# 4. E0 (landing/e0/ by marker) to a local read-only mount for the pipeline.
+E0_PREFIX="$(jq -r '.e0_prefix // empty' "$MARKER")"
+STEPS="build,publish"
+[ -z "$LOADER_TABLE_BATCHES" ] && STEPS="ingest_bank,$STEPS"
+if [ -n "$E0_PREFIX" ]; then
+  with_loader aws s3 sync "s3://$LOADER_BUCKET/$E0_PREFIX" "$WORK/e0" --only-show-errors
+  STEPS="ingest_e0,$STEPS"
+fi
+
+# 5. Cells export and k gate: BEFORE any publication. A failing gate stops the run; no data is written or deleted.
+CELLS="$WORK/cells/cells.ndjson"
+if [ -n "${LOADER_CELLS_CMD:-}" ]; then
+  with_loader env CELLS_OUT="$CELLS" LOADER_DATASET_PREFIX="$LOADER_DATASET_PREFIX" LOADER_BUCKET="$LOADER_BUCKET" bash -c "$LOADER_CELLS_CMD"
+  python3 "$CHECK" "$CELLS"
+else
+  log "LOADER_CELLS_CMD is empty: no bank_cells export in this run" warning
+fi
+
+# 6. The data pipeline (one container; limits so the engine keeps running). It reads landing/ through the standard credential chain.
+IMAGE="$(grep -E '^PIPELINE_IMAGE=' /srv/stack/.env | cut -d= -f2-)"
+[ -n "$IMAGE" ] || { echo "no PIPELINE_IMAGE in /srv/stack/.env" >&2; exit 78; }
+ENVF="$(mktemp /run/pulso/loader/pipeline.XXXXXX)"
+{ cat "$CREDS"
+  printf 'DUCKDB_MEMORY_LIMIT=%s\nDUCKDB_TEMP_DIRECTORY=/work/duckdb_tmp\nTMPDIR=/work/tmp\nDBT_THREADS=1\n' "$LOADER_DUCKDB_MEMORY"
+  printf 'PSEUDONYM_KEY=%s\nPIPELINE_ROOT=s3://%s/lake\nDATASET_BUCKET=%s\nDATASET_PREFIX=%s\nDATASET_REGION=%s\nAWS_DEFAULT_REGION=%s\nWORK_DIR=/work\n' \
+    "$PSEUDONYM_KEY" "$LOADER_BUCKET" "$LOADER_BUCKET" "$LOADER_DATASET_PREFIX" "$LOADER_REGION" "$LOADER_REGION"
+  [ -n "$E0_PREFIX" ] && printf 'E0_SOURCE_DIR=/e0\n'; true
+} > "$ENVF"
+trap 'rm -f "$ENVF"; rc=$?; [ $rc -ne 0 ] && { status failed "exit $rc"; log "loader run $RUN_KEY failed (exit $rc)" err; }; rm -f "$MARKER"; cleanup' EXIT
+run_pipeline() { # run_pipeline <docker args...>: bounded container, scratch on the data volume (never RAM-backed tmpfs)
+  docker run --rm --name "pulso-pipeline-$RUN_KEY" --memory "$LOADER_MEMORY" --memory-swap "$LOADER_MEMORY" --cpus "$LOADER_CPUS" --pids-limit 512 \
+    --env-file "$ENVF" -v "$WORK/e0:/e0:ro" -v "$WORK/scratch:/work" "$@"
+}
+# By table (UNVERIFIED contract, docs/auto-loader.md): each batch is its own short container, so peak memory is one batch.
+if [ -n "$LOADER_TABLE_BATCHES" ]; then
+  IFS=';' read -ra BATCHES <<< "$LOADER_TABLE_BATCHES"
+  for B in "${BATCHES[@]}"; do
+    run_pipeline --entrypoint python "$IMAGE" -m pipeline.ingest_bank --tables "$B"
+  done
+fi
+run_pipeline "$IMAGE" --steps "$STEPS"
+rm -f "$ENVF"
+
+# 7. Cells to the analytics zone (aggregates only), pointer last.
+if [ -s "$CELLS" ]; then
+  SUM="$(sha256sum "$CELLS" | cut -d' ' -f1)"; ROWS="$(wc -l < "$CELLS" | tr -d ' ')"
+  printf '{"run":"%s","sha256":"%s","rows":%s,"k_min":%s}\n' "$RUN_KEY" "$SUM" "$ROWS" "$LOADER_K_MIN" > "$WORK/cells/MANIFEST.json"
+  P="s3://$LOADER_BUCKET/lake/gold_analytics/bank_cells"
+  with_loader aws s3 cp "$CELLS" "$P/$RUN_KEY/cells.ndjson" --sse aws:kms --only-show-errors
+  with_loader aws s3 cp "$WORK/cells/MANIFEST.json" "$P/$RUN_KEY/MANIFEST.json" --sse aws:kms --only-show-errors
+  with_loader aws s3 cp "$WORK/cells/MANIFEST.json" "$P/latest.json" --sse aws:kms --only-show-errors
+fi
+
+# 8. Done marker (idempotency), status, and drop the credentials (trap).
+printf '{"run":"%s","at":"%s"}\n' "$RUN_KEY" "$(date -u +%FT%TZ)" > "$WORK/done.json"
+with_loader aws s3 cp "$WORK/done.json" "s3://$LOADER_BUCKET/lake/loader/done/$RUN_KEY.json" --sse aws:kms --only-show-errors
+status ok "loaded"
+rm -f /srv/data/loader/FAILED
+log "loader run $RUN_KEY done"

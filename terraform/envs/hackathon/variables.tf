@@ -114,14 +114,14 @@ variable "enable_waf" {
 
 variable "engine_host_can_load" {
   type        = bool
-  default     = true
-  description = "Attach the loader policy (read landing/ and lake/, write lake/) to the ENGINE host role so the loader runs on the engine host. Core and platform never get it. Set false to use a dedicated loader role via loader_role_arns."
+  default     = false
+  description = "Attach the loader policy (read landing/ and lake/, write lake/) DIRECTLY to the ENGINE host role. Default false (user decision 2026-10-05): the engine host reads aggregates only (lake/gold_masked, lake/gold_analytics). Loading is done by the dedicated loader role (auto_loader_enabled, docs/auto-loader.md). Core and platform never get it."
 }
 
 variable "loader_role_arns" {
   type        = list(string)
   default     = []
-  description = "Extra roles allowed to read landing/ and lake/bronze/ (PII in the clear). The engine host role is added automatically when engine_host_can_load is true."
+  description = "Extra roles allowed to read landing/ and lake/bronze/ (PII in the clear). The engine host role is added only when engine_host_can_load is true (default false); the auto loader role is added by auto_loader_enabled."
 }
 
 variable "uploader_principal_arns" {
@@ -215,4 +215,51 @@ variable "agent_keys_suffix" {
   description = "Suffix of the generated Ed25519 key ids (cc-principal-<s>, cc-grant-<s>, cc-staff-<s>, pulso-engine-<s>). Rotate by publishing a new suffix (docs/secrets-keys.md)."
   type        = string
   default     = "hk1"
+}
+
+variable "auto_loader_enabled" {
+  type        = bool
+  default     = false
+  description = "Automatic data loading in AWS (docs/auto-loader.md): a dedicated loader role that ONLY the engine host role may assume (external id), and on the engine host a systemd timer that polls engine/inbox/READY.json, assumes the role, runs the data-pipeline container (bronze, silver, gold_*, publish/, latest.json last), gates the bank_cells export at k>=10 and drops the credentials. Needs images.engine.pipeline (digest of the data-pipeline image) and the secret key LOADER__PSEUDONYM_KEY. Off by default."
+
+  validation {
+    condition     = !var.auto_loader_enabled || contains(keys(var.images.engine), "pipeline")
+    error_message = "auto_loader_enabled needs images.engine.pipeline (the data-pipeline image digest)."
+  }
+}
+
+variable "loader_cells_cmd" {
+  type        = string
+  default     = ""
+  description = "Command (run by bash in the loader, with CELLS_OUT, LOADER_BUCKET and the loader credentials in ITS environment only) that writes the bank_cells NDJSON to $CELLS_OUT. Empty = no cells export in the run. The k>=10 gate runs on its output before anything is published."
+}
+
+variable "loader_memory" {
+  type        = string
+  default     = "1g"
+  description = "docker --memory of the pipeline container. The full build (15.6M events, 4.4M transactions) is unmeasured on EC2; on a 2 GiB engine host use a larger engine instance_type."
+}
+
+variable "loader_cpus" {
+  type        = string
+  default     = "1.0"
+  description = "docker --cpus of the pipeline container."
+}
+
+variable "loader_duckdb_memory" {
+  type        = string
+  default     = "2GB"
+  description = "DuckDB memory_limit passed to the pipeline (DUCKDB_MEMORY_LIMIT; spill to DUCKDB_TEMP_DIRECTORY on the data volume). UNVERIFIED: the data-pipeline profiles do not read these variables yet (docs/auto-loader.md, ask to its owners); docker --memory is the enforced cap."
+}
+
+variable "loader_table_batches" {
+  type        = string
+  default     = ""
+  description = "Optional ingest_bank batches, semicolon separated, each a comma list of tables (for example customers,products;complaints), one container per batch so peak memory is one batch. UNVERIFIED contract. Empty = a single ingest_bank step."
+}
+
+variable "loader_swap_gb" {
+  type        = number
+  default     = 4
+  description = "Swap file (GiB) on the engine host data volume while auto_loader_enabled; 0 disables."
 }
