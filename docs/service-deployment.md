@@ -117,6 +117,24 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
 - Never published: reachable only from agent-core on the host's docker network (`http://llm-gateway:8080`), `GET /healthz` on 8080. The compose health check is disabled (no tool in the image), so health is "container running" plus agent-core `/readyz`.
 - Config and secrets: `GATEWAY__GATEWAY_TOKEN_AGENT_CORE`, `GATEWAY__GATEWAY_TOKEN_ENGINE`, `GATEWAY__GATEWAY_TOKEN_SUPPORT_PLATFORM`, `GATEWAY__OPENAI_API_KEY`, `GATEWAY__ANTHROPIC_API_KEY`, `GATEWAY__GOOGLE_API_KEY`, `GATEWAY__JEV_API_KEY`; SSM `GATEWAY_CONSUMERS`, `LLM_ENDPOINTS`.
 
+### agent-core serve (`agent-core-serve`, agent services only)
+
+- Only with `agent_services_enabled` ([agent-services](agent-services.md)). Image: the `Dockerfile` at the root of the agent-core repository (`agentcore serve`), not `core-bridge`; the alias `agent-core` still means `core-runtime`.
+  ```powershell
+  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service agent-core-serve -SourceDir D:\src\agent-core
+  .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-core -Service agent-core-serve -FromBuild <build id> -Wait
+  ```
+- SSM key `/pulso/core/images/agent`; runs as `agent-core` on 8001 (`GET /readyz`), after the one-shot `agent-core-migrate`. Secrets `AGENT__*` and files `FILES__AGENT__*` ([agent-services](agent-services.md#secret-keys)).
+
+### tool-service (`tool-service`, agent services only)
+
+- Only with `agent_services_enabled`. Image: the `Dockerfile` at the root of the tool-service repository.
+  ```powershell
+  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service tool-service -SourceDir D:\src\tool-service
+  .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-core -Service tool-service -FromBuild <build id> -Wait
+  ```
+- SSM key `/pulso/core/images/tools`; never published, reached by agent-core at `http://tool-service:8080` (`GET /healthz`, `GET /readyz` also checks the dataset). Reads the publication synced by the start script; secret `TOOLS__TOOL_SERVICE_TOKENS`.
+
 ### support-platform (`support-platform-api`, `support-platform-web`)
 
 - Two images, one host. API: `backend/Dockerfile` (context `backend/`), listens on 8000, health `GET /` (compose check), data in `/data` (the host path `/srv/data/support`). Web: `frontend/Dockerfile` (context `frontend/`), nginx on 80.

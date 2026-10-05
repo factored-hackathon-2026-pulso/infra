@@ -70,7 +70,29 @@ variable "images" {
     platform = map(string)
     engine   = map(string)
   })
-  description = "Digest-pinned FULL image refs per host (<registry>/<repo>@sha256:...), as printed by scripts/aws-prod.ps1 images. core: core, gateway. platform: support_api, support_web, proxy. engine: pulso, proxy."
+  description = "Digest-pinned FULL image refs per host (<registry>/<repo>@sha256:...), as printed by scripts/aws-prod.ps1 images. core: core, gateway (and agent, tools with agent_services_enabled). platform: support_api, support_web, proxy. engine: pulso, proxy."
+
+  validation {
+    condition     = !var.agent_services_enabled || (contains(keys(var.images.core), "agent") && contains(keys(var.images.core), "tools"))
+    error_message = "agent_services_enabled needs images.core.agent (agent-core serve) and images.core.tools (tool-service)."
+  }
+}
+
+variable "agent_services_enabled" {
+  type        = bool
+  default     = false
+  description = "agent-core serve (core:8001) and tool-service on the core host, wired to support-platform (docs/agent-services.md): compose overrides on core and platform, agent.env/tools.env and FILES__ secret keys, the agent databases, core reads the restricted publication, network paths platform<->core. Off by default."
+}
+
+variable "agent_serve_args" {
+  type        = string
+  default     = "--tools agent_core.adapters.tools:http_tool_executor --authz agent_core.adapters.policy_authz:policy_authz --field-classifier agent_core.adapters.classification:field_classifier --grant-active agent_core.adapters.grants:http_grant_active"
+  description = "Piece flags of `agentcore serve` (module:attribute of REAL pieces; serve refuses testing.* without the demo flag). Add --transcript, --calibration and --classifier once agent-core ships them, and --agents/--lang-thresholds as needed. The path of --field-classifier moves to agent_core.composition.classification with agent-core PR #38."
+
+  validation {
+    condition     = !strcontains(var.agent_serve_args, "testing.") && !can(regex("[\\r\\n]", var.agent_serve_args))
+    error_message = "agent_serve_args takes real pieces on one line, never testing.* doubles."
+  }
 }
 
 variable "enable_waf" {

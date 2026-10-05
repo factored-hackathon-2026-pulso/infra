@@ -102,6 +102,18 @@ variable "break_glass_principal_arns" {
   default     = []
 }
 
+variable "restricted_reader_role_arns" {
+  description = "Roles that may read data-pipeline's restricted publication (gold_restricted, PII in the clear) besides the loader and break-glass: the core host role when tool-service runs there. Never exempt from the landing/ and lake/bronze/ deny."
+  type        = list(string)
+  default     = []
+}
+
+variable "agent_services_enabled" {
+  description = "Seed the secret keys of agent-core serve, tool-service, their gateway consumer, the platform side and the agent databases (docs/agent-services.md). Off by default."
+  type        = bool
+  default     = false
+}
+
 variable "host_role_arns" {
   description = "Roles of the host (compute) allowed to read lake/gold_masked, lake/gold_analytics and engine/*, and use core/, engine/, tmp/."
   type        = list(string)

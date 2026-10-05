@@ -7,6 +7,7 @@ Start with the quickstart; the rest is reference. These docs are checked against
 | [aws-prod-quickstart.md](aws-prod-quickstart.md) | create and deploy prod from your machine, one page |
 | [architecture.md](architecture.md) | see the account diagram, what talks to what, data classes |
 | [operations.md](operations.md) | run day 2: start/stop, deploy, roll back, secrets, restore, data load, teardown |
+| [agent-services.md](agent-services.md) | turn on agent-core serve and tool-service for support-platform (`agent_services_enabled`) |
 | [service-deployment.md](service-deployment.md) | ship a change to one service (build in the cloud, deploy a digest, roll back) without a full apply: for service teams |
 | [modification-guide.md](modification-guide.md) | change the Terraform: layout, module contracts, variables, TDD, CI |
 | [troubleshooting.md](troubleshooting.md) | fix known failures with exact checks |

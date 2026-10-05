@@ -248,3 +248,40 @@ run "rds_mode_keeps_the_previous_design" {
     error_message = "Defaults (nat, rds) are the previous prod design."
   }
 }
+
+# ---- agent services (agent-core serve and tool-service on the core host) ----
+
+run "agent_services_are_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.agent_from_platform) == 0 && length(aws_vpc_security_group_ingress_rule.platform_api_from_core) == 0
+    error_message = "Without agent_services_enabled no new path exists between platform and core."
+  }
+}
+
+run "agent_services_open_exactly_two_paths_between_platform_and_core" {
+  command = plan
+  variables {
+    agent_services_enabled = true
+  }
+
+  assert {
+    condition = (
+      aws_vpc_security_group_ingress_rule.agent_from_platform[0].from_port == 8001 &&
+      aws_vpc_security_group_ingress_rule.agent_from_platform[0].to_port == 8001 &&
+      length(aws_vpc_security_group_egress_rule.platform_to_agent) == 1 &&
+      aws_vpc_security_group_egress_rule.platform_to_agent[0].from_port == 8001
+    )
+    error_message = "support-platform reaches agent-core serve on core:8001 (ingress on core, egress on platform)."
+  }
+  assert {
+    condition = (
+      aws_vpc_security_group_ingress_rule.platform_api_from_core[0].from_port == 8000 &&
+      aws_vpc_security_group_ingress_rule.platform_api_from_core[0].to_port == 8000 &&
+      length(aws_vpc_security_group_egress_rule.core_to_platform_api) == 1 &&
+      aws_vpc_security_group_egress_rule.core_to_platform_api[0].from_port == 8000
+    )
+    error_message = "agent-core reaches the platform API on platform:8000 for grant_active (ingress on platform, egress on core)."
+  }
+}

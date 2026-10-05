@@ -264,6 +264,10 @@ $script:Services = [ordered]@{
     'support-platform-web' = @{ Key = 'support_web'; Workloads = @('platform'); Aliases = @('support-web', 'support_web') }
     'pulso-engine'         = @{ Key = 'pulso'; Workloads = @('engine'); Aliases = @('engine', 'pulso') }
     'caddy'                = @{ Key = 'proxy'; Workloads = @('platform', 'engine'); Aliases = @('proxy') }
+    # Agent services (agent_services_enabled, docs/agent-services.md): agent-core `serve` from the agent-core repo's own
+    # Dockerfile (not core-bridge; the alias agent-core stays with core-runtime) and the tool-service.
+    'agent-core-serve'     = @{ Key = 'agent'; Workloads = @('core'); Aliases = @('agent-serve', 'agent') }
+    'tool-service'         = @{ Key = 'tools'; Workloads = @('core'); Aliases = @('tools') }
 }
 
 function Resolve-Service([string]$Name) {
@@ -390,6 +394,8 @@ $script:HostBuild = @{
     'support-platform-api' = @{ Dockerfile = 'backend/Dockerfile'; Context = 'backend'; CoreContext = '' }
     'support-platform-web' = @{ Dockerfile = 'frontend/Dockerfile'; Context = 'frontend'; CoreContext = '' }
     'pulso-engine'         = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
+    'agent-core-serve'     = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
+    'tool-service'         = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
 }
 
 function ConvertTo-BashQuoted([string]$Value) { "'" + ($Value -replace "'", "'\''") + "'" }
@@ -652,8 +658,8 @@ function Read-SecretValue([string]$Prompt) {
 }
 
 function Invoke-SetSecret($p, $id) {
-    if ($p.SecretKey -notmatch '^(COMMON|CORE|GATEWAY|SUPPORT|PULSO)__[A-Z][A-Z0-9_]*$') {
-        throw '-SecretKey must be <SERVICE>__<VAR> with SERVICE one of COMMON, CORE, GATEWAY, SUPPORT, PULSO (for example GATEWAY__OPENROUTER_API_KEY).'
+    if ($p.SecretKey -cnotmatch '^((COMMON|CORE|GATEWAY|SUPPORT|PULSO|AGENT|TOOLS|DB)__[A-Z][A-Z0-9_]*|FILES__(AGENT|SUPPORT)__[A-Z][A-Z0-9_]*)$') {
+        throw '-SecretKey must be <SERVICE>__<VAR> with SERVICE one of COMMON, CORE, GATEWAY, SUPPORT, PULSO, AGENT, TOOLS, DB (for example GATEWAY__OPENROUTER_API_KEY), or FILES__<AGENT|SUPPORT>__<NAME> for a value the host writes as a file.'
     }
     $name = "$($script:EcrPrefix)/hackathon"
     $prof = $p.Profile
@@ -693,6 +699,8 @@ images = {
   core = {
     core    = "$registry/$px/core-runtime@$zero"
     gateway = "$registry/$px/llm-gateway@$zero"
+    agent   = "$registry/$px/agent-core-serve@$zero"
+    tools   = "$registry/$px/tool-service@$zero"
   }
   platform = {
     support_api = "$registry/$px/support-platform-api@$zero"

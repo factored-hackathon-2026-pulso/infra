@@ -276,6 +276,17 @@ Describe 'Resolve-Service' {
     It 'caddy is shared: it deploys to platform and engine' {
         (Resolve-Service 'caddy').Workloads -join ',' | Should Be 'platform,engine'
     }
+    It 'knows the agent services: agent-core serve and tool-service deploy to core under their own keys' {
+        $a = Resolve-Service 'agent-core-serve'
+        $a.Key | Should Be 'agent'
+        $a.Workloads -join ',' | Should Be 'core'
+        $a.Repository | Should Be 'pulso-prod/agent-core-serve'
+        (Resolve-Service 'tools').Name | Should Be 'tool-service'
+        (Resolve-Service 'tool-service').Key | Should Be 'tools'
+        (Resolve-Service 'agent-core').Name | Should Be 'core-runtime'
+        $script:HostBuild['agent-core-serve'].Dockerfile | Should Be 'Dockerfile'
+        $script:HostBuild['tool-service'].Context | Should Be '.'
+    }
     It 'rejects an unknown service and lists the valid ones' {
         { Resolve-Service 'nope' } | Should Throw 'Unknown service'
         { Resolve-Service 'nope' } | Should Throw 'core-runtime'
@@ -863,7 +874,15 @@ Describe 'set-secret' {
         { Run 'set-secret' 'pulso-prod' @{ SecretKey = 'openrouter' } } | Should Throw 'SecretKey'
         { Run 'set-secret' 'pulso-prod' @{ SecretKey = 'OTHER__X' } } | Should Throw 'SecretKey'
         { Run 'set-secret' 'pulso-prod' @{} } | Should Throw 'SecretKey'
+        { Run 'set-secret' 'pulso-prod' @{ SecretKey = 'FILES__CORE__X' } } | Should Throw 'SecretKey'
         Get-Calls | Should Not Match 'secretsmanager'
+    }
+
+    It 'accepts the agent services keys, the database passwords and FILES__ keys' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        foreach ($k in 'AGENT__AGENTCORE_JEV_API_KEY', 'TOOLS__TOOL_SERVICE_TOKENS', 'DB__DB_PASSWORD_AGENT_APP', 'FILES__AGENT__IDENTITY_KEYS', 'FILES__SUPPORT__BANK_CUSTOMER_LINKS') {
+            { Run 'set-secret' 'pulso-prod' @{ SecretKey = $k } } | Should Not Throw
+        }
     }
 
     It 'sets only that key of pulso-prod/hackathon from the prompt and never prints or logs the value' {

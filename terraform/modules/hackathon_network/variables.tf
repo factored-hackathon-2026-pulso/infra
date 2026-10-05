@@ -65,3 +65,9 @@ variable "tags" {
   type        = map(string)
   description = "Tags applied to every resource."
 }
+
+variable "agent_services_enabled" {
+  type        = bool
+  description = "agent-core serve (8001) and tool-service on the core host: open platform -> core:8001 (support-platform calls agent-core) and core -> platform:8000 (agent-core's grant_active check against the platform API)."
+  default     = false
+}

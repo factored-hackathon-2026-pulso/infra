@@ -43,6 +43,15 @@ locals {
     "initdb/sql/30_pulso_logins.sql"    = file("${path.module}/../../modules/hackathon_data/sql/30_pulso_logins.sql")
   } : {}
 
+  # Agent services (docs/agent-services.md): agent-core serve and tool-service on the core host, the platform side.
+  agents = var.agent_services_enabled
+  core_agent_files = local.agents ? merge(
+    { "compose.agents.yaml" = file("${path.module}/../../../deploy/hackathon/core/compose.agents.yaml") },
+    local.container_db ? { "initdb/sql/20_agent_databases.sql" = file("${path.module}/../../modules/hackathon_data/sql/20_agent_databases.sql") } : {},
+  ) : {}
+  platform_agent_files = local.agents ? { "compose.agents.yaml" = file("${path.module}/../../../deploy/hackathon/platform/compose.agents.yaml") } : {}
+  restricted_readers   = local.agents ? [module.iam.instance_role_arn_core] : []
+
   ecr_registry_url = coalesce(var.ecr_registry_url, "${local.account_id}.dkr.ecr.${var.region}.amazonaws.com")
 
   # Defaults for a single-account prod: the IAM users and the root of THIS account (roles, i.e. the hosts, never
@@ -66,7 +75,9 @@ module "network" {
   region        = var.region
   enable_nat    = local.nat
   database_mode = local.db_mode
-  tags          = local.tags
+
+  agent_services_enabled = local.agents
+  tags                   = local.tags
 }
 
 module "data" {
@@ -85,7 +96,11 @@ module "data" {
   loader_role_arns           = local.loader_roles
   uploader_principal_arns    = local.uploader_principals
   break_glass_principal_arns = local.break_glass
-  tags                       = local.tags
+
+  # tool-service on the core host reads data-pipeline's restricted publication (gold_restricted, PII in the clear).
+  agent_services_enabled      = local.agents
+  restricted_reader_role_arns = local.restricted_readers
+  tags                        = local.tags
 }
 
 module "iam" {
@@ -101,6 +116,8 @@ module "iam" {
   # Core and platform never read landing/ or lake/bronze/ (the bucket policy denies them).
   engine_can_load           = var.engine_host_can_load
   engine_lake_read_prefixes = ["lake/gold_masked", "lake/gold_analytics"]
+  # tool-service syncs the current publication (latest.json, gold_restricted.duckdb, field_classification.json).
+  core_read_prefixes = local.agents ? ["lake/publish"] : []
 
   ecr_repository_arns_core     = local.ecr_arns.core
   ecr_repository_arns_platform = local.ecr_arns.platform
@@ -132,9 +149,11 @@ module "compute_core" {
   ecr_registry_url        = local.ecr_registry_url
   images                  = var.images.core
   db_volume_size_gb       = local.container_db ? var.db_volume_size_gb : 0
-  extra_service_envs      = local.container_db ? ["db"] : []
-  compose_files           = local.container_db ? ["compose.yaml", "compose.postgres.yaml"] : ["compose.yaml"]
-  extra_bundle_files      = local.core_db_files
+  extra_service_envs      = concat(local.container_db ? ["db"] : [], local.agents ? ["agent", "tools"] : [])
+  compose_files           = concat(["compose.yaml"], local.container_db ? ["compose.postgres.yaml"] : [], local.agents ? ["compose.agents.yaml"] : [])
+  extra_bundle_files      = merge(local.core_db_files, local.core_agent_files)
+  extra_ports             = local.agents ? ["8001:8001"] : []
+  extra_env               = local.agents ? { AGENT_SERVE_ARGS = var.agent_serve_args } : {}
   tags                    = local.tags
 }
 
@@ -159,6 +178,9 @@ module "compute_platform" {
   kms_key_arn             = module.data.kms_key_arn
   ecr_registry_url        = local.ecr_registry_url
   images                  = var.images.platform
+  compose_files           = local.agents ? ["compose.yaml", "compose.agents.yaml"] : ["compose.yaml"]
+  extra_bundle_files      = local.platform_agent_files
+  extra_ports             = local.agents ? ["8000:8000"] : []
   tags                    = local.tags
 }
 
@@ -218,6 +240,11 @@ locals {
     "pulso-engine"         = { repository = "${var.ecr_repository_prefix}/pulso-engine" }
     "caddy"                = { repository = "${var.ecr_repository_prefix}/caddy", mode = "mirror" }
   }
+  # agent-core serve is built from the agent-core repo's own Dockerfile (not core-bridge); tool-service from its repo.
+  agent_build_services = local.agents ? {
+    "agent-core-serve" = { repository = "${var.ecr_repository_prefix}/agent-core-serve" }
+    "tool-service"     = { repository = "${var.ecr_repository_prefix}/tool-service" }
+  } : {}
 }
 
 module "image_builder" {
@@ -228,7 +255,7 @@ module "image_builder" {
   bucket_name  = module.data.bucket_name
   kms_key_arn  = module.data.kms_key_arn
   ecr_registry = local.ecr_registry_url
-  services     = local.build_services
+  services     = merge(local.build_services, local.agent_build_services)
   compute_type = local.compute_type
   tags         = local.tags
 }
@@ -241,9 +268,9 @@ module "deployers" {
   kms_key_arn = module.data.kms_key_arn
   workloads = {
     core = {
-      image_keys     = ["core", "gateway"]
-      repositories   = ["${var.ecr_repository_prefix}/core-runtime", "${var.ecr_repository_prefix}/llm-gateway"]
-      build_services = ["core-runtime", "llm-gateway"]
+      image_keys     = concat(["core", "gateway"], local.agents ? ["agent", "tools"] : [])
+      repositories   = concat(["${var.ecr_repository_prefix}/core-runtime", "${var.ecr_repository_prefix}/llm-gateway"], local.agents ? ["${var.ecr_repository_prefix}/agent-core-serve", "${var.ecr_repository_prefix}/tool-service"] : [])
+      build_services = concat(["core-runtime", "llm-gateway"], keys(local.agent_build_services))
     }
     platform = {
       image_keys     = ["support_api", "support_web"]

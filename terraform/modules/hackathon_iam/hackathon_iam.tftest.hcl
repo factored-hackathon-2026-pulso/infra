@@ -274,3 +274,34 @@ run "host_builder_gives_only_the_core_host_push_and_build_object_access" {
     error_message = "Still no wildcard actions."
   }
 }
+
+# ---- agent services: tool-service on the core host reads data-pipeline's publication ----
+
+run "core_reads_no_lake_by_default" {
+  command = plan
+
+  assert {
+    condition     = length([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s if s.Sid == "ObjectReadOnly"]) == 0 && !strcontains(aws_iam_policy.host["core"].policy, "/lake/")
+    error_message = "By default the core host reads nothing under lake/."
+  }
+}
+
+run "core_read_prefixes_are_read_only_and_listed" {
+  command = plan
+  variables {
+    core_read_prefixes = ["lake/publish"]
+  }
+
+  assert {
+    condition     = toset(flatten([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s.Sid == "ObjectReadOnly" ? tolist([s.Resource]) : []])) == toset(["arn:aws:s3:::hk-data-bucket/lake/publish/*"])
+    error_message = "Core reads exactly the publication prefix."
+  }
+  assert {
+    condition     = toset(flatten([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s.Sid == "ObjectReadWrite" ? tolist([s.Resource]) : []])) == toset(["arn:aws:s3:::hk-data-bucket/core/blobs/*"])
+    error_message = "Reading the publication never widens what core may write."
+  }
+  assert {
+    condition     = contains(flatten([for s in jsondecode(aws_iam_policy.host["core"].policy).Statement : s.Sid == "ListBucket" ? s.Condition.StringLike["s3:prefix"] : []]), "lake/publish/*")
+    error_message = "Core may list the publication (the sync follows latest.json)."
+  }
+}
