@@ -6,13 +6,19 @@ into `.prodlike/` (git-ignored) and changes only what a laptop cannot do. It doe
 credentials, and prints no secret.
 
 ```
-python scripts/prodlike/prodlike.py render                    # inspect .prodlike/ first; lists slots and deviations
-python scripts/prodlike/prodlike.py build gateway --src <llm-gateway checkout>     # one image at a time, RAM checked
+# once per checkout of each service (one image at a time, RAM checked; Python images need about 1.5 GB free, the Rust engine about 3 GB)
+python scripts/prodlike/prodlike.py build gateway --src <llm-gateway checkout>
 python scripts/prodlike/prodlike.py build tools   --src <tool-service checkout>
-python scripts/prodlike/prodlike.py build engine  --src <improvement-engine checkout>   # needs about 3 GB free RAM
-python scripts/prodlike/prodlike.py up                        # render + compose up + wait healthy (deploy-stack.sh rule)
+python scripts/prodlike/prodlike.py build agent   --src <agent-core checkout>        # the Dockerfile of agent-core, linux/amd64
+python scripts/prodlike/prodlike.py build engine  --src <improvement-engine checkout>
+python scripts/prodlike/prodlike.py state --agent-core <agent-core checkout>          # synthetic publication + agent-core TEST keys, calibration, classifier
+# one command up (render + start + wait healthy, the rule of deploy-stack.sh); secrets come from KEY=VALUE files, only the contract's names are read
+python scripts/prodlike/prodlike.py up --env-file <llm-gateway.env> --env-file <agent-core.env>   # add --podman-run on machines without a pids cgroup
+python scripts/prodlike/prodlike.py seed --agent-core <agent-core checkout> --model xiaomi/mimo-v2.6-flash   # four fixture agents into the registry
 python scripts/prodlike/prodlike.py smoke [--live] [--strict]
-python scripts/prodlike/prodlike.py chaos postgres            # or: gateway
+python scripts/prodlike/prodlike.py chaos postgres|gateway-down|tools-down|serve-restart|serve-start-db-down|serve-env-missing [--var NAME]
+python scripts/prodlike/prodlike.py loop --engine-src <engine checkout>               # one `pulso loop`, planted SYNTHETIC cells
+uv run --project <agent-core checkout> python scripts/prodlike/exercise_serve.py --prefix <prefix>   # turns, registry flow, export, load
 python scripts/prodlike/prodlike.py down --volumes
 ```
 
@@ -48,18 +54,28 @@ compose command (default `podman compose`). Requirements: Python with PyYAML, Po
 
 ## 3. Slots (images that do not exist yet)
 
-A service whose image variable has no local image is **dropped from the rendered stack and listed as a slot**; its
-`depends_on` edges are removed and reported. Today:
+A service whose image variable has no local image is **dropped from the rendered stack and listed as a slot**; its `depends_on` edges are
+removed and reported. agent-core `serve` is no longer a slot: build it from its own Dockerfile (`build agent`). Today:
 
 | Slot | Needs | Owner brief |
 |---|---|---|
-| agent-core serve (`AGENT_IMAGE`) | `/healthz` and `/readyz`, image, migrations, env doc | agent-core brief, section A3 and A4 |
-| platform backend and SPA (`SUPPORT_API_IMAGE`, `SUPPORT_WEB_IMAGE`) | images, Postgres instead of SQLite, health | platform brief |
+| platform backend and SPA (`SUPPORT_API_IMAGE`, `SUPPORT_WEB_IMAGE`) | images, Postgres instead of SQLite, health | platform brief. Meanwhile `render` ADDS a **double** of the platform grant endpoint (`scripts/prodlike/grants_stub.py`) as service `platform` with the alias `platform.pulso.internal`, so serve's real `http_grant_active` has something to call; it says every grant is active unless listed in `files/grants/revoked`. Never use it to judge a revocation |
 | core runtime (`CORE_IMAGE`) | core-bridge image; not part of the improvement loop (ADR 0009) | engine repo `core-bridge` |
+| engine host (`PULSO_IMAGE`) | the engine image; without it the proxy alone is not started, the env files are still rendered (smoke and `loop` read the seed) | this repo |
 | OTLP forwarder sidecars | `FORWARDER_IMAGE` from `docker/otlp-forwarder.Dockerfile`; `render --forwarder` | this repo |
 
-When the image exists, build or load it, add it to `.prodlike/images.json` (variable name to local reference) or `build` it, and
-`render` keeps the service with its real dependencies (a test renders `agent-core` and checks them). Nothing else changes.
+When the image exists, build or load it, add it to `.prodlike/images.json` (variable name to local reference) or `build` it, and `render`
+keeps the service with its real dependencies (a test renders `agent-core` and checks them).
+
+### agent-core serve in the stack
+
+The rendered `agent-core` and `agent-core-migrate` are the compose services of `deploy/hackathon/core/compose.agents.yaml` unchanged
+(command, `AGENT_SERVE_ARGS` from the Terraform default, healthcheck on `/readyz`, owner-role migrate with `--app-role agent_app`,
+`user 10001`, `stop_grace_period`). Its inputs come from `state` (never from AWS): agent-core's TEST identity keys, with the **engine's public
+key added to `staff-keys` under `pulso-engine-local`** (derived by `render` from the generated `PULSO_SERVICE_SEED_HEX`, so the engine can mint a
+`builder` credential), synthetic calibration and classifier artifacts, and a **synthetic data-pipeline publication** (two invented customers,
+built inside the tool-service image). The field grants are a synthetic list for the `advisor_view` purpose; the field-classification overlay is
+agent-core's own plus the slot names its flows need (`OVERLAY_GAPS`, reported to agent-core).
 
 ## 4. The smoke test
 
@@ -72,25 +88,34 @@ When the image exists, build or load it, add it to `.prodlike/images.json` (vari
 | gateway authenticated call as consumer ENGINE with `mimo-v2.6-flash` (a few cents) | implemented, only with `--live` |
 | Postgres healthy, init created `core_runtime`, `core_eval`, `pulso` | implemented |
 | tool-service healthy, catalogue of 7 tools with the real bearer, `/readyz` reported | implemented |
-| engine ready through the proxy, 403 without the origin header, `/internal` hidden, proxy `/healthz` | implemented (needs the engine database steps; see the deviation) |
-| loop: detect, propose, prove, announce, approve, publish, release, outcome | **slots**: all need agent-core serve and the platform; detect also needs the engine loop runner (`steps_cli` is not in the engine image) pointed at this stack |
+| agent-core: image probe healthy, `/healthz`, `/readyz` (per-dependency JSON), `/version` | implemented |
+| agent-core: `AGENTCORE_ALLOW_DOUBLES` / `ALLOW_DEMO` absent from the container env and the startup line says `mode=production` | implemented |
+| agent-core runs as uid 10001 | implemented |
+| the engine's builder credential, minted in pure Python from the seed exactly as the engine does: create a proposal 201, approve 403, a credential signed by another key 401 | implemented |
+| engine ready through the proxy, 403 without the origin header, `/internal` hidden, proxy `/healthz` | implemented when the engine image is in the stack, else a slot |
+| loop: detect, propose, prove | `prodlike.py loop` (engine image, planted synthetic cells, minted credential, mimo flash and pro); not part of `smoke` because it costs model calls |
+| loop: announce, approve, publish, release, outcome | **slots**: they need the platform (and a human approver). The engine is never allowed to approve, publish or promote; `smoke` proves the 403 |
 
-`--strict` turns slots into failures. The summary line states that this is not the full loop. `chaos postgres` stops the
-database, expects the engine `/readyz` to be 503 while the proxy `/healthz` stays 200, restarts it and expects recovery;
-`chaos gateway` kills the gateway and expects the restart policy to bring it back healthy.
+`--strict` turns slots into failures. The summary line states that this is not the full loop. `chaos` stops or restarts one dependency and prints what it observed: `postgres` (agent-core and engine `/readyz` 503 while liveness stays 200,
+recovery without a manual step), `gateway-down` (serve not ready, alive), `tools-down` (serve stays ready and reports it), `serve-restart`,
+`serve-start-db-down` (serve started while Postgres is down stays alive and becomes ready by itself), `serve-env-missing` (exit 2 naming the
+variable, no value printed); `gateway` kills the gateway and expects the restart policy to bring it back healthy.
 
-## 5. Exercised status of this design
+## 5. Why `up --podman-run` exists
 
-Offline: `tests/test_prodlike.py` (rendering invariants, secrets contract, health rule, slots, RAM guard, app-user volumes, limit fallback).
+On this project's WSL Podman machines no container can start through the compose API: the daemon applies a default pids limit that crun cannot
+enforce here (`controller pids is not available`), even with `pids_limit: 0` or `-1`, and `docker-compose` cannot send `--pids-limit=0`. `podman run`
+can. `up` therefore falls back by itself (or with `--podman-run`) to starting the SAME rendered services with `podman run --pids-limit=0`, honouring
+image, command, entrypoint, restart, user, env files, ports, volumes, `shm_size`, `stop_grace_period`, health checks (passed as JSON arrays) and
+`depends_on` conditions (`service_healthy`, `service_completed_successfully`), and labelling them like compose so `smoke`, `chaos` and the wait rule
+find them. Services without a fixed address get one from `.50` up so they cannot take the fixed `.10` gateway, `.11` agent-core and `.12` tool-service.
+Memory limits are dropped in that mode (reported). Nothing about the machine is reconfigured.
 
-Live, on the `pulso-dev` Podman machine (2026-10-05, prefix `infb`, other lanes' stacks running, 1 GB of free RAM so no engine build):
+Local secrets are derived from `.prodlike/secrets.seed`, so a re-render keeps the passwords of an already initialised Postgres volume;
+`down --volumes` removes the seed together with the volumes.
 
-| What | Result |
-|---|---|
-| `build gateway` / `build tools` | built, `linux/amd64`, 17 MB and 250 MB, docker format |
-| `render` + compose accepts the files | networks, volumes and containers were created |
-| `up` | **blocked by the machine, not by the stack**: crun cannot set `memory.max` (the rehearsal then re-renders without `mem_limit`) and then `controller pids is not available`; `docker-compose` cannot send the `--pids-limit=0` that `podman run` accepts here. Needs a Podman that delegates the pids and memory controllers (rootful Linux, or the machine config), or a compose provider that honours `pids_limit: 0` |
-| Same env files, `podman run --pids-limit=0` by hand | gateway: image probe `/llm-gateway -healthcheck` exits 0, `/healthz` 200, `/v1/generate` without bearer 401. tool-service as uid 10001: `/healthz` 200, 7 tools with the bearer, `/readyz` 503 (no publication). With a root-owned `/state` it exits on `unable to open database file`: the same bug class as the engine data dir, which is why `up` now chowns the volumes that `pulso-stack-prepare` gives to uid 10001 |
+## 6. Exercised status
 
-Not exercised: the engine image (needs about 3 GB of free RAM), Postgres init through the rendered `initdb`, the proxy, `smoke`, `chaos`,
-the forwarder image. The first complete `up` is the next step for whoever has the headroom and a compose-capable machine.
+The live results of the serve rehearsal (checks, counts, defects and owners) are in
+`docs/reports-claude/PRODLIKE_SERVE_RESULTS_2026-10-05.md` of the working tree (not versioned here). The offline tests
+(`tests/test_prodlike.py`, `tests/test_prodlike_serve.py`) pin the rendering, the contract, the fallback runner and the Ed25519 vectors.

@@ -49,6 +49,9 @@ services:
       serve --host 0.0.0.0 --port 8001
       ${AGENT_SERVE_ARGS:-}
     restart: unless-stopped
+    # AGENTCORE_SHUTDOWN_GRACE_SECONDS (25, docs/serve-env.md) must stay below this: on SIGTERM serve finishes the turns in flight, and the
+    # Docker default (10 s) would SIGKILL a turn that needs a mimo-class model call. Measured in the prod-like rehearsal (restart mid-run).
+    stop_grace_period: 30s
     mem_limit: 768m
     user: "10001:10001"
     # serve validates its whole environment before opening the port and exits 2 naming each bad variable (never a value).
