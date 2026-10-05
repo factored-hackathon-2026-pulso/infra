@@ -19,7 +19,7 @@ run "platform_database_is_off_by_default" {
   }
 
   assert {
-    condition     = !anytrue([for k in keys(nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))) : can(regex("PLATFORM_(OWNER|APP|EXPORTER_RO)|TOOLS_(OWNER|APP)|CC_MIGRATE_DATABASE_URL|PG_PRODUCT_DSN", k))])
+    condition     = !anytrue([for k in keys(nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))) : can(regex("PLATFORM_(OWNER|APP|EXPORTER_RO)|TOOLS_(OWNER|APP)|MIGRATE__CC_DATABASE_URL|PG_PRODUCT_DSN", k))])
     error_message = "Without platform_database_enabled no platform or tools database key exists."
   }
 }

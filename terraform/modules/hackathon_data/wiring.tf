@@ -26,8 +26,8 @@ locals {
       agent_app_eval = { role = "agent_app", pw = try(local.db_pw["AGENT_APP"], null), host = local.db_host_local, db = "agent_eval" }
       agent_owner    = { role = "agent_owner", pw = try(local.db_pw["AGENT_OWNER"], null), host = local.db_host_local, db = "agent_runtime" }
       agent_owner_ev = { role = "agent_owner", pw = try(local.db_pw["AGENT_OWNER"], null), host = local.db_host_local, db = "agent_eval" }
-      platform_app   = { role = "platform_app", pw = try(local.db_pw["PLATFORM_APP"], null), host = local.db_host_remote, db = "platform", scheme = "postgresql+asyncpg", query = local.db_container ? "" : "?ssl=require" }
-      platform_owner = { role = "platform_owner", pw = try(local.db_pw["PLATFORM_OWNER"], null), host = local.db_host_remote, db = "platform", scheme = "postgresql+asyncpg", query = local.db_container ? "" : "?ssl=require" }
+      platform_app   = { role = "platform_app", pw = try(local.db_pw["PLATFORM_APP"], null), host = local.db_host_remote, db = "platform" }
+      platform_owner = { role = "platform_owner", pw = try(local.db_pw["PLATFORM_OWNER"], null), host = local.db_host_remote, db = "platform" }
       platform_exp   = { role = "platform_exporter_ro", pw = try(local.db_pw["PLATFORM_EXPORTER_RO"], null), host = local.db_host_remote, db = "platform" }
       # The engine migrates as the master first (its roles do not exist before its first start); docs/secrets-wiring.md.
       engine_master = { role = "pulso_master", pw = random_password.db_master.result, host = local.db_host_remote, db = "pulso" }
@@ -63,7 +63,7 @@ locals {
 
   wired_platform_db = var.platform_database_enabled ? {
     "SUPPORT__CC_DATABASE_URL"         = local.dsn["platform_app"]
-    "SUPPORT__CC_MIGRATE_DATABASE_URL" = local.dsn["platform_owner"]
+    "MIGRATE__CC_DATABASE_URL" = local.dsn["platform_owner"]
     "PULSO__PULSO_PG_PRODUCT_DSN"      = local.dsn["platform_exp"]
   } : {}
 

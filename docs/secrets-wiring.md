@@ -62,14 +62,14 @@ Secret files (`FILES__AGENT__<NAME>`, rendered under `/run/pulso/files/agent`): 
 |---|---|---|
 | `CC_SESSION_SECRET` | G | 64 alphanumerics (minimum 32 bytes) |
 | `CC_TOTP_SECRET_KEY` | G | Fernet key (urlsafe base64 of 32 bytes). Rotating it makes every sealed TOTP secret unreadable (users re-enrol) |
-| `CC_DATABASE_URL` | D | `postgresql+asyncpg://platform_app...@core.<zone>:5432/platform`; needs `platform_database_enabled` |
-| `CC_MIGRATE_DATABASE_URL` | D (assumed name) | `platform_owner`; the platform has no migrate step today (blocker 1 of [deploy-readiness](deploy-readiness.md)) |
+| `CC_DATABASE_URL` | D | `postgresql://platform_app...@core.<zone>:5432/platform?sslmode=<mode>` (psycopg 3: no `+asyncpg` scheme, no `?ssl=` query); needs `platform_database_enabled` |
+| `MIGRATE__CC_DATABASE_URL` | D | `platform_owner` DSN rendered ONLY into `migrate.env` for the one-shot `support-platform-migrate` service (`cc-migrate` reads `CC_DATABASE_URL`); never into `support.env`, so the API never sees the owner DSN |
 | `CC_INTERNAL_SERVICE_TOKEN` | G | one value with `AGENTCORE_GRANTS_TOKEN` and `PULSO_PLATFORM_SERVICE_TOKEN` |
 | `CC_AGENT_KEYS_FILE` (secret file `AGENT_PRIVATE_KEYS`) | G (file) | private.json: principal, delegation, staff seeds |
 | `CC_BANK_CUSTOMER_LINKS_FILE` | F (`config/support/bank-customer-links.json`) | `{}`, see "Reviewable defaults" |
 | `CC_PUBLIC_APP_URL`, `CC_CORS_ORIGINS` | L (SSM, derived from the CloudFront domain) | CORS is a JSON list |
 | `CC_AGENT_CORE_URL` | L | compose |
-| `CC_ENV`, `CC_SEED_DEMO_DATA`, `CC_DEV_MAILBOX`, `CC_DEV_MFA_CODE`, `CC_ASSISTANT_STEP_UP_CODE`, TTLs, lockout, stage thresholds, agent ids | C | NOT set: the platform runs in its `dev` mode with demo data and weak dev codes. Whether the demo needs `CC_ENV=prod` (which forbids demo seed and has no mail sender) is a platform-team decision |
+| `CC_ENV`, `CC_TRUSTED_PROXIES`, `CC_MIGRATE_ON_START`, `CC_AGENT_CORE_TIMEOUT_SECONDS`, `CC_SEED_DEMO_DATA`, `CC_DEV_MAILBOX`, demo-seed variables | C | set in `deploy/hackathon/platform/compose.yaml`: `CC_ENV=staging` enforces the platform runtime contract and still allows the demo accounts (`demo1234`), the dev MFA code `000000` and the dev mailbox (`CC_ENV=prod` refuses all three); decided: the AWS deployment runs the demo accounts and seeds |
 | `VITE_API_URL` | build time | image build, not a runtime secret |
 
 ## Engine (engine host): `pulso run`, `pulso loop`, loader, forwarder

@@ -1,7 +1,7 @@
 -- Platform and tool-service databases on the shared Postgres (platform_database_enabled; docs/shared-postgres.md). Run as the
 -- master user, connected to database "postgres". Idempotent. Passwords come from environment variables (psql 15+ \getenv),
 -- never from the command line or from this file.
---   platform_owner        owns database "platform"; support-platform's migrations connect as it (SUPPORT__CC_MIGRATE_DATABASE_URL)
+--   platform_owner        owns database "platform"; support-platform's migrations connect as it (MIGRATE__CC_DATABASE_URL)
 --   platform_app          DML only, through the default privileges below; the API connects as it (SUPPORT__CC_DATABASE_URL)
 --   platform_exporter_ro  READ-ONLY, only on the tables 26_platform_exporter_grants.sql names (event_log, cases): the engine's
 --                         platform-exporter (PULSO__PULSO_PG_PRODUCT_DSN). Never default privileges: a future table with PII
