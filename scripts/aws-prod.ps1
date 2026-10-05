@@ -3,7 +3,11 @@
   One helper to create and operate the single "prod" AWS environment from your machine (docs/aws-prod-quickstart.md).
 .DESCRIPTION
   Subcommands: check, root-keys-reminder, bootstrap-plan, bootstrap-apply, images, plan, apply, status,
-  upload, destroy-plan, destroy, deploy.
+  upload, destroy-plan, destroy, deploy, set-secret.
+
+  set-secret -SecretKey <SERVICE>__<VAR> sets one key of the single Secrets Manager secret pulso-prod/hackathon from a
+  secure prompt (no echo). The value is never a parameter, never printed or logged, never read from a file, and never
+  written inside the repository (only a short-lived temp file outside it, deleted at once). Every other key is kept.
 
   images -Service <name> -SourceDir <dir> builds one image in AWS CodeBuild (no local Docker needed): it zips the
   source (never .git, node_modules, target, .env, keys or credentials; the excluded paths are printed), uploads it to
@@ -28,7 +32,7 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('check', 'root-keys-reminder', 'bootstrap-plan', 'bootstrap-apply', 'images', 'plan', 'apply',
-        'status', 'upload', 'destroy-plan', 'destroy', 'deploy')]
+        'status', 'upload', 'destroy-plan', 'destroy', 'deploy', 'set-secret')]
     [string]$Command,
     [string]$Profile = '',
     [switch]$AllowAnyProfile,
@@ -45,6 +49,8 @@ param(
     [string]$SourceDir = '',
     [string]$Dockerfile = '',
     [string[]]$BuildArg = @(),
+    [string]$ViteApiUrl = '',
+    [string]$SecretKey = '',
     [string]$MirrorImage = '',
     [string]$Digest = '',
     [string]$FromBuild = '',
@@ -236,10 +242,10 @@ function Invoke-Images($p, $id) {
     $prof = $p.Profile
     $refs = @{}
     $refs.pulso = Invoke-ReleaseImage $prof $registry 'prod/pulso-engine' $p.PulsoDir 'pulso'
-    $refs.core = Invoke-ReleaseImage $prof $registry 'prod/core-runtime' $p.AgentCoreDir 'core-runtime' (Join-Path $p.AgentCoreDir 'Dockerfile') @("core=$($p.AgentCoreDir)")
+    $refs.core = Invoke-ReleaseImage $prof $registry 'prod/core-runtime' (Join-Path $p.PulsoDir 'core-bridge') 'core-runtime' (Join-Path $p.PulsoDir 'core-bridge/Dockerfile') @("core=$($p.AgentCoreDir)")
     $refs.gateway = Invoke-ReleaseImage $prof $registry 'prod/llm-gateway' $p.LlmGatewayDir 'llm-gateway' (Join-Path $p.LlmGatewayDir 'Dockerfile')
-    $refs.support_api = Invoke-ReleaseImage $prof $registry 'prod/support-platform-api' (Join-Path $p.SupportPlatformDir 'api') 'support-platform-api'
-    $refs.support_web = Invoke-ReleaseImage $prof $registry 'prod/support-platform-web' (Join-Path $p.SupportPlatformDir 'web') 'support-platform-web'
+    $refs.support_api = Invoke-ReleaseImage $prof $registry 'prod/support-platform-api' (Join-Path $p.SupportPlatformDir 'backend') 'support-platform-api'
+    $refs.support_web = Invoke-ReleaseImage $prof $registry 'prod/support-platform-web' (Join-Path $p.SupportPlatformDir 'frontend') 'support-platform-web'
     $refs.proxy = Invoke-MirrorCaddy $prof $registry $p.CaddyUpstreamDigest
     $file = if ($p.VarFile) { $p.VarFile } else { Join-Path (Get-EnvDir) 'prod.tfvars' }
     Set-ImagesInTfvars $file $refs
@@ -309,6 +315,17 @@ function New-SourceZip([string]$ZipPath, [object[]]$Roots) {
                     $suffix = if ($item.PSIsContainer) { '/' } else { '' }
                     if ((Test-ExcludedPath $rel) -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $excluded.Add("$prefix$rel$suffix"); continue }
                     if ($item.PSIsContainer) { $pending.Push($item.FullName); continue }
+                    if ($rel -eq '.dockerignore' -and @($root.AllowInDockerignore).Count) {
+                        # Staged context: a .dockerignore that excludes a path the Dockerfile needs (agent-core excludes
+                        # contracts, but core-bridge/Dockerfile reads contracts/VERSION) is rewritten without those lines.
+                        $allow = @($root.AllowInDockerignore)
+                        $kept = @(Get-Content -LiteralPath $item.FullName | Where-Object { $allow -notcontains $_.Trim().Trim('/') })
+                        $entry = $zip.CreateEntry("$prefix$rel", [IO.Compression.CompressionLevel]::Optimal)
+                        $w = New-Object IO.StreamWriter($entry.Open(), (New-Object Text.UTF8Encoding($false)))
+                        try { $w.Write((($kept -join "`n") + "`n")) } finally { $w.Dispose() }
+                        $count++
+                        continue
+                    }
                     [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $item.FullName, "$prefix$rel", [IO.Compression.CompressionLevel]::Optimal) | Out-Null
                     $count++
                 }
@@ -368,10 +385,10 @@ function Read-BuildRecord([string]$AwsProfile, [string]$Account, $svc, [string]$
 # release build; the core host (m7i-flex.large, 8 GB) builds with docker buildx through SSM Run Command instead.
 # Same inputs and outputs as the CodeBuild path: the source zip in S3, a build record in engine/build-out/.
 $script:HostBuild = @{
-    'core-runtime'         = @{ Dockerfile = 'core-bridge/Dockerfile'; Context = '.'; CoreContext = 'agent-core' }
+    'core-runtime'         = @{ Dockerfile = 'core-bridge/Dockerfile'; Context = 'core-bridge'; CoreContext = 'agent-core' }
     'llm-gateway'          = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
-    'support-platform-api' = @{ Dockerfile = 'api/Dockerfile'; Context = 'api'; CoreContext = '' }
-    'support-platform-web' = @{ Dockerfile = 'web/Dockerfile'; Context = 'web'; CoreContext = '' }
+    'support-platform-api' = @{ Dockerfile = 'backend/Dockerfile'; Context = 'backend'; CoreContext = '' }
+    'support-platform-web' = @{ Dockerfile = 'frontend/Dockerfile'; Context = 'frontend'; CoreContext = '' }
     'pulso-engine'         = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
 }
 
@@ -453,6 +470,12 @@ function Invoke-ImagesCloud($p, $id) {
         if (-not $p.SourceDir -or -not (Test-Path -LiteralPath $p.SourceDir -PathType Container)) { throw "images -Service $($svc.Name) needs -SourceDir <existing directory>." }
         if ($svc.Name -eq 'core-runtime' -and (-not $p.AgentCoreDir -or -not (Test-Path -LiteralPath $p.AgentCoreDir -PathType Container))) { throw 'images -Service core-runtime needs -AgentCoreDir <the pinned agent-core checkout>.' }
     }
+    if ($p.ViteApiUrl) {
+        if ($svc.Name -ne 'support-platform-web') { throw "-ViteApiUrl only applies to support-platform-web (the frontend build arg VITE_API_URL), not $($svc.Name)." }
+        if ($p.ViteApiUrl -notmatch '^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$') { throw "-ViteApiUrl must be an http(s) URL without spaces, commas, query or credentials, got '$($p.ViteApiUrl)'." }
+        if (@($p.BuildArg) | Where-Object { $_ -like 'VITE_API_URL=*' }) { throw 'Pass the API URL with -ViteApiUrl or with -BuildArg VITE_API_URL=..., not both (VITE_API_URL is set twice).' }
+        $p.BuildArg = @(@($p.BuildArg) | Where-Object { $_ }) + "VITE_API_URL=$($p.ViteApiUrl)"
+    }
     foreach ($a in @($p.BuildArg)) { if ($a -and ($a -notmatch '^[A-Za-z_][A-Za-z0-9_]*=[^,\s]*$')) { throw "-BuildArg must be KEY=VALUE without spaces or commas, got '$a'." } }
 
     $buildId = New-BuildId
@@ -469,7 +492,7 @@ function Invoke-ImagesCloud($p, $id) {
         Write-Host "Mirror        : $($p.MirrorImage) (pulled by CodeBuild, pushed to $($svc.Repository))"
     } else {
         $roots = @(@{ Dir = $p.SourceDir; Prefix = '' })
-        if ($svc.Name -eq 'core-runtime') { $roots += @{ Dir = $p.AgentCoreDir; Prefix = 'agent-core' } }
+        if ($svc.Name -eq 'core-runtime') { $roots += @{ Dir = $p.AgentCoreDir; Prefix = 'agent-core'; AllowInDockerignore = @('contracts') } }
         $zip = Join-Path (Get-WorkDir) "build-src-$buildId.zip"
         $r = New-SourceZip -ZipPath $zip -Roots $roots
         Write-Host ("Source upload : s3://$bucket/$srcKey ({0} files, {1:N1} MB)" -f $r.Files, ($r.Bytes / 1MB))
@@ -618,6 +641,45 @@ function Invoke-Deploy($p, $id) {
     }
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# set-secret: one key of the single Secrets Manager secret, typed at a secure prompt. The value never touches a
+# parameter, a file in the repository, the console or a log.
+# ---------------------------------------------------------------------------------------------------------------------
+function Read-SecretValue([string]$Prompt) {
+    $secure = Read-Host -Prompt $Prompt -AsSecureString
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+}
+
+function Invoke-SetSecret($p, $id) {
+    if ($p.SecretKey -notmatch '^(COMMON|CORE|GATEWAY|SUPPORT|PULSO)__[A-Z][A-Z0-9_]*$') {
+        throw '-SecretKey must be <SERVICE>__<VAR> with SERVICE one of COMMON, CORE, GATEWAY, SUPPORT, PULSO (for example GATEWAY__OPENROUTER_API_KEY).'
+    }
+    $name = "$($script:EcrPrefix)/hackathon"
+    $prof = $p.Profile
+    $current = ((Invoke-Aws -AwsProfile $prof -CliArgs @('secretsmanager', 'get-secret-value', '--secret-id', $name, '--query', 'SecretString', '--output', 'text')) -join "`n") | ConvertFrom-Json
+    $existed = [bool]$current.PSObject.Properties[$p.SecretKey]
+    Write-Host "Secret   : $name"
+    Write-Host "Key      : $($p.SecretKey) ($(if ($existed) { 'existing key, will be replaced' } else { 'new key, will be added' }))"
+    Write-Host 'The value is typed next, hidden, and is never printed or logged. All other keys are kept.'
+    $value = Read-SecretValue "Value for $($p.SecretKey)"
+    if ([string]::IsNullOrEmpty($value)) { throw 'The value is empty: nothing was written.' }
+    if ($value -eq 'CHANGE_ME') { throw 'The value is the CHANGE_ME placeholder: nothing was written.' }
+    Read-TypedWord 'SET'
+    $merged = [ordered]@{}
+    foreach ($prop in $current.PSObject.Properties) { $merged[$prop.Name] = $prop.Value }
+    $merged[$p.SecretKey] = $value
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ('pulso-secret-' + [guid]::NewGuid().ToString('N') + '.json')
+    try {
+        [IO.File]::WriteAllText($tmp, ($merged | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding($false)))
+        Invoke-Aws -AwsProfile $prof -CliArgs @('secretsmanager', 'put-secret-value', '--secret-id', $name, '--secret-string', ('file://' + ($tmp -replace '\\', '/'))) | Out-Null
+    } finally {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force }
+        $value = $null; $merged = $null
+    }
+    Write-Host "OK: $($p.SecretKey) set in $name. Hosts pick it up on the next pulso-stack restart or deploy."
+}
+
 function Invoke-PlanBuilderStage($p, $id, [string]$Work) {
     # Stage 1 of a brand-new account: network + data + the CodeBuild builder, with throw-away digests, so the images
     # can be built before the hosts exist. Run plan without -Stage afterwards for everything else.
@@ -684,7 +746,7 @@ function Invoke-AwsProd {
     [CmdletBinding()]
     param([string]$Command, [string]$Profile, [bool]$AllowAnyProfile = $false, [hashtable]$Options = @{})
     $p = @{} + $Options; $p.Profile = $Profile
-    if (-not $Command) { throw 'Usage: aws-prod.ps1 <check|root-keys-reminder|bootstrap-plan|bootstrap-apply|images|plan|apply|status|upload|destroy-plan|destroy|deploy> -Profile <name>' }
+    if (-not $Command) { throw 'Usage: aws-prod.ps1 <check|root-keys-reminder|bootstrap-plan|bootstrap-apply|images|plan|apply|status|upload|destroy-plan|destroy|deploy|set-secret> -Profile <name>' }
 
     if ($Command -eq 'root-keys-reminder') { $script:RootWarned = $false; Show-RootWarning; return }
 
@@ -714,6 +776,7 @@ function Invoke-AwsProd {
         }
         'images' { if ($p.Service) { Invoke-ImagesCloud $p $id } else { Invoke-Images $p $id } }
         'deploy' { Invoke-Deploy $p $id }
+        'set-secret' { Invoke-SetSecret $p $id }
         'plan' {
             if ($p.Stage) {
                 if ($p.Stage -ne 'builder') { throw "Unknown -Stage '$($p.Stage)'. The only stage is: builder." }
@@ -750,7 +813,7 @@ if ($LibraryOnly) { return }
 $options = @{
     PulsoDir = $PulsoDir; AgentCoreDir = $AgentCoreDir; LlmGatewayDir = $LlmGatewayDir; SupportPlatformDir = $SupportPlatformDir
     CaddyUpstreamDigest = $CaddyUpstreamDigest; Path = $Path; Dataset = $Dataset; VarFile = $VarFile; DryRun = [bool]$DryRun
-    Service = $Service; SourceDir = $SourceDir; Dockerfile = $Dockerfile; BuildArg = $BuildArg; MirrorImage = $MirrorImage
+    Service = $Service; SourceDir = $SourceDir; Dockerfile = $Dockerfile; BuildArg = $BuildArg; ViteApiUrl = $ViteApiUrl; SecretKey = $SecretKey; MirrorImage = $MirrorImage
     Digest = $Digest; FromBuild = $FromBuild; Wait = [bool]$Wait; Rollback = [bool]$Rollback; Yes = [bool]$Yes; Stage = $Stage; Builder = $Builder
 }
 Invoke-AwsProd -Command $Command -Profile $Profile -AllowAnyProfile ([bool]$AllowAnyProfile) -Options $options

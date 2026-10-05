@@ -97,7 +97,7 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
 ### agent-core (`core-runtime`)
 
 - Image: built from `core-bridge/Dockerfile` of the improvement-engine repository with the pinned agent-core checkout as the named build context `core` (`COPY --from=core`); the pin is in [ADR 0003](adr/0003-agent-core-workload.md). One image, three entrypoints chosen by the container command: `runtime` (the service, port 8000), `exporter` (no listener) and `migrate` (one-shot).
-- Build: `-SourceDir` is the improvement-engine checkout, `-AgentCoreDir` the pinned agent-core checkout; the script puts it into the zip under `agent-core/` and CodeBuild runs `docker build --build-context core=agent-core`.
+- Build: `-SourceDir` is the improvement-engine checkout, `-AgentCoreDir` the pinned agent-core checkout; the script stages it into the zip under `agent-core/` and the build runs `docker build -f core-bridge/Dockerfile --build-context core=agent-core core-bridge` (context `core-bridge/`). The staged copy of the agent-core `.dockerignore` has the `contracts` line removed, because the Dockerfile reads `contracts/VERSION`; your checkout is not modified.
   ```powershell
   .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service agent-core -SourceDir D:\src\improvement-engine -AgentCoreDir D:\src\agent-core
   ```
@@ -119,11 +119,11 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
 
 ### support-platform (`support-platform-api`, `support-platform-web`)
 
-- Two images, one host. API: `api/Dockerfile` (context `api/`), listens on 8000, health `GET /` (compose check), data in `/data` (the host path `/srv/data/support`). Web: `web/Dockerfile` (context `web/`), nginx on 80.
-- `VITE_API_URL` is baked into the web bundle at BUILD time, so it must be passed when you build the web image and cannot be changed by a restart. Use the URL the browser reaches the API at (the CloudFront domain, which routes `/api/*` to the API); rebuild and redeploy the web image whenever it changes.
+- Two images, one host. API: `backend/Dockerfile` (context `backend/`), listens on 8000, health `GET /` (compose check), data in `/data` (the host path `/srv/data/support`). Web: `frontend/Dockerfile` (context `frontend/`), nginx on 80.
+- `VITE_API_URL` is baked into the web bundle at BUILD time, so it must be passed when you build the web image and cannot be changed by a restart. Use the URL the browser reaches the API at (the CloudFront domain, which routes `/api/*` to the API); rebuild and redeploy the web image whenever it changes. `-ViteApiUrl` is accepted only for `support-platform-web` and is the same as `-BuildArg VITE_API_URL=...` (do not pass both).
   ```powershell
   .\scripts\aws-prod.ps1 images -Profile pulso-deploy-platform -Service support-platform-api -SourceDir D:\src\support-platform
-  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-platform -Service support-platform-web -SourceDir D:\src\support-platform -BuildArg VITE_API_URL=https://<cloudfront domain>
+  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-platform -Service support-platform-web -SourceDir D:\src\support-platform -ViteApiUrl https://<cloudfront domain>
   .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-platform -Service support-platform-api -FromBuild <api build id> -Wait
   .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-platform -Service support-platform-web -FromBuild <web build id> -Wait
   ```
