@@ -70,7 +70,29 @@ variable "images" {
     platform = map(string)
     engine   = map(string)
   })
-  description = "Digest-pinned FULL image refs per host (<registry>/<repo>@sha256:...), as printed by scripts/aws-prod.ps1 images. core: core, gateway. platform: support_api, support_web, proxy. engine: pulso, proxy."
+  description = "Digest-pinned FULL image refs per host (<registry>/<repo>@sha256:...), as printed by scripts/aws-prod.ps1 images. core: core, gateway (and agent, tools with agent_services_enabled). platform: support_api, support_web, proxy. engine: pulso, proxy."
+
+  validation {
+    condition     = !var.agent_services_enabled || (contains(keys(var.images.core), "agent") && contains(keys(var.images.core), "tools"))
+    error_message = "agent_services_enabled needs images.core.agent (agent-core serve) and images.core.tools (tool-service)."
+  }
+}
+
+variable "agent_services_enabled" {
+  type        = bool
+  default     = false
+  description = "agent-core serve (core:8001) and tool-service on the core host, wired to support-platform (docs/agent-services.md): compose overrides on core and platform, agent.env/tools.env and FILES__ secret keys, the agent databases, core reads the restricted publication, network paths platform<->core. Off by default."
+}
+
+variable "agent_serve_args" {
+  type        = string
+  default     = "--tools agent_core.adapters.tools:http_tool_executor --authz agent_core.adapters.policy_authz:policy_authz --field-classifier agent_core.composition.classification:field_classifier --grant-active agent_core.adapters.grants:http_grant_active --transcript agent_core.composition.transcript:transcript --calibration agent_core.composition.artifacts:calibration --classifier agent_core.composition.artifacts:classifier_provider"
+  description = "Piece flags of `agentcore serve`: module:attribute of the seven REAL pieces of agent-core main (serve refuses testing.* without the demo flag). Append --agents or --lang-thresholds as needed."
+
+  validation {
+    condition     = !strcontains(var.agent_serve_args, "testing.") && !can(regex("[\\r\\n]", var.agent_serve_args))
+    error_message = "agent_serve_args takes real pieces on one line, never testing.* doubles."
+  }
 }
 
 variable "enable_waf" {
@@ -176,16 +198,6 @@ variable "db_volume_size_gb" {
   type        = number
   default     = 30
   description = "Postgres container data volume (free_plan, database_mode=container), snapshotted daily."
-}
-
-variable "agent_core_serve_pieces" {
-  description = "Optional overrides of the `module:attr` of the three `agentcore serve` pieces. Defaults are agent-core's real ones (agent_core.composition.transcript:transcript, agent_core.composition.artifacts:calibration and :classifier_provider), set in the core compose. Written to the core host .env as AGENTCORE_PIECE_*."
-  type = object({
-    transcript  = optional(string)
-    calibration = optional(string)
-    classifier  = optional(string)
-  })
-  default = {}
 }
 
 variable "agent_keys_suffix" {

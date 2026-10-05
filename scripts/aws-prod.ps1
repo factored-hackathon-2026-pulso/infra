@@ -43,7 +43,6 @@ param(
     [switch]$AllowAnyProfile,
     [string]$PulsoDir = '',
     [string]$AgentCoreDir = '',
-    [string]$AgentCoreCommit = '',
     [string]$LlmGatewayDir = '',
     [string]$SupportPlatformDir = '',
     [string]$CaddyUpstreamDigest = '',
@@ -248,8 +247,7 @@ function Invoke-Images($p, $id) {
     $prof = $p.Profile
     $refs = @{}
     $refs.pulso = Invoke-ReleaseImage $prof $registry 'prod/pulso-engine' $p.PulsoDir 'pulso'
-    # The shared Core is agent-core's own image (ADR 0009): its Dockerfile, its checkout as the context, no staging.
-    $refs.core = Invoke-ReleaseImage $prof $registry 'prod/core-runtime' $p.AgentCoreDir 'core-runtime' (Join-Path $p.AgentCoreDir 'Dockerfile')
+    $refs.core = Invoke-ReleaseImage $prof $registry 'prod/core-runtime' (Join-Path $p.PulsoDir 'core-bridge') 'core-runtime' (Join-Path $p.PulsoDir 'core-bridge/Dockerfile') @("core=$($p.AgentCoreDir)")
     $refs.gateway = Invoke-ReleaseImage $prof $registry 'prod/llm-gateway' $p.LlmGatewayDir 'llm-gateway' (Join-Path $p.LlmGatewayDir 'Dockerfile')
     $refs.support_api = Invoke-ReleaseImage $prof $registry 'prod/support-platform-api' (Join-Path $p.SupportPlatformDir 'backend') 'support-platform-api'
     $refs.support_web = Invoke-ReleaseImage $prof $registry 'prod/support-platform-web' (Join-Path $p.SupportPlatformDir 'frontend') 'support-platform-web'
@@ -271,6 +269,10 @@ $script:Services = [ordered]@{
     'support-platform-web' = @{ Key = 'support_web'; Workloads = @('platform'); Aliases = @('support-web', 'support_web') }
     'pulso-engine'         = @{ Key = 'pulso'; Workloads = @('engine'); Aliases = @('engine', 'pulso') }
     'caddy'                = @{ Key = 'proxy'; Workloads = @('platform', 'engine'); Aliases = @('proxy') }
+    # Agent services (agent_services_enabled, docs/agent-services.md): agent-core `serve` from the agent-core repo's own
+    # Dockerfile (not core-bridge; the alias agent-core stays with core-runtime) and the tool-service.
+    'agent-core-serve'     = @{ Key = 'agent'; Workloads = @('core'); Aliases = @('agent-serve', 'agent') }
+    'tool-service'         = @{ Key = 'tools'; Workloads = @('core'); Aliases = @('tools') }
 }
 
 function Resolve-Service([string]$Name) {
@@ -324,7 +326,7 @@ function New-SourceZip([string]$ZipPath, [object[]]$Roots) {
                     if ($item.PSIsContainer) { $pending.Push($item.FullName); continue }
                     if ($rel -eq '.dockerignore' -and @($root.AllowInDockerignore).Count) {
                         # Staged context: a .dockerignore that excludes a path the Dockerfile needs (agent-core excludes
-                        # contracts) is rewritten without those lines. No current image needs it; kept for a Dockerfile that reads an ignored path.
+                        # contracts, but core-bridge/Dockerfile reads contracts/VERSION) is rewritten without those lines.
                         $allow = @($root.AllowInDockerignore)
                         $kept = @(Get-Content -LiteralPath $item.FullName | Where-Object { $allow -notcontains $_.Trim().Trim('/') })
                         $entry = $zip.CreateEntry("$prefix$rel", [IO.Compression.CompressionLevel]::Optimal)
@@ -392,11 +394,13 @@ function Read-BuildRecord([string]$AwsProfile, [string]$Account, $svc, [string]$
 # release build; the core host (m7i-flex.large, 8 GB) builds with docker buildx through SSM Run Command instead.
 # Same inputs and outputs as the CodeBuild path: the source zip in S3, a build record in engine/build-out/.
 $script:HostBuild = @{
-    'core-runtime'         = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
+    'core-runtime'         = @{ Dockerfile = 'core-bridge/Dockerfile'; Context = 'core-bridge'; CoreContext = 'agent-core' }
     'llm-gateway'          = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
     'support-platform-api' = @{ Dockerfile = 'backend/Dockerfile'; Context = 'backend'; CoreContext = '' }
     'support-platform-web' = @{ Dockerfile = 'frontend/Dockerfile'; Context = 'frontend'; CoreContext = '' }
     'pulso-engine'         = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
+    'agent-core-serve'     = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
+    'tool-service'         = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
 }
 
 function ConvertTo-BashQuoted([string]$Value) { "'" + ($Value -replace "'", "'\''") + "'" }
@@ -465,24 +469,6 @@ function Invoke-HostBuild([string]$AwsProfile, $svc, [string]$Bucket, [string]$R
     }
 }
 
-function Resolve-AgentCoreCommit([string]$Dir, [string]$Explicit) {
-    # The pinned agent-core commit becomes the GIT_SHA build arg (AGENTCORE_GIT_SHA in the image, reported by /version). When the
-    # directory is a git checkout it must be AT that commit with a clean tree: the zip is what gets built, and nothing but the
-    # pinned source may be in it. Without git metadata the commit must be given explicitly.
-    if ($Explicit -and $Explicit -notmatch '^[0-9a-f]{40}$') { throw "-AgentCoreCommit must be the 40 hex characters of the pinned agent-core commit, got '$Explicit'." }
-    $head = ''
-    if ((Test-Path -LiteralPath (Join-Path $Dir '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) {
-        $head = ((& git -C $Dir rev-parse HEAD 2>$null) -join '').Trim()
-    }
-    if ($head -match '^[0-9a-f]{40}$') {
-        if ($Explicit -and $Explicit -ne $head) { throw "The agent-core checkout is at $head, not at the pinned commit $Explicit. Check out the pinned commit first." }
-        if (((& git -C $Dir status --porcelain 2>$null) -join '').Trim()) { throw 'The agent-core checkout has uncommitted changes: the image must be built from the pinned commit alone.' }
-        return $head
-    }
-    if (-not $Explicit) { throw 'images -Service core-runtime needs -AgentCoreCommit <40 hex> (the directory has no git metadata).' }
-    $Explicit
-}
-
 function Invoke-ImagesCloud($p, $id) {
     $svc = Resolve-Service $p.Service
     $builder = if ($p.Builder) { $p.Builder } else { 'codebuild' }
@@ -492,14 +478,8 @@ function Invoke-ImagesCloud($p, $id) {
     if ($mirror) {
         if (-not $p.MirrorImage -or $p.MirrorImage -notmatch '^[a-z0-9][a-zA-Z0-9./:_@-]{2,250}$') { throw 'caddy is mirrored from upstream: pass -MirrorImage <docker.io/library/caddy:TAG or docker.io/library/caddy@sha256:DIGEST>.' }
     } else {
-        if ($svc.Name -eq 'core-runtime') {
-            # agent-core's own image (ADR 0009, ADR 0003): the source is the agent-core checkout at the pinned commit.
-            if (-not $p.AgentCoreDir -or -not (Test-Path -LiteralPath $p.AgentCoreDir -PathType Container)) { throw 'images -Service core-runtime needs -AgentCoreDir <the pinned agent-core checkout>.' }
-            if ($p.SourceDir -and ([IO.Path]::GetFullPath($p.SourceDir).TrimEnd([char[]]@([char]92, [char]47)) -ne [IO.Path]::GetFullPath($p.AgentCoreDir).TrimEnd([char[]]@([char]92, [char]47)))) { throw '-SourceDir does not apply to core-runtime: it is built from agent-core alone (pass -AgentCoreDir).' }
-            $p.SourceDir = $p.AgentCoreDir
-            $p.AgentCoreCommit = Resolve-AgentCoreCommit $p.AgentCoreDir $p.AgentCoreCommit
-            $p.BuildArg = @(@($p.BuildArg) | Where-Object { $_ }) + "GIT_SHA=$($p.AgentCoreCommit)"
-        } elseif (-not $p.SourceDir -or -not (Test-Path -LiteralPath $p.SourceDir -PathType Container)) { throw "images -Service $($svc.Name) needs -SourceDir <existing directory>." }
+        if (-not $p.SourceDir -or -not (Test-Path -LiteralPath $p.SourceDir -PathType Container)) { throw "images -Service $($svc.Name) needs -SourceDir <existing directory>." }
+        if ($svc.Name -eq 'core-runtime' -and (-not $p.AgentCoreDir -or -not (Test-Path -LiteralPath $p.AgentCoreDir -PathType Container))) { throw 'images -Service core-runtime needs -AgentCoreDir <the pinned agent-core checkout>.' }
     }
     if ($p.ViteApiUrl) {
         if ($svc.Name -ne 'support-platform-web') { throw "-ViteApiUrl only applies to support-platform-web (the frontend build arg VITE_API_URL), not $($svc.Name)." }
@@ -523,6 +503,7 @@ function Invoke-ImagesCloud($p, $id) {
         Write-Host "Mirror        : $($p.MirrorImage) (pulled by CodeBuild, pushed to $($svc.Repository))"
     } else {
         $roots = @(@{ Dir = $p.SourceDir; Prefix = '' })
+        if ($svc.Name -eq 'core-runtime') { $roots += @{ Dir = $p.AgentCoreDir; Prefix = 'agent-core'; AllowInDockerignore = @('contracts') } }
         $zip = Join-Path (Get-WorkDir) "build-src-$buildId.zip"
         $r = New-SourceZip -ZipPath $zip -Roots $roots
         Write-Host ("Source upload : s3://$bucket/$srcKey ({0} files, {1:N1} MB)" -f $r.Files, ($r.Bytes / 1MB))
@@ -682,8 +663,8 @@ function Read-SecretValue([string]$Prompt) {
 }
 
 function Invoke-SetSecret($p, $id) {
-    if ($p.SecretKey -notmatch '^(COMMON|CORE|GATEWAY|SUPPORT|PULSO)__[A-Z][A-Z0-9_]*$') {
-        throw '-SecretKey must be <SERVICE>__<VAR> with SERVICE one of COMMON, CORE, GATEWAY, SUPPORT, PULSO (for example GATEWAY__OPENROUTER_API_KEY).'
+    if ($p.SecretKey -cnotmatch '^((COMMON|CORE|GATEWAY|SUPPORT|PULSO|AGENT|TOOLS|DB)__[A-Z][A-Z0-9_]*|FILES__(AGENT|SUPPORT)__[A-Z][A-Z0-9_]*)$') {
+        throw '-SecretKey must be <SERVICE>__<VAR> with SERVICE one of COMMON, CORE, GATEWAY, SUPPORT, PULSO, AGENT, TOOLS, DB (for example GATEWAY__OPENROUTER_API_KEY), or FILES__<AGENT|SUPPORT>__<NAME> for a value the host writes as a file.'
     }
     $name = "$($script:EcrPrefix)/hackathon"
     $prof = $p.Profile
@@ -761,6 +742,8 @@ images = {
   core = {
     core    = "$registry/$px/core-runtime@$zero"
     gateway = "$registry/$px/llm-gateway@$zero"
+    agent   = "$registry/$px/agent-core-serve@$zero"
+    tools   = "$registry/$px/tool-service@$zero"
   }
   platform = {
     support_api = "$registry/$px/support-platform-api@$zero"
@@ -880,7 +863,7 @@ function Invoke-AwsProd {
 if ($LibraryOnly) { return }
 
 $options = @{
-    PulsoDir = $PulsoDir; AgentCoreDir = $AgentCoreDir; AgentCoreCommit = $AgentCoreCommit; LlmGatewayDir = $LlmGatewayDir; SupportPlatformDir = $SupportPlatformDir
+    PulsoDir = $PulsoDir; AgentCoreDir = $AgentCoreDir; LlmGatewayDir = $LlmGatewayDir; SupportPlatformDir = $SupportPlatformDir
     CaddyUpstreamDigest = $CaddyUpstreamDigest; Path = $Path; Dataset = $Dataset; VarFile = $VarFile; DryRun = [bool]$DryRun
     Service = $Service; SourceDir = $SourceDir; Dockerfile = $Dockerfile; BuildArg = $BuildArg; ViteApiUrl = $ViteApiUrl; SecretKey = $SecretKey; MirrorImage = $MirrorImage
     Digest = $Digest; FromBuild = $FromBuild; Wait = [bool]$Wait; Rollback = [bool]$Rollback; Yes = [bool]$Yes; Stage = $Stage; Builder = $Builder

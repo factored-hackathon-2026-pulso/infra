@@ -28,7 +28,7 @@ locals {
   }
   has_db_volume      = var.db_volume_size_gb > 0
   instance_memory_mb = lookup(local.memory_by_type, var.instance_type, 2048)
-  allowed_ports      = { core = concat(["8000:8000", "8080:8080"], var.db_volume_size_gb > 0 ? ["5432:5432"] : []), platform = ["80:80", "8081:8081"], engine = ["8080:8080"] }[var.workload]
+  allowed_ports      = concat({ core = concat(["8000:8000"], var.db_volume_size_gb > 0 ? ["5432:5432"] : []), platform = ["80:80"], engine = ["8080:8080"] }[var.workload], var.extra_ports)
   bundle_key_prefix  = "${var.bundle_prefix}${var.workload}/"
 
   service_env_names = concat({
@@ -51,6 +51,10 @@ locals {
     ssm_prefix    = var.ssm_prefix
     workload      = var.workload
     registry      = var.ecr_registry_url
+    # tool-service reads data-pipeline's publication from local disk: synced at every start (agent services).
+    sync_publication   = contains(local.service_env_names, "tools")
+    sync_artifacts     = contains(local.service_env_names, "agent")
+    publication_prefix = trim(var.publication_prefix, "/")
   })
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {

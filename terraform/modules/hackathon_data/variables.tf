@@ -102,6 +102,18 @@ variable "break_glass_principal_arns" {
   default     = []
 }
 
+variable "restricted_reader_role_arns" {
+  description = "Roles that may read data-pipeline's restricted publication (gold_restricted, PII in the clear) besides the loader and break-glass: the core host role when tool-service runs there. Never exempt from the landing/ and lake/bronze/ deny."
+  type        = list(string)
+  default     = []
+}
+
+variable "agent_services_enabled" {
+  description = "Seed the secret keys of agent-core serve, tool-service, their gateway consumer, the platform side and the agent databases (docs/agent-services.md). Off by default."
+  type        = bool
+  default     = false
+}
+
 variable "host_role_arns" {
   description = "Roles of the host (compute) allowed to read lake/gold_masked, lake/gold_analytics and engine/*, and use core/, engine/, tmp/."
   type        = list(string)
@@ -126,13 +138,13 @@ variable "enable_eventbridge" {
 }
 
 variable "gateway_consumers" {
-  description = "Consumer names for GATEWAY_TOKEN_<CONSUMER> keys; a token is generated for each. AGENT_CORE and ENGINE are required (they feed CORE__AGENTCORE_LLM_GATEWAY_TOKEN and PULSO__PULSO_LLM_GATEWAY_TOKEN)."
+  description = "Consumer names for GATEWAY_TOKEN_<CONSUMER> keys; a token is generated for each. AGENT_CORE (core-runtime), AGENT_SERVE (agent-core serve) and ENGINE are required."
   type        = list(string)
-  default     = ["AGENT_CORE", "ENGINE", "SUPPORT_PLATFORM"]
+  default     = ["AGENT_CORE", "AGENT_SERVE", "ENGINE", "SUPPORT_PLATFORM"]
 
   validation {
-    condition     = contains(var.gateway_consumers, "AGENT_CORE") && contains(var.gateway_consumers, "ENGINE")
-    error_message = "gateway_consumers must include AGENT_CORE and ENGINE."
+    condition     = alltrue([for c in ["AGENT_CORE", "AGENT_SERVE", "ENGINE"] : contains(var.gateway_consumers, c)])
+    error_message = "gateway_consumers must include AGENT_CORE, AGENT_SERVE and ENGINE."
   }
 }
 
@@ -143,13 +155,13 @@ variable "llm_provider_key_names" {
 }
 
 variable "bridge_signer_names" {
-  description = "Extra CORE__<NAME> placeholder keys. Empty by default: the shared Core is agent-core's own `agentcore serve` (ADR 0009), which has no PULSO_BRIDGE_* signers."
+  description = "Names of the PULSO_BRIDGE_*_SIGNER keys (ASSUMED defaults; confirm with agent-core)."
   type        = list(string)
-  default     = []
+  default     = ["PULSO_BRIDGE_CONTROL_SIGNER", "PULSO_BRIDGE_LAB_SIGNER"]
 }
 
 variable "agent_keys_suffix" {
-  description = "Goes in every generated kid (cc-principal-<suffix>, cc-grant-<suffix>, cc-staff-<suffix>, pulso-engine-<suffix>). Rotating = a new suffix next to the old key (see docs/secrets-keys.md)."
+  description = "Goes in every generated kid (cc-principal-<suffix>, cc-grant-<suffix>, cc-staff-<suffix>, pulso-engine-<suffix>)."
   type        = string
   default     = "hk1"
 

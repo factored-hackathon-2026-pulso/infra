@@ -330,25 +330,6 @@ resource "aws_vpc_security_group_egress_rule" "to_gateway" {
   to_port                      = 8080
 }
 
-# Platform internal listener (:8081, only /api/v1/internal/grants/*): agent-core's grant_active check from the core host.
-resource "aws_vpc_security_group_ingress_rule" "platform_internal_from_core" {
-  security_group_id            = aws_security_group.platform.id
-  description                  = "Grant check (internal listener) from the core host"
-  referenced_security_group_id = aws_security_group.core.id
-  ip_protocol                  = "tcp"
-  from_port                    = 8081
-  to_port                      = 8081
-}
-
-resource "aws_vpc_security_group_egress_rule" "core_to_platform_internal" {
-  security_group_id            = aws_security_group.core.id
-  description                  = "Grant check on the platform internal listener"
-  referenced_security_group_id = aws_security_group.platform.id
-  ip_protocol                  = "tcp"
-  from_port                    = 8081
-  to_port                      = 8081
-}
-
 resource "aws_vpc_security_group_egress_rule" "dns" {
   for_each          = { for p in setproduct(local.workloads, ["tcp", "udp"]) : "${p[0]}-${p[1]}" => { sg = p[0], proto = p[1] } }
   security_group_id = local.sg_ids[each.value.sg]

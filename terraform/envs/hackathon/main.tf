@@ -34,19 +34,6 @@ locals {
   origin_mode  = local.public_hosts ? "public" : "vpc"
   edge         = var.edge_enabled == null ? true : var.edge_enabled
 
-  # Core host bundle: the field-classification overlay mounted into agent-core, plus (container database mode) the Postgres
-  # compose override and the repository SQL run by the initdb script.
-  core_dir = "${path.module}/../../../deploy/hackathon/core"
-  # Trained artifacts travel with the release: every file under core/calibration/ and core/classifier/ is bundled and mounted
-  # read-only (AGENTCORE_CALIBRATION_DIR, AGENTCORE_CLASSIFIER_ARTIFACTS_DIR). The directories ship a .keep so they exist.
-  core_artifact_files = { for f in fileset(local.core_dir, "{calibration,classifier}/**") : f => file("${local.core_dir}/${f}") }
-  core_files = merge({
-    "field-overlay.json" = file("${local.core_dir}/field-overlay.json")
-    },
-    local.core_artifact_files,
-    local.core_db_files
-  )
-
   # Postgres container bundle on the core host: compose override and the repository SQL run by the initdb script.
   core_db_files = local.container_db ? {
     "compose.postgres.yaml"             = file("${path.module}/../../../deploy/hackathon/core/compose.postgres.yaml")
@@ -55,6 +42,15 @@ locals {
     "initdb/sql/10_core_grants.sql"     = file("${path.module}/../../modules/hackathon_data/sql/10_core_grants.sql")
     "initdb/sql/30_pulso_logins.sql"    = file("${path.module}/../../modules/hackathon_data/sql/30_pulso_logins.sql")
   } : {}
+
+  # Agent services (docs/agent-services.md): agent-core serve and tool-service on the core host, the platform side.
+  agents = var.agent_services_enabled
+  core_agent_files = local.agents ? merge(
+    { "compose.agents.yaml" = file("${path.module}/../../../deploy/hackathon/core/compose.agents.yaml") },
+    local.container_db ? { "initdb/sql/20_agent_databases.sql" = file("${path.module}/../../modules/hackathon_data/sql/20_agent_databases.sql") } : {},
+  ) : {}
+  platform_agent_files = local.agents ? { "compose.agents.yaml" = file("${path.module}/../../../deploy/hackathon/platform/compose.agents.yaml") } : {}
+  restricted_readers   = local.agents ? [module.iam.instance_role_arn_core] : []
 
   ecr_registry_url = coalesce(var.ecr_registry_url, "${local.account_id}.dkr.ecr.${var.region}.amazonaws.com")
 
@@ -79,7 +75,9 @@ module "network" {
   region        = var.region
   enable_nat    = local.nat
   database_mode = local.db_mode
-  tags          = local.tags
+
+  agent_services_enabled = local.agents
+  tags                   = local.tags
 }
 
 module "data" {
@@ -89,9 +87,7 @@ module "data" {
   vpc_id        = module.network.vpc_id
   database_mode = local.db_mode
   db_subnet_ids = module.network.db_subnet_ids
-
-  agent_keys_suffix = var.agent_keys_suffix
-  sg_db_id          = module.network.sg_db_id
+  sg_db_id      = module.network.sg_db_id
 
   # Deny-only bucket policy: the reads of landing/ are bound to the S3 gateway endpoint of this VPC.
   db_deletion_protection     = var.db_deletion_protection
@@ -100,7 +96,12 @@ module "data" {
   loader_role_arns           = local.loader_roles
   uploader_principal_arns    = local.uploader_principals
   break_glass_principal_arns = local.break_glass
-  tags                       = local.tags
+
+  # tool-service on the core host reads data-pipeline's restricted publication (gold_restricted, PII in the clear).
+  agent_services_enabled      = local.agents
+  agent_keys_suffix           = var.agent_keys_suffix
+  restricted_reader_role_arns = local.restricted_readers
+  tags                        = local.tags
 }
 
 module "iam" {
@@ -116,6 +117,9 @@ module "iam" {
   # Core and platform never read landing/ or lake/bronze/ (the bucket policy denies them).
   engine_can_load           = var.engine_host_can_load
   engine_lake_read_prefixes = ["lake/gold_masked", "lake/gold_analytics"]
+  # tool-service syncs the current publication (latest.json, gold_restricted.duckdb, field_classification.json).
+  # agent-core serve syncs its calibration and classifier artifacts from core/artifacts/.
+  core_read_prefixes = local.agents ? ["lake/publish", "core/artifacts"] : []
 
   ecr_repository_arns_core     = local.ecr_arns.core
   ecr_repository_arns_platform = local.ecr_arns.platform
@@ -147,10 +151,11 @@ module "compute_core" {
   ecr_registry_url        = local.ecr_registry_url
   images                  = var.images.core
   db_volume_size_gb       = local.container_db ? var.db_volume_size_gb : 0
-  extra_service_envs      = local.container_db ? ["db"] : []
-  compose_files           = local.container_db ? ["compose.yaml", "compose.postgres.yaml"] : ["compose.yaml"]
-  extra_bundle_files      = local.core_files
-  extra_env               = { for k, v in var.agent_core_serve_pieces : "AGENTCORE_PIECE_${upper(k)}" => v if v != null }
+  extra_service_envs      = concat(local.container_db ? ["db"] : [], local.agents ? ["agent", "tools"] : [])
+  compose_files           = concat(["compose.yaml"], local.container_db ? ["compose.postgres.yaml"] : [], local.agents ? ["compose.agents.yaml"] : [])
+  extra_bundle_files      = merge(local.core_db_files, local.core_agent_files)
+  extra_ports             = local.agents ? ["8001:8001"] : []
+  extra_env               = local.agents ? { AGENT_SERVE_ARGS = var.agent_serve_args } : {}
   tags                    = local.tags
 }
 
@@ -175,10 +180,10 @@ module "compute_platform" {
   kms_key_arn             = module.data.kms_key_arn
   ecr_registry_url        = local.ecr_registry_url
   images                  = var.images.platform
-  extra_bundle_files = {
-    "Caddyfile.internal" = file("${path.module}/../../../deploy/hackathon/platform/Caddyfile.internal")
-  }
-  tags = local.tags
+  compose_files           = local.agents ? ["compose.yaml", "compose.agents.yaml"] : ["compose.yaml"]
+  extra_bundle_files      = local.platform_agent_files
+  extra_ports             = local.agents ? ["8000:8000"] : []
+  tags                    = local.tags
 }
 
 module "compute_engine" {
@@ -227,17 +232,21 @@ module "edge" {
 # Cloud image builds and the deploy mechanism. Digests are changed by deployments (SSM), never by an apply;
 # the deployer policies below are for the IAM users or roles the human creates for the service teams.
 locals {
-  # One build project per repository created by terraform/bootstrap. core-runtime is agent-core's OWN image (ADR 0009, ADR 0003):
-  # the source zip is the agent-core checkout at the pinned commit and its Dockerfile (`agentcore serve`) is used as is. The
-  # repository keeps its historical name core-runtime so bootstrap and the image keys do not change.
+  # One build project per repository created by terraform/bootstrap. core-runtime is built from the improvement-engine
+  # repo (core-bridge/) with the pinned agent-core checkout as the named build context "core".
   build_services = {
-    "core-runtime"         = { repository = "${var.ecr_repository_prefix}/core-runtime" }
+    "core-runtime"         = { repository = "${var.ecr_repository_prefix}/core-runtime", dockerfile = "core-bridge/Dockerfile", context_dir = "core-bridge", core_context_dir = "agent-core" }
     "llm-gateway"          = { repository = "${var.ecr_repository_prefix}/llm-gateway" }
     "support-platform-api" = { repository = "${var.ecr_repository_prefix}/support-platform-api", dockerfile = "backend/Dockerfile", context_dir = "backend" }
     "support-platform-web" = { repository = "${var.ecr_repository_prefix}/support-platform-web", dockerfile = "frontend/Dockerfile", context_dir = "frontend" }
     "pulso-engine"         = { repository = "${var.ecr_repository_prefix}/pulso-engine" }
     "caddy"                = { repository = "${var.ecr_repository_prefix}/caddy", mode = "mirror" }
   }
+  # agent-core serve is built from the agent-core repo's own Dockerfile (not core-bridge); tool-service from its repo.
+  agent_build_services = local.agents ? {
+    "agent-core-serve" = { repository = "${var.ecr_repository_prefix}/agent-core-serve" }
+    "tool-service"     = { repository = "${var.ecr_repository_prefix}/tool-service" }
+  } : {}
 }
 
 module "image_builder" {
@@ -248,7 +257,7 @@ module "image_builder" {
   bucket_name  = module.data.bucket_name
   kms_key_arn  = module.data.kms_key_arn
   ecr_registry = local.ecr_registry_url
-  services     = local.build_services
+  services     = merge(local.build_services, local.agent_build_services)
   compute_type = local.compute_type
   tags         = local.tags
 }
@@ -261,9 +270,9 @@ module "deployers" {
   kms_key_arn = module.data.kms_key_arn
   workloads = {
     core = {
-      image_keys     = ["core", "gateway"]
-      repositories   = ["${var.ecr_repository_prefix}/core-runtime", "${var.ecr_repository_prefix}/llm-gateway"]
-      build_services = ["core-runtime", "llm-gateway"]
+      image_keys     = concat(["core", "gateway"], local.agents ? ["agent", "tools"] : [])
+      repositories   = concat(["${var.ecr_repository_prefix}/core-runtime", "${var.ecr_repository_prefix}/llm-gateway"], local.agents ? ["${var.ecr_repository_prefix}/agent-core-serve", "${var.ecr_repository_prefix}/tool-service"] : [])
+      build_services = concat(["core-runtime", "llm-gateway"], keys(local.agent_build_services))
     }
     platform = {
       image_keys     = ["support_api", "support_web"]
@@ -279,11 +288,12 @@ module "deployers" {
   project_arns = module.image_builder.project_arns
 }
 
-# Engine -> Core and gateway addresses. The engine client only accepts IP literals (or localhost) for plaintext hosts, so these
-# are the core host's private IP, not its DNS name. The IP changes if the core instance is replaced: the next apply rewrites them.
+# Engine -> shared Core and gateway addresses. The engine client only accepts IP literals (or localhost) for plaintext hosts, so
+# these are the core host's private IP, not its DNS name. The shared Core is agent-core serve (:8001) when agent_services_enabled
+# (ADR 0009); the IP changes if the core instance is replaced and the next apply rewrites the values.
 resource "aws_ssm_parameter" "engine_core_addr" {
   for_each = {
-    PULSO_CORE_ADDR        = "${module.compute_core.private_ip}:8000"
+    PULSO_CORE_ADDR        = "${module.compute_core.private_ip}:${local.agents ? 8001 : 8000}"
     PULSO_LLM_GATEWAY_ADDR = "${module.compute_core.private_ip}:8080"
   }
   name  = "${module.data.ssm_prefix}/engine/pulso/${each.key}"

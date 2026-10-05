@@ -1,0 +1,108 @@
+# Agent services on the core host (agent_services_enabled; docs/agent-services.md): agent-core `serve` for
+# support-platform and the tool-service it calls. Merged over compose.yaml (and compose.postgres.yaml) through
+# COMPOSE_FILE in .env (written by Terraform). core-runtime keeps 8000; agent-core serve publishes 8001, reachable only
+# from the platform security group. tool-service is internal: only agent-core calls it, over the compose network.
+# Secrets: /run/pulso/env/agent.env and tools.env (secret keys AGENT__* and TOOLS__*); files (key sets, field grants,
+# overlay) under /run/pulso/files/agent (secret keys FILES__AGENT__*). The piece flags of `serve` come from
+# AGENT_SERVE_ARGS in .env (Terraform variable agent_serve_args): real pieces only, never demo doubles.
+services:
+  agent-core-migrate:
+    image: ${AGENT_IMAGE:?set}
+    # Owner DSNs only here (CREATE on the agent databases); serve runs with the app role.
+    entrypoint:
+      - sh
+      - -c
+      - AGENTCORE_REGISTRY_DSN="$$AGENTCORE_MIGRATE_DSN" AGENTCORE_EVAL_DSN="$$AGENTCORE_MIGRATE_EVAL_DSN" exec agentcore migrate --app-role agent_app
+    restart: "no"
+    mem_limit: 256m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/agent.env]
+    depends_on:
+      # core-migrate waits for a healthy Postgres in container mode (compose.postgres.yaml).
+      core-migrate:
+        condition: service_completed_successfully
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [internal]
+
+  agent-core:
+    image: ${AGENT_IMAGE:?set}
+    command: >-
+      serve --host 0.0.0.0 --port 8001
+      --identity-keys /run/files/IDENTITY_KEYS --staff-keys /run/files/STAFF_KEYS --registry-api
+      ${AGENT_SERVE_ARGS:?set}
+    restart: unless-stopped
+    mem_limit: 768m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/agent.env]
+    environment:
+      AGENTCORE_LLM_GATEWAY_URL: http://llm-gateway:8080
+      AGENTCORE_TOOL_SERVICE_URL: http://tool-service:8080
+      # grant_active: the platform API, published on the platform host to the core security group only.
+      AGENTCORE_GRANTS_URL: http://platform.${PRIVATE_ZONE_NAME:?set}:8000
+      AGENTCORE_AUTHZ_BIND_KEYS: subject_ref,customer_id
+      AGENTCORE_AUTHZ_FIELD_GRANTS_FILE: /run/files/FIELD_GRANTS
+      # The current publication's catalog (synced by the start script) plus the engine's own fields.
+      AGENTCORE_FIELD_CLASSIFICATION_FILES: /catalog/field_classification.json,/run/files/FIELD_OVERLAY
+      # Calibration (<run_id>.json) and classifier (<ref>.json) artifacts of the data team, synced by the start script
+      # from s3://<bucket>/core/artifacts/{calibrations,classifiers}/.
+      AGENTCORE_CALIBRATION_DIR: /artifacts/calibrations
+      AGENTCORE_CLASSIFIER_ARTIFACTS_DIR: /artifacts/classifiers
+    volumes:
+      - /run/pulso/files/agent:/run/files:ro
+      - /srv/data/tools/current:/catalog:ro
+      - /srv/data/agent/artifacts:/artifacts:ro
+    # Reachable from the platform host as http://core.<private zone>:8001 (security group limited).
+    ports:
+      - "8001:8001"
+    depends_on:
+      agent-core-migrate:
+        condition: service_completed_successfully
+      tool-service:
+        condition: service_started
+      llm-gateway:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8001/readyz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [internal]
+
+  tool-service:
+    image: ${TOOLS_IMAGE:?set}
+    restart: unless-stopped
+    mem_limit: 1024m
+    user: "10001:10001"
+    env_file: [/run/pulso/env/common.env, /run/pulso/env/tools.env]
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      TOOL_DATA_DIR: /data
+      TOOL_FILED_DB: /state/filed_pqrs.db
+    volumes:
+      # data-pipeline's current publication, synced by the start script (gold_restricted.duckdb + latest.json).
+      - /srv/data/tools/data:/data:ro
+      # PQRs filed through the service (SQLite); on the snapshotted data volume.
+      - /srv/data/tools/state:/state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [internal]

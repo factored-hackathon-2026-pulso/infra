@@ -59,12 +59,12 @@ output "origin_verify_secret" {
 }
 
 output "engine_core_kid" {
-  description = "kid of the engine's Ed25519 key in the shared Core's identity-keys and staff-keys (public information)."
+  description = "kid of the engine's Ed25519 key in the Core's identity-keys and staff-keys documents (public)."
   value       = local.engine_kid
 }
 
 output "engine_core_public_key" {
-  description = "Public half (base64url, 32 bytes) of the engine's Ed25519 key, as listed in the Core's key files (public information)."
+  description = "Public half (base64url, 32 bytes) of the engine's Ed25519 key (public information)."
   value       = local.agent_keys["engine"].public_b64url
 }
 

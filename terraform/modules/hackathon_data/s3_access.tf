@@ -1,5 +1,6 @@
 # Data-class separation for the single bucket (prefix layout in README.md):
-#   PII in the clear:  landing/ and lake/bronze/
+#   PII in the clear:  landing/ and lake/bronze/, and data-pipeline's restricted zone (lake/gold_restricted/ and the
+#                      published lake/publish/<run>/gold_restricted.duckdb) read by tool-service on the core host
 #   everything else:   lake/silver|gold_*, engine/*, core/*, tmp/, logs/
 # The bucket policy holds only Deny statements (so it cannot widen access); access is granted by identity policies
 # (outputs uploader_policy_json, loader_policy_json, host_policy_json).
@@ -12,7 +13,12 @@ locals {
   pii_writers = distinct(concat(var.loader_role_arns, var.uploader_principal_arns, var.break_glass_principal_arns, [local.no_principal]))
   breakglass  = length(var.break_glass_principal_arns) == 0 ? [local.no_principal] : var.break_glass_principal_arns
 
-  pii_read_resources  = ["${local.bucket_arn}/landing/*", "${local.bucket_arn}/lake/bronze/*"]
+  pii_read_resources = ["${local.bucket_arn}/landing/*", "${local.bucket_arn}/lake/bronze/*"]
+  restricted_readers = distinct(concat(var.loader_role_arns, var.break_glass_principal_arns, var.restricted_reader_role_arns, [local.no_principal]))
+  restricted_read_resources = [
+    "${local.bucket_arn}/lake/gold_restricted/*",
+    "${local.bucket_arn}/lake/publish/*/gold_restricted.duckdb",
+  ]
   pii_write_resources = ["${local.bucket_arn}/landing/*", "${local.bucket_arn}/lake/bronze/*"]
 
   bucket_policy_statements = concat(
@@ -32,6 +38,14 @@ locals {
         Action    = ["s3:GetObject", "s3:GetObjectVersion"]
         Resource  = local.pii_read_resources
         Condition = { StringNotLike = { "aws:PrincipalArn" = local.pii_readers } }
+      },
+      {
+        Sid       = "DenyRestrictedReadToOthers"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = ["s3:GetObject", "s3:GetObjectVersion"]
+        Resource  = local.restricted_read_resources
+        Condition = { StringNotLike = { "aws:PrincipalArn" = local.restricted_readers } }
       },
       {
         Sid       = "DenyPiiWriteToOthers"

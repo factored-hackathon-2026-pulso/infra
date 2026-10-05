@@ -249,11 +249,48 @@ run "rds_mode_keeps_the_previous_design" {
   }
 }
 
+# ---- agent services (agent-core serve and tool-service on the core host) ----
+
+run "agent_services_are_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.agent_from_platform) == 0 && length(aws_vpc_security_group_ingress_rule.platform_api_from_core) == 0
+    error_message = "Without agent_services_enabled no new path exists between platform and core."
+  }
+}
+
+run "agent_services_open_exactly_two_paths_between_platform_and_core" {
+  command = plan
+  variables {
+    agent_services_enabled = true
+  }
+
+  assert {
+    condition = (
+      aws_vpc_security_group_ingress_rule.agent_from_platform[0].from_port == 8001 &&
+      aws_vpc_security_group_ingress_rule.agent_from_platform[0].to_port == 8001 &&
+      length(aws_vpc_security_group_egress_rule.platform_to_agent) == 1 &&
+      aws_vpc_security_group_egress_rule.platform_to_agent[0].from_port == 8001
+    )
+    error_message = "support-platform reaches agent-core serve on core:8001 (ingress on core, egress on platform)."
+  }
+  assert {
+    condition = (
+      aws_vpc_security_group_ingress_rule.platform_api_from_core[0].from_port == 8000 &&
+      aws_vpc_security_group_ingress_rule.platform_api_from_core[0].to_port == 8000 &&
+      length(aws_vpc_security_group_egress_rule.core_to_platform_api) == 1 &&
+      aws_vpc_security_group_egress_rule.core_to_platform_api[0].from_port == 8000
+    )
+    error_message = "agent-core reaches the platform API on platform:8000 for grant_active (ingress on platform, egress on core)."
+  }
+}
+
 run "gateway_8080_only_from_engine" {
   command = plan
 
   assert {
-    condition     = length(aws_vpc_security_group_ingress_rule.gateway_from) == 1 && aws_vpc_security_group_ingress_rule.gateway_from["engine"].from_port == 8080 && aws_vpc_security_group_ingress_rule.gateway_from["engine"].to_port == 8080 && aws_vpc_security_group_ingress_rule.gateway_from["engine"].cidr_ipv4 == null
+    condition     = length(aws_vpc_security_group_ingress_rule.gateway_from) == 1 && aws_vpc_security_group_ingress_rule.gateway_from["engine"].from_port == 8080 && aws_vpc_security_group_ingress_rule.gateway_from["engine"].cidr_ipv4 == null
     error_message = "The llm-gateway port is open on the core SG from the engine SG only."
   }
   assert {
@@ -262,15 +299,14 @@ run "gateway_8080_only_from_engine" {
   }
 }
 
-run "platform_internal_listener_only_from_core" {
+run "engine_reaches_agent_core_only_with_the_flag" {
   command = plan
+  variables {
+    agent_services_enabled = true
+  }
 
   assert {
-    condition     = aws_vpc_security_group_ingress_rule.platform_internal_from_core.from_port == 8081 && aws_vpc_security_group_ingress_rule.platform_internal_from_core.to_port == 8081 && aws_vpc_security_group_ingress_rule.platform_internal_from_core.cidr_ipv4 == null && aws_vpc_security_group_ingress_rule.platform_internal_from_core.prefix_list_id == null
-    error_message = "The platform internal listener accepts 8081 from the core SG only."
-  }
-  assert {
-    condition     = aws_vpc_security_group_egress_rule.core_to_platform_internal.from_port == 8081
-    error_message = "The core host may egress 8081 to the platform SG."
+    condition     = aws_vpc_security_group_ingress_rule.agent_from_engine[0].from_port == 8001 && aws_vpc_security_group_ingress_rule.agent_from_engine[0].cidr_ipv4 == null && aws_vpc_security_group_egress_rule.engine_to_agent[0].to_port == 8001
+    error_message = "The engine reaches agent-core serve on 8001 through security groups only."
   }
 }

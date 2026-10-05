@@ -105,13 +105,23 @@ output "profile_effective" {
   }
 }
 
+output "agent_services_effective" {
+  description = "Agent services wiring (docs/agent-services.md): whether they are on and who may read the restricted publication besides the loader and break-glass."
+  value = {
+    enabled            = local.agents
+    restricted_readers = local.restricted_readers
+    core_read_prefixes = local.agents ? ["lake/publish", "core/artifacts"] : []
+    agent_core_url     = local.agents ? "http://core.${module.network.zone_name}:8001" : null
+  }
+}
+
 output "engine_core_kid" {
-  description = "kid of the engine's Ed25519 key in the shared Core's identity-keys and staff-keys files (public)."
+  description = "kid of the engine's Ed25519 key in the Core's identity-keys and staff-keys documents (public)."
   value       = module.data.engine_core_kid
 }
 
 output "engine_core_public_key" {
-  description = "Public half of that key (base64url). Public information; the seed is the secret PULSO__PULSO_CORE_SIGNING_SEED."
+  description = "Public half of that key (base64url). Public information; the seed is the secret PULSO__PULSO_SERVICE_SEED_HEX."
   value       = module.data.engine_core_public_key
 }
 

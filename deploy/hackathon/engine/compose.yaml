@@ -23,9 +23,6 @@ services:
     environment:
       PULSO_STORAGE_BUCKET: ${BUCKET_NAME:?set}
       PULSO_STORAGE_PREFIX: ${PULSO_STORAGE_PREFIX:-engine/}
-      # Shared Core = agent-core's `agentcore serve` (ADR 0009). Addresses of the Core (PULSO_CORE_ADDR) and the llm-gateway
-      # (PULSO_LLM_GATEWAY_ADDR) are IP literals set from SSM (the engine client rejects DNS names). Credentials in pulso.env:
-      # PULSO_SERVICE_KID (SSM), PULSO_SERVICE_SEED_HEX and PULSO_LLM_GATEWAY_KEY (secret). PULSO_CORE_URL is kept for cli.rs.
       PULSO_CORE_URL: http://core.${PRIVATE_ZONE_NAME:?set}:8000
     volumes:
       - /srv/data/pulso:/var/lib/pulso

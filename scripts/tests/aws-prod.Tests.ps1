@@ -276,6 +276,17 @@ Describe 'Resolve-Service' {
     It 'caddy is shared: it deploys to platform and engine' {
         (Resolve-Service 'caddy').Workloads -join ',' | Should Be 'platform,engine'
     }
+    It 'knows the agent services: agent-core serve and tool-service deploy to core under their own keys' {
+        $a = Resolve-Service 'agent-core-serve'
+        $a.Key | Should Be 'agent'
+        $a.Workloads -join ',' | Should Be 'core'
+        $a.Repository | Should Be 'pulso-prod/agent-core-serve'
+        (Resolve-Service 'tools').Name | Should Be 'tool-service'
+        (Resolve-Service 'tool-service').Key | Should Be 'tools'
+        (Resolve-Service 'agent-core').Name | Should Be 'core-runtime'
+        $script:HostBuild['agent-core-serve'].Dockerfile | Should Be 'Dockerfile'
+        $script:HostBuild['tool-service'].Context | Should Be '.'
+    }
     It 'rejects an unknown service and lists the valid ones' {
         { Resolve-Service 'nope' } | Should Throw 'Unknown service'
         { Resolve-Service 'nope' } | Should Throw 'core-runtime'
@@ -433,30 +444,20 @@ Describe 'images -Service (cloud build)' {
         { Run 'images' 'pulso-prod' @{ Service = 'support-platform-api'; SourceDir = $src; Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } } | Should Throw 'unexpected'
     }
 
-    It 'core-runtime is agent-core alone at the zip root, with its own Dockerfile and the pinned commit as GIT_SHA' {
+    It 'core-runtime puts the agent-core checkout under agent-core/ and passes the Dockerfile and build args' {
         Use-Fakes 'arn:aws:iam::000000000000:user/x'
         Mock Start-Sleep {}
         Set-BuildOk 'core-runtime'
-        $core = Join-Path $TestDrive 'core'; New-SrcTree $core
-        $sha = 'a' * 40
-        Run 'images' 'pulso-prod' @{ Service = 'agent-core'; AgentCoreDir = $core; AgentCoreCommit = $sha; BuildArg = @('A=1'); Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
-        $entries = Get-ZipEntries (Join-Path $env:AWS_PROD_WORKDIR 'build-src-b1.zip')
-        $entries -contains 'src/main.rs' | Should Be $true
-        $entries -contains 'Dockerfile' | Should Be $true
-        ($entries | Where-Object { $_ -like 'agent-core/*' -or $_ -like 'core-bridge/*' }).Count | Should Be 0
-        ($entries | Where-Object { $_ -match '^\.env$' }).Count | Should Be 0
-        $calls = Get-Calls
-        $calls | Should Match "name=BUILD_ARGS,value=A=1 GIT_SHA=$sha"
-        $calls | Should Match '--project-name pulso-prod-build-core-runtime'
-    }
-
-    It 'core-runtime refuses an engine -SourceDir, a malformed commit and a directory without git metadata and commit' {
-        Use-Fakes 'arn:aws:iam::000000000000:user/x'
         $src = Join-Path $TestDrive 'engine'; New-SrcTree $src
         $core = Join-Path $TestDrive 'core'; New-SrcTree $core
-        { Run 'images' 'pulso-prod' @{ Service = 'agent-core'; SourceDir = $src; AgentCoreDir = $core; AgentCoreCommit = ('a' * 40); Yes = $true } } | Should Throw 'agent-core alone'
-        { Run 'images' 'pulso-prod' @{ Service = 'agent-core'; AgentCoreDir = $core; AgentCoreCommit = 'main'; Yes = $true } } | Should Throw '40 hex'
-        { Run 'images' 'pulso-prod' @{ Service = 'agent-core'; AgentCoreDir = $core; Yes = $true } } | Should Throw '-AgentCoreCommit'
+        Run 'images' 'pulso-prod' @{ Service = 'agent-core'; SourceDir = $src; AgentCoreDir = $core; Dockerfile = 'core-bridge/Dockerfile.alt'; BuildArg = @('A=1', 'B=2'); Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
+        $entries = Get-ZipEntries (Join-Path $env:AWS_PROD_WORKDIR 'build-src-b1.zip')
+        $entries -contains 'agent-core/src/main.rs' | Should Be $true
+        ($entries | Where-Object { $_ -match '^agent-core/\.env$' }).Count | Should Be 0
+        $calls = Get-Calls
+        $calls | Should Match 'name=DOCKERFILE,value=core-bridge/Dockerfile\.alt'
+        $calls | Should Match 'name=BUILD_ARGS,value=A=1 B=2'
+        $calls | Should Match '--project-name pulso-prod-build-core-runtime'
     }
 
     It 'support-platform-web carries VITE_API_URL as a build arg' {
@@ -542,19 +543,20 @@ Describe 'images -Service -Builder host (free_plan fallback: build on the core h
         (Get-Calls) | Should Match '--parameters file://'
     }
 
-    It 'core-runtime builds agent-core with its own Dockerfile at the root context and no named build context' {
+    It 'core-runtime gets the pinned agent-core as the named build context, plus Dockerfile and build args' {
         Use-Fakes 'arn:aws:iam::000000000000:user/x'
         Mock Start-Sleep {}
         Set-HostBuildOk 'core-runtime'
+        $src = Join-Path $TestDrive 'engine'; New-SrcTree $src
         $core = Join-Path $TestDrive 'core'; New-SrcTree $core
-        $sha = 'b' * 40
-        Run 'images' 'pulso-prod' @{ Service = 'agent-core'; AgentCoreDir = $core; AgentCoreCommit = $sha; Builder = 'host'; BuildArg = @('A=1'); Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
+        Run 'images' 'pulso-prod' @{ Service = 'agent-core'; SourceDir = $src; AgentCoreDir = $core; Builder = 'host'; BuildArg = @('A=1'); Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
         $s = Get-HostScript
-        $s | Should Not Match '--build-context'
-        $s | Should Match 'src/Dockerfile'
+        $s | Should Match '--build-context core='
+        $s | Should Match 'src/core-bridge/Dockerfile'
+        $s | Should Match 'src/agent-core'
+        $s | Should Match 'src/core-bridge\\"'
         $s | Should Match '--build-arg'
         $s | Should Match 'A=1'
-        $s | Should Match "GIT_SHA=$sha"
     }
 
     It 'a build argument is quoted so it cannot inject shell into the root script' {
@@ -794,14 +796,14 @@ Describe 'staged build contexts and VITE_API_URL' {
         Restore-Fakes
     }
 
-    It 'maps support-platform to backend/ and frontend/, core-runtime to agent-core own Dockerfile at the root' {
+    It 'maps support-platform to backend/ and frontend/, core-runtime to the core-bridge context' {
         $script:HostBuild['support-platform-api'].Context | Should Be 'backend'
         $script:HostBuild['support-platform-api'].Dockerfile | Should Be 'backend/Dockerfile'
         $script:HostBuild['support-platform-web'].Context | Should Be 'frontend'
         $script:HostBuild['support-platform-web'].Dockerfile | Should Be 'frontend/Dockerfile'
-        $script:HostBuild['core-runtime'].Context | Should Be '.'
-        $script:HostBuild['core-runtime'].Dockerfile | Should Be 'Dockerfile'
-        $script:HostBuild['core-runtime'].CoreContext | Should Be ''
+        $script:HostBuild['core-runtime'].Context | Should Be 'core-bridge'
+        $script:HostBuild['core-runtime'].Dockerfile | Should Be 'core-bridge/Dockerfile'
+        $script:HostBuild['core-runtime'].CoreContext | Should Be 'agent-core'
     }
 
     It 'the staged agent-core .dockerignore no longer excludes contracts, and keeps its other lines' {
@@ -819,11 +821,23 @@ Describe 'staged build contexts and VITE_API_URL' {
         $di | Should Match '(?m)^\.venv\s*$'
     }
 
-    It 'Resolve-AgentCoreCommit: explicit commit without git metadata, a bad commit and a missing commit' {
-        $dir = Join-Path $TestDrive 'nogit'; New-Item -ItemType Directory -Force -Path $dir | Out-Null
-        Resolve-AgentCoreCommit $dir ('c' * 40) | Should Be ('c' * 40)
-        { Resolve-AgentCoreCommit $dir 'abc' } | Should Throw '40 hex'
-        { Resolve-AgentCoreCommit $dir '' } | Should Throw '-AgentCoreCommit'
+    It 'core-runtime stages agent-core with its .dockerignore patched' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Start-Sleep {}
+        Set-Resp 'ec2-describe-instances' 'i-0123456789abcdef0'
+        Set-Resp 'ssm-send-command' 'cmd-0001'
+        Set-Resp 'ssm-list-command-invocations' 'i-0123456789abcdef0 Success'
+        Set-Resp 'ssm-get-command-invocation' 'IMAGE=built'
+        Set-Resp 's3-cp' '' 1
+        Set-Resp 's3-cp' ('{"image":"' + $script:Registry + '/pulso-prod/core-runtime@' + $script:D64 + '","digest":"' + $script:D64 + '"}') 2
+        $src = Join-Path $TestDrive 'engine'; New-SrcTree $src
+        $core = Join-Path $TestDrive 'core'; New-SrcTree $core
+        New-Item -ItemType Directory -Force -Path (Join-Path $core 'contracts') | Out-Null
+        Set-Content (Join-Path $core 'contracts\VERSION') '1.3.0'
+        Set-Content (Join-Path $core '.dockerignore') "contracts`n"
+        Run 'images' 'pulso-prod' @{ Service = 'core-runtime'; SourceDir = $src; AgentCoreDir = $core; Builder = 'host'; Yes = $true; VarFile = (Join-Path $TestDrive 'p.tfvars') } | Out-Null
+        $entries = Get-ZipEntries (Join-Path $env:AWS_PROD_WORKDIR 'build-src-b1.zip')
+        $entries -contains 'agent-core/contracts/VERSION' | Should Be $true
     }
 
     It '-ViteApiUrl becomes the VITE_API_URL build arg of the web image only' {
@@ -860,7 +874,15 @@ Describe 'set-secret' {
         { Run 'set-secret' 'pulso-prod' @{ SecretKey = 'openrouter' } } | Should Throw 'SecretKey'
         { Run 'set-secret' 'pulso-prod' @{ SecretKey = 'OTHER__X' } } | Should Throw 'SecretKey'
         { Run 'set-secret' 'pulso-prod' @{} } | Should Throw 'SecretKey'
+        { Run 'set-secret' 'pulso-prod' @{ SecretKey = 'FILES__CORE__X' } } | Should Throw 'SecretKey'
         Get-Calls | Should Not Match 'secretsmanager'
+    }
+
+    It 'accepts the agent services keys, the database passwords and FILES__ keys' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        foreach ($k in 'AGENT__AGENTCORE_JEV_API_KEY', 'TOOLS__TOOL_SERVICE_TOKENS', 'DB__DB_PASSWORD_AGENT_APP', 'FILES__AGENT__IDENTITY_KEYS', 'FILES__SUPPORT__BANK_CUSTOMER_LINKS') {
+            { Run 'set-secret' 'pulso-prod' @{ SecretKey = $k } } | Should Not Throw
+        }
     }
 
     It 'sets only that key of pulso-prod/hackathon from the prompt and never prints or logs the value' {
@@ -910,7 +932,6 @@ Describe 'set-secret' {
         foreach ($bad in 'Value', 'SecretValue', 'Secret', 'Password', 'ValueFile', 'FromFile') { ($names -contains $bad) | Should Be $false }
     }
 }
-
 
 Describe 'seed-secret-keys' {
     AfterEach { Restore-Fakes }

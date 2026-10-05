@@ -96,15 +96,16 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
 
 ### agent-core (`core-runtime`)
 
-- Image: agent-core's OWN image, built from the `Dockerfile` at the root of the agent-core repository at a pinned commit ([ADR 0009](adr/0009-shared-core-is-agentcore-serve.md), [ADR 0003](adr/0003-agent-core-workload.md): the Dockerfile and the build belong to agent-core). Entrypoint `agentcore`; the host runs `migrate` (one-shot) and `serve --registry-api` (port 8000: runs, registry, export). The ECR repository and image key keep the historical name `core-runtime` / `core`.
-- Build: `-AgentCoreDir` is the agent-core checkout; the script zips only that checkout (no staging, no second root) and builds its Dockerfile with the commit as the `GIT_SHA` build argument. For a git checkout the commit is read from `HEAD` and the tree must be clean; pass `-AgentCoreCommit <40 hex>` to assert the pin (or when the directory has no git metadata). `-SourceDir` does not apply to this service.
+- Image: built from `core-bridge/Dockerfile` of the improvement-engine repository with the pinned agent-core checkout as the named build context `core` (`COPY --from=core`); the pin is in [ADR 0003](adr/0003-agent-core-workload.md). One image, three entrypoints chosen by the container command: `runtime` (the service, port 8000), `exporter` (no listener) and `migrate` (one-shot).
+- Build: `-SourceDir` is the improvement-engine checkout, `-AgentCoreDir` the pinned agent-core checkout; the script stages it into the zip under `agent-core/` and the build runs `docker build -f core-bridge/Dockerfile --build-context core=agent-core core-bridge` (context `core-bridge/`). The staged copy of the agent-core `.dockerignore` has the `contracts` line removed, because the Dockerfile reads `contracts/VERSION`; your checkout is not modified.
   ```powershell
-  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service agent-core -AgentCoreDir D:\src\agent-core -AgentCoreCommit <40 hex pinned commit>
+  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service agent-core -SourceDir D:\src\improvement-engine -AgentCoreDir D:\src\agent-core
   ```
+  If the Dockerfile lives elsewhere, pass `-Dockerfile <path inside the zip>`.
 - Deploy: `.\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-core -Service core-runtime -FromBuild <build id> -Wait`.
-- Config and secrets: out-of-band secret keys `CORE__AGENTCORE_REGISTRY_DSN`, `CORE__AGENTCORE_EVAL_DSN` (a different database), `CORE__AGENTCORE_JEV_API_KEY`, `CORE__AGENTCORE_TOOL_SERVICE_TOKEN`; generated keys (gateway token, grant token, HMAC keys, the two public key documents) and SSM values are listed in [secrets-keys](secrets-keys.md). The transcript, calibration and classifier pieces are agent-core's real ones (`agent_core.composition.transcript:transcript`, `agent_core.composition.artifacts:calibration` and `:classifier_provider`; override with `agent_core_serve_pieces`). Trained artifacts are files under `deploy/hackathon/core/calibration/` and `deploy/hackathon/core/classifier/` (bundled to S3, mounted read-only as `AGENTCORE_CALIBRATION_DIR` and `AGENTCORE_CLASSIFIER_ARTIFACTS_DIR`; empty means nothing passes calibration). `AGENTCORE_TOOL_SERVICE_URL` is a human-owned SSM value that stays `CHANGE_ME` until a tool service exists: `http_tool_executor` rejects it, so the Core does not start (fail closed).
+- Config and secrets: secret keys `CORE__AGENTCORE_REGISTRY_DSN`, `CORE__AGENTCORE_EVAL_DSN`, `CORE__AGENTCORE_LLM_GATEWAY_TOKEN`, `CORE__PULSO_BRIDGE_CONTROL_SIGNER`, `CORE__PULSO_BRIDGE_LAB_SIGNER`; SSM `PULSO_LAB_BROKER_URL`, `PULSO_CONTROL_API_URL`, `PULSO_TENANT_ID`, `AGENTCORE_DAILY_BUDGET_USD`, `AGENTCORE_BLOB_BUCKET` (full list and naming in [secrets-keys](secrets-keys.md)).
 - Health: `GET /readyz` on port 8000 (the compose health check). From the platform or engine host: `curl -s -o /dev/null -w "%{http_code}" http://core.pulso.internal:8000/readyz`.
-- Database migration on upgrade: `core-migrate` runs `agentcore migrate` before `core-runtime` starts (`depends_on: service_completed_successfully`). A new digest recreates both, so migrations run on every upgrade; `deploy-stack.sh` counts the migrate container as healthy when it exited with code 0 and fails the deploy otherwise. Migrations must be backward compatible with the previous version (expand, then contract in a later release): a rollback restores the old image but NOT the old schema.
+- Database migration on upgrade: `core-migrate` runs the `migrate` entrypoint before `core-runtime` and `core-exporter` start (`depends_on: service_completed_successfully`). A new digest recreates all three, so migrations run on every upgrade; `deploy-stack.sh` counts the migrate container as healthy when it exited with code 0 and fails the deploy otherwise. Migrations must be backward compatible with the previous version (expand, then contract in a later release): a rollback restores the old image but NOT the old schema.
 
 ### llm-gateway
 
@@ -115,6 +116,24 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
   ```
 - Never published: reachable only from agent-core on the host's docker network (`http://llm-gateway:8080`), `GET /healthz` on 8080. The compose health check is disabled (no tool in the image), so health is "container running" plus agent-core `/readyz`.
 - Config and secrets: `GATEWAY__GATEWAY_TOKEN_AGENT_CORE`, `GATEWAY__GATEWAY_TOKEN_ENGINE`, `GATEWAY__GATEWAY_TOKEN_SUPPORT_PLATFORM`, `GATEWAY__OPENAI_API_KEY`, `GATEWAY__ANTHROPIC_API_KEY`, `GATEWAY__GOOGLE_API_KEY`, `GATEWAY__JEV_API_KEY`; SSM `GATEWAY_CONSUMERS`, `LLM_ENDPOINTS`.
+
+### agent-core serve (`agent-core-serve`, agent services only)
+
+- Only with `agent_services_enabled` ([agent-services](agent-services.md)). Image: the `Dockerfile` at the root of the agent-core repository (`agentcore serve`), not `core-bridge`; the alias `agent-core` still means `core-runtime`.
+  ```powershell
+  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service agent-core-serve -SourceDir D:\src\agent-core
+  .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-core -Service agent-core-serve -FromBuild <build id> -Wait
+  ```
+- SSM key `/pulso/core/images/agent`; runs as `agent-core` on 8001 (`GET /readyz`), after the one-shot `agent-core-migrate`. Secrets `AGENT__*` and files `FILES__AGENT__*` ([agent-services](agent-services.md#secret-keys)).
+
+### tool-service (`tool-service`, agent services only)
+
+- Only with `agent_services_enabled`. Image: the `Dockerfile` at the root of the tool-service repository.
+  ```powershell
+  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service tool-service -SourceDir D:\src\tool-service
+  .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-core -Service tool-service -FromBuild <build id> -Wait
+  ```
+- SSM key `/pulso/core/images/tools`; never published, reached by agent-core at `http://tool-service:8080` (`GET /healthz`, `GET /readyz` also checks the dataset). Reads the publication synced by the start script; secret `TOOLS__TOOL_SERVICE_TOKENS`.
 
 ### support-platform (`support-platform-api`, `support-platform-web`)
 
@@ -169,7 +188,7 @@ Use it when you must debug the build. The infra owner's podman machine may be to
 
 ```powershell
 aws ecr get-login-password --profile pulso-deploy-<team> --region us-east-1 | docker login --username AWS --password-stdin <account id>.dkr.ecr.us-east-1.amazonaws.com
-docker build --build-arg GIT_SHA=<pinned agent-core commit> -t <account id>.dkr.ecr.us-east-1.amazonaws.com/pulso-prod/core-runtime:build-local-1 D:\src\agent-core
+docker build -f core-bridge/Dockerfile --build-context core=D:\src\agent-core -t <account id>.dkr.ecr.us-east-1.amazonaws.com/pulso-prod/core-runtime:build-local-1 D:\src\improvement-engine
 docker push <account id>.dkr.ecr.us-east-1.amazonaws.com/pulso-prod/core-runtime:build-local-1
 aws ecr describe-images --profile pulso-deploy-<team> --region us-east-1 --repository-name pulso-prod/core-runtime --image-ids imageTag=build-local-1 --query "imageDetails[0].imageDigest" --output text
 ```

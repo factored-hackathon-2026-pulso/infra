@@ -6,12 +6,10 @@ locals {
   ssm_prefix = "/pulso"
 
   ssm_placeholders = {
-    # Legacy core-bridge keys: unused by `agentcore serve` (ADR 0009). Kept (empty placeholders) so an apply never destroys them.
     "core/core/PULSO_LAB_BROKER_URL"       = "CHANGE_ME"
     "core/core/PULSO_CONTROL_API_URL"      = "CHANGE_ME"
     "core/core/PULSO_TENANT_ID"            = "CHANGE_ME"
     "core/core/AGENTCORE_DAILY_BUDGET_USD" = "CHANGE_ME"
-    "core/core/AGENTCORE_TOOL_SERVICE_URL" = "CHANGE_ME"
     "platform/support/CC_CORS_ORIGINS"     = "CHANGE_ME"
     "platform/support/CC_PUBLIC_APP_URL"   = "CHANGE_ME"
     "engine/pulso/PULSO_DATA_MODE"         = "CHANGE_ME"
@@ -23,15 +21,13 @@ locals {
   llm_endpoints_json     = jsonencode({ openrouter = { base_url = "https://openrouter.ai/api/v1", api_key_env = "OPENROUTER_API_KEY" } })
 
   ssm_derived = {
-    "core/gateway/GATEWAY_CONSUMERS"   = local.gateway_consumers_json
-    "core/gateway/LLM_ENDPOINTS"       = local.llm_endpoints_json
-    "core/core/AGENTCORE_BLOB_BUCKET"  = "s3://${local.bucket_name}/core/blobs"
-    "core/core/AGENTCORE_SERVE_AGENTS" = "recepcion,disputas,consultas,copiloto-asesor,constructor-chat"
-    "engine/pulso/PIPELINE_ROOT"       = "s3://${local.bucket_name}/lake"
-    # Engine -> shared Core credentials, named as the engine reads them (real_core.rs): kid here, seed hex in the secret
-    # PULSO__PULSO_SERVICE_SEED_HEX. The gateway and Core addresses (IP literals) are set in the env root from the host IP.
-    "engine/pulso/PULSO_SERVICE_KID" = local.engine_kid
-    "engine/pulso/PULSO_LLM_GATEWAY" = "enabled"
+    "core/gateway/GATEWAY_CONSUMERS" = local.gateway_consumers_json
+    "core/gateway/LLM_ENDPOINTS"     = local.llm_endpoints_json
+    # Engine -> shared Core, named as the engine reads them (real_core.rs): kid here, seed hex in PULSO__PULSO_SERVICE_SEED_HEX.
+    "engine/pulso/PULSO_SERVICE_KID"  = local.engine_kid
+    "engine/pulso/PULSO_LLM_GATEWAY"  = "enabled"
+    "core/core/AGENTCORE_BLOB_BUCKET" = "s3://${local.bucket_name}/core/blobs"
+    "engine/pulso/PIPELINE_ROOT"      = "s3://${local.bucket_name}/lake"
   }
 }
 

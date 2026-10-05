@@ -35,7 +35,7 @@ and create the Core database and logins. Store the resulting DSNs in the one sec
 - SSM parameters under `ssm_prefix` hold NON-secret config only, path `<ssm_prefix>/<workload>/<svc>/<VAR>` (for example `/pulso/core/gateway/LLM_ENDPOINTS`).
 
 ## 4. Push images
-Build and push `agent-core` (its own Dockerfile at the pinned commit, ADR 0009), `llm-gateway`, `support-api`, `support-web`, `pulso` (docker/pulso.Dockerfile) and a
+Build and push `agent-core` (pin c814c2b), `llm-gateway`, `support-api`, `support-web`, `pulso` (docker/pulso.Dockerfile) and a
 mirror of the Caddy image to ECR (linux/amd64). Record each full ref (`<registry>/<repo>@sha256:...`) in your tfvars `images` (`aws-prod.ps1 images` does it).
 No tags are used.
 
@@ -48,23 +48,9 @@ then **platform** and **engine**, which reach Core at `http://core.<zone>:8000`.
 `http://llm-gateway:8080`. Open one SSM session per host and check `systemctl status pulso-stack`. A new digest: re-apply, then
 `sudo systemctl restart pulso-stack` on that host. Per-host bootstrap: the DB bootstrap (step 2) runs from the core or engine session; the SQLite
 for support-platform lives on the platform host volume `/srv/data/support`.
-Core `:8000` is published on the core host and limited by `sg_core_id` to the platform and engine security groups; the gateway `:8080` is published on the core host and limited to the engine security group (consumer token `GATEWAY__GATEWAY_TOKEN_ENGINE`); the platform exposes `:8081` (grant check only) to the core security group.
+Core `:8000` is published on the core host and limited by `sg_core_id` to the platform and engine security groups; the gateway is never published.
 
 ## 6. Loading Parquet into the data lake
 1. Upload with `scripts/aws-prod.ps1 upload -Path <dir> -Dataset <name>`: objects land in `s3://<bucket>/landing/<dataset>/` (SSE-KMS). The uploader is your admin identity (by default the account's IAM users and root may write `landing/`).
 2. The engine host role is the loader by default (`engine_host_can_load = true`): it reads `landing/` and `lake/` and writes `lake/`, through the VPC S3 endpoint. Run the data pipeline on the engine host. Core and platform can never read `landing/` or `lake/bronze/` (bucket policy). To use a separate loader role set `engine_host_can_load = false` and list the role in `loader_role_arns`.
 3. At runtime the engine reads `lake/gold_masked/` and `lake/gold_analytics/`; its outputs under `engine/` follow the prefix contract in `terraform/modules/hackathon_data/README.md`.
-
-## 7. The shared Core is agent-core's `agentcore serve` (ADR 0009)
-
-What an apply of this change does to a stack built from the previous main (nothing is applied by this repository; review with `aws-prod.ps1 plan`):
-adds `tls_private_key` x4, `random_password` x4, `random_bytes` x2 and the SSM parameters `core/core/AGENTCORE_SERVE_AGENTS`, `engine/pulso/PULSO_CORE_KID`,
-`PULSO_CORE_PRINCIPAL_ID`, `PULSO_LLM_GATEWAY`; adds two ingress and two egress security-group rules (core 8080 from engine, platform 8081 from core); updates in place the S3
-bundle objects (core and platform compose, `.env`, `field-overlay.json`, `Caddyfile.internal`) and the two gateway SSM values (they move from placeholders to derived values, `moved` blocks: no
-destroy); two SSM values `PULSO_CORE_ADDR`/`PULSO_LLM_GATEWAY_ADDR` (core host private IP) are added; the secret version is NOT changed (see [secrets-keys](secrets-keys.md), "Existing secret"). Instances are not replaced (`user_data` is unchanged). No destroys.
-
-Owner steps, in order: (1) `aws-prod.ps1 seed-secret-keys` (merge-only; see [secrets-keys](secrets-keys.md); never `-replace` the secret version); (2) set the out-of-band keys (`CORE__AGENTCORE_REGISTRY_DSN`,
-`CORE__AGENTCORE_EVAL_DSN`, `CORE__AGENTCORE_JEV_API_KEY`, `GATEWAY__OPENROUTER_API_KEY`, and the tool service pair when one exists); (3) build agent-core's image at the pinned commit
-(`images -Service agent-core -AgentCoreDir ... -AgentCoreCommit ...`) and deploy it; (4) set the human-owned `AGENTCORE_TOOL_SERVICE_URL` (SSM) and `CORE__AGENTCORE_TOOL_SERVICE_TOKEN`: they stay `CHANGE_ME` and the Core does not start until then (fail closed). The real transcript, calibration and classifier pieces are the compose defaults; trained artifacts go under `deploy/hackathon/core/calibration/` and `classifier/`. The platform
-needs no key exchange: the Core's key files and the platform's private keys come from the same Terraform apply.
-
