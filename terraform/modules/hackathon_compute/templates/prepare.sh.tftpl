@@ -26,8 +26,14 @@ chmod 644 "$IMG_TMP"
 mv "$IMG_TMP" /srv/stack/.env
 
 mkdir -p /srv/data/support /srv/data/pulso /srv/data/exporter /srv/data/keys
+%{ if install_loop ~}
+mkdir -p /srv/data/inputs /srv/data/loop /srv/data/pulso/work
+%{ endif ~}
 # The engine image runs as uid 10001 and keeps its work and store dirs on this bind mount (a root-owned mount makes `pulso run` exit).
 chown 10001:10001 /srv/data/exporter /srv/data/pulso
+%{ if install_loop ~}
+chown 10001:10001 /srv/data/pulso/work
+%{ endif ~}
 chmod 700 /srv/data/keys
 
 install -d -m 700 /run/pulso/env
@@ -51,21 +57,33 @@ aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --region "$REGION"
     printf '%s=%s\n' "$var" "$val" >> "/run/pulso/env/$svc.env"
   done
 chmod 600 /run/pulso/env/*.env
+# agent-core serve refuses testing.* doubles unless this is set; it is prohibited in deployments (docs/agent-core-serve.md section 8). Names only.
+if grep -qE '^AGENTCORE_ALLOW_(DOUBLES|DEMO)=' /run/pulso/env/*.env; then
+  echo "AGENTCORE_ALLOW_DOUBLES / AGENTCORE_ALLOW_DEMO reached an env file; prohibited in deployments, refusing to start" >&2
+  exit 1
+fi
 
 # Files: secret keys "FILES__<SERVICE>__<NAME>" -> /run/pulso/files/<service>/<NAME> (tmpfs, 0400, uid 10001 = the app
 # user of the images). For values that are files to the services (key sets, grants); never rendered as env lines.
-rm -rf /run/pulso/files
+# The directories and files are rewritten IN PLACE (never rm -rf the tree): agent-core bind-mounts /run/pulso/files/agent and
+# re-reads its key files every AGENTCORE_KEYS_RELOAD_SECONDS, so a rotated key (docs/agent-core-serve.md) reaches the running
+# container only if the file keeps its inode. Files that are no longer in the secret are removed afterwards.
 install -d -m 755 /run/pulso/files
 for s in $SERVICES; do install -d -m 500 -o 10001 -g 10001 "/run/pulso/files/$s"; done
+KEEP="$(mktemp)"
 SECRET_JSON="$(aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --region "$REGION" --query SecretString --output text)"
-printf '%s' "$SECRET_JSON" | jq -r 'keys[] | select(test("^FILES__(${svc_regex})__[A-Z0-9_]+$"))' |
-  while read -r key; do
-    svc="$(printf '%s' "$key" | cut -d_ -f3 | tr 'A-Z' 'a-z')"
-    name="$${key#FILES__*__}"
-    out="/run/pulso/files/$svc/$name"
-    printf '%s' "$SECRET_JSON" | jq -j --arg k "$key" '.[$k] | tostring' > "$out"
-    chown 10001:10001 "$out"; chmod 400 "$out"
-  done
+printf '%s' "$SECRET_JSON" | jq -r 'keys[] | select(test("^FILES__(${svc_regex})__[A-Z0-9_]+$"))' > "$KEEP.keys"
+while read -r key; do
+  svc="$(printf '%s' "$key" | cut -d_ -f3 | tr 'A-Z' 'a-z')"
+  name="$${key#FILES__*__}"
+  out="/run/pulso/files/$svc/$name"
+  [ -e "$out" ] && chmod 600 "$out"
+  printf '%s' "$SECRET_JSON" | jq -j --arg k "$key" '.[$k] | tostring' > "$out"
+  chown 10001:10001 "$out"; chmod 400 "$out"
+  printf '%s\n' "$out" >> "$KEEP"
+done < "$KEEP.keys"
+find /run/pulso/files -type f | { grep -vxFf "$KEEP" || true; } | xargs -r rm -f
+rm -f "$KEEP" "$KEEP.keys"
 unset SECRET_JSON
 %{ if sync_artifacts ~}
 # agent-core serve: calibration and classifier artifacts (data team output) and the registry seed, uploaded by an admin
@@ -120,6 +138,25 @@ install -m 644 /srv/stack/loader/check_cells_k.py /usr/local/lib/pulso-loader/ch
 install -m 644 /srv/stack/loader/pulso-loader.service /srv/stack/loader/pulso-loader.timer /srv/stack/loader/pulso-loader-failed.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now pulso-loader.timer
+%{ endif ~}
+%{ if sync_artifacts ~}
+# agent-core sweep (agentcore sweep --once, serve-env.md section 7): a timer every 5 minutes closes expired runs as abandoned.
+install -m 644 /srv/stack/sweep/pulso-agent-sweep.service /srv/stack/sweep/pulso-agent-sweep.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now pulso-agent-sweep.timer
+%{ endif ~}
+%{ if install_loop ~}
+# Improvement loop (docs/engine-loop.md): the S3 inputs mirror script, the status hook and the systemd one-shot with its timer.
+# The gate script of the loader is reused to re-check the cells (installed here too when the loader is off).
+install -d -m 755 /usr/local/lib/pulso-loader
+install -m 644 /srv/stack/loader/check_cells_k.py /usr/local/lib/pulso-loader/check_cells_k.py
+install -m 755 /srv/stack/loop/pulso-inputs-sync.sh /usr/local/bin/pulso-inputs-sync
+install -m 755 /srv/stack/loop/pulso-loop-status.sh /usr/local/bin/pulso-loop-status
+install -m 644 /srv/stack/loop/pulso-loop.service /srv/stack/loop/pulso-loop.timer /srv/stack/loop/pulso-loop-failed.service /etc/systemd/system/
+install -d -m 755 /etc/systemd/system/pulso-loop.timer.d
+printf '[Timer]\nOnUnitInactiveSec=\nOnUnitInactiveSec=%s\n' "${loop_interval}" > /etc/systemd/system/pulso-loop.timer.d/interval.conf
+systemctl daemon-reload
+systemctl enable --now pulso-loop.timer
 %{ endif ~}
 %{ if workload != "core" ~}
 # Fail closed: the proxy enforces X-Origin-Verify from this value; without it the stack must not start.

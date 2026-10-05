@@ -15,7 +15,7 @@ platform host                                core host (m7i-flex.large, free_pla
    (published to sg_core only) <--- 8000 ---   |  grant_active             --> tool-service :8080 (compose network)
  proxy :80 <- CloudFront                       |                            --> JEV (443, outbound)
    (/api/v1/internal/* refused)                agent-core-migrate (one-shot, owner DSN)
-                                               core-runtime :8000, core-exporter, core-migrate (unchanged)
+                                               (core-runtime, core-exporter, core-migrate: legacy, off with serve)
                                                postgres :5432 (databases agent_runtime, agent_eval added)
 ```
 
@@ -30,8 +30,9 @@ platform host                                core host (m7i-flex.large, free_pla
 | IAM | `module.iam`: the core role reads `lake/publish/*` and `core/artifacts/*` (`var.core_read_prefixes`) |
 | bucket policy | `module.data`: `gold_restricted` (published `.duckdb` and `lake/gold_restricted/`) is PII: only loader, break-glass and the core role (`var.restricted_reader_role_arns`) read it |
 
-`core-runtime` (the engine's composed image, improvement-engine `core-bridge`) is untouched: support-platform needs
-`serve` (runs, sessions, registry API, HTTP tools), which the pinned `core-runtime` does not have.
+With the agent services on, agent-core's OWN image running `serve` is the shared Core and replaces the core-bridge wiring: `core-runtime`,
+`core-exporter` and `core-migrate` (the improvement-engine `core-bridge` image) sit behind the compose profile `legacy-core-bridge` and are
+never created. The environment contract, health, load caps, migrations and engine key rotation are in [agent-core-serve](agent-core-serve.md).
 
 ## Turn it on
 
@@ -55,10 +56,10 @@ platform host                                core host (m7i-flex.large, free_pla
    .\scripts\aws-prod.ps1 images -Profile pulso-prod -Service agent-core-serve -SourceDir D:\src\agent-core
    .\scripts\aws-prod.ps1 images -Profile pulso-prod -Service tool-service -SourceDir D:\src\tool-service
    ```
-4. `agent_serve_args`: the piece flags of `serve`. The default names the seven real pieces of agent-core main
-   (tools, authz, field classifier, grant_active, transcript in Postgres, calibration and classifier from artifact
-   directories). Override it only to append flags (`--agents`, `--lang-thresholds`). Demo doubles (`testing.*`) are
-   rejected by the variable and by `serve` itself.
+4. `agent_serve_args`: OPTIONAL extra arguments of `serve`, empty by default: the seven real pieces (tools, authz, field classifier,
+   grant_active, transcript in Postgres, calibration and classifier from artifact directories) are `serve`'s own defaults since agent-core
+   PR 62 to 70. Demo doubles (`testing.*`) and `AGENTCORE_ALLOW_DOUBLES` are rejected by the variable, by the start script and by `serve`
+   itself. `agent_serve_agents` sets `AGENTCORE_SERVE_AGENTS`.
 5. Set the secret values (below), then `plan` and `apply`. A secret that already exists keeps its keys
    (`ignore_changes`): add the new keys with `set-secret`, or the Terraform-generated ones (tokens, key documents; ADR 0009) with `seed-secret-keys` (merge only).
 6. Database: see below (new volume: automatic; existing volume: one command).
@@ -91,7 +92,7 @@ All in the one secret `pulso-prod/hackathon`, set with `.\scripts\aws-prod.ps1 s
 
 `GATEWAY_CONSUMERS` must list only consumers whose token is set: two consumers still on `CHANGE_ME` share a token and
 the gateway refuses to start. More files for `serve` (for example `--lang-thresholds /run/files/LANG_THRESHOLDS`) are
-any extra `FILES__AGENT__<NAME>` key plus the flag in `agent_serve_args`; no Terraform change.
+any extra `FILES__AGENT__<NAME>` key plus the SSM parameter `/pulso/core/agent/<VARIABLE>` that names its path ([agent-core-serve](agent-core-serve.md#6-secrets-files-and-the-optional-ssm-knobs)); no Terraform change.
 
 ## Database
 

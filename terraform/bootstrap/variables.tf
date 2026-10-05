@@ -96,5 +96,5 @@ variable "ecr_repository_prefix" {
 variable "ecr_repositories" {
   type        = set(string)
   description = "Repositories to create. The console image is not needed. Defaults are the images the hackathon compose bundles pull (caddy is a digest-pinned mirror of the upstream image)."
-  default     = ["pulso-engine", "core-runtime", "llm-gateway", "support-platform-api", "support-platform-web", "caddy", "agent-core-serve", "tool-service", "data-pipeline"]
+  default     = ["pulso-engine", "core-runtime", "llm-gateway", "support-platform-api", "support-platform-web", "caddy", "agent-core-serve", "tool-service", "data-pipeline", "otlp-forwarder"]
 }

@@ -1,0 +1,8 @@
+# Merged ONLY when both the loop job (compose.loop.yaml) and the forwarder (compose.observability.yaml) are enabled: the one-shot
+# joins the network namespace of `pulso`, where the sidecar listens on 127.0.0.1:4318. Needs `pulso` running (it always is).
+services:
+  pulso-loop:
+    network_mode: "service:pulso"
+    environment:
+      PULSO_O11Y_FORWARDER_ENDPOINT: http://127.0.0.1:4318
+      PULSO_O11Y_CAPTURE_CONTENT: ${OTLP_TRACE_CONTENT:-0}

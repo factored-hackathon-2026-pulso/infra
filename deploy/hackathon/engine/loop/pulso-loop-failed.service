@@ -1,0 +1,6 @@
+[Unit]
+Description=Pulso improvement loop failed for good (marker for the operator)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'mkdir -p /srv/data/loop; date -u +%%FT%%TZ > /srv/data/loop/FAILED; logger -t pulso-loop -p user.err "loop failed after retries; see journalctl -u pulso-loop and /srv/data/loop/last.json"'

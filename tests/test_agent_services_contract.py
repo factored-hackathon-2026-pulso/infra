@@ -27,7 +27,8 @@ class CoreAgentServices(unittest.TestCase):
         self.svc = services(CORE_AGENTS)
 
     def test_three_services_digest_pinned_by_variable(self):
-        self.assertEqual(set(self.svc), {"agent-core-migrate", "agent-core", "tool-service"})
+        # the three core-bridge services only get a profile here (docs/agent-core-serve.md); the sweep is a profile one-shot
+        self.assertEqual(set(self.svc), {"agent-core-migrate", "agent-core", "agent-core-sweep", "tool-service", "core-migrate", "core-runtime", "core-exporter"})
         self.assertNotIn(":latest", self.text)
         self.assertEqual(self.svc["agent-core"]["image"], "${AGENT_IMAGE:?set}")
         self.assertEqual(self.svc["agent-core-migrate"]["image"], "${AGENT_IMAGE:?set}")
@@ -35,30 +36,34 @@ class CoreAgentServices(unittest.TestCase):
 
     def test_only_agent_core_is_published_and_on_8001(self):
         published = {n: s["ports"] for n, s in self.svc.items() if "ports" in s}
-        self.assertEqual(published, {"agent-core": ["8001:8001"]}, "core-runtime keeps 8000; tool-service stays internal")
+        self.assertEqual(published, {"agent-core": ["8001:8001"]}, "tool-service stays internal")
         self.assertIn("--port 8001", self.svc["agent-core"]["command"])
 
     def test_every_service_runs_as_the_app_user_with_limits_and_restart(self):
         for name, s in self.svc.items():
+            if "image" not in s:  # the legacy services only carry a profile here
+                continue
             with self.subTest(service=name):
                 self.assertEqual(s["user"], "10001:10001")
                 self.assertRegex(s["mem_limit"], r"^[0-9]+m$")
                 self.assertIn("restart", s)
 
     def test_secrets_come_only_from_the_rendered_env_and_files(self):
-        self.assertNotRegex(self.text, r"(?i)(password|token|api_key|dsn)\s*:\s*\S")
+        self.assertNotRegex(self.text, r"(?i)(password|token|api_key|dsn)\s*:\s*(?!\"\")\S")
         self.assertEqual(self.svc["agent-core"]["env_file"], ["/run/pulso/env/common.env", "/run/pulso/env/agent.env"])
         self.assertEqual(self.svc["tool-service"]["env_file"], ["/run/pulso/env/common.env", "/run/pulso/env/tools.env"])
         self.assertIn("/run/pulso/files/agent:/run/files:ro", self.svc["agent-core"]["volumes"])
 
     def test_serve_runs_with_real_pieces_never_demo_doubles(self):
         cmd = self.svc["agent-core"]["command"]
-        self.assertIn("${AGENT_SERVE_ARGS:?set}", cmd, "the piece flags are deployment input (.env), not baked here")
-        self.assertIn("--identity-keys /run/files/IDENTITY_KEYS", cmd)
-        self.assertIn("--staff-keys /run/files/STAFF_KEYS", cmd)
-        self.assertIn("--registry-api", cmd)
+        env = self.svc["agent-core"]["environment"]
+        self.assertIn("${AGENT_SERVE_ARGS:-}", cmd, "extra arguments are deployment input (.env); the seven real pieces are serve's defaults")
+        self.assertEqual(env["AGENTCORE_IDENTITY_KEYS_FILE"], "/run/files/IDENTITY_KEYS")
+        self.assertEqual(env["AGENTCORE_STAFF_KEYS_FILE"], "/run/files/STAFF_KEYS")
+        self.assertEqual(env["AGENTCORE_REGISTRY_API"], "1")
+        self.assertNotIn("--tools", cmd)
         self.assertNotIn("testing.", self.text)
-        self.assertNotIn("AGENTCORE_ALLOW_DEMO", self.text)
+        self.assertNotIn("AGENTCORE_ALLOW_DEMO", self.text.replace("AGENTCORE_ALLOW_DOUBLES is NEVER set", ""))
 
     def test_agent_core_reaches_its_siblings_by_compose_and_private_dns(self):
         env = self.svc["agent-core"]["environment"]
@@ -85,8 +90,9 @@ class CoreAgentServices(unittest.TestCase):
         self.assertIn("AGENTCORE_MIGRATE_DSN", joined)
         self.assertIn("agentcore migrate --app-role agent_app", joined)
         self.assertEqual(self.svc["agent-core"]["depends_on"]["agent-core-migrate"]["condition"], "service_completed_successfully")
-        self.assertEqual(migrate["depends_on"]["core-migrate"]["condition"], "service_completed_successfully",
-                         "chained after core-migrate, which waits for a healthy Postgres in container mode")
+        pg = services(CORE_AGENTS.with_name("compose.agents.postgres.yaml"))
+        self.assertEqual(pg["agent-core-migrate"]["depends_on"]["postgres"]["condition"], "service_healthy",
+                         "container mode: the migration waits for a healthy Postgres (the legacy core-migrate is out of the chain)")
 
     def test_tool_service_reads_the_synced_publication_read_only_and_keeps_filings(self):
         ts = self.svc["tool-service"]
@@ -97,10 +103,13 @@ class CoreAgentServices(unittest.TestCase):
         self.assertIn("/srv/data/tools/current:/catalog:ro", self.svc["agent-core"]["volumes"])
 
     def test_memory_limits_leave_headroom_on_the_8gb_core_host_with_postgres(self):
+        # With serve on the legacy core-bridge services and the sweep one-shot (profiles) are not running next to the rest.
+        profiled = {n for n, s in self.svc.items() if "profiles" in s}
         total = 0
         for name in ("compose.yaml", "compose.postgres.yaml", "compose.agents.yaml"):
-            text = (BUNDLE / "core" / name).read_text(encoding="utf-8")
-            total += sum(int(x) for x in re.findall(r"mem_limit:\s*(\d+)m", text))
+            for n, s in services(BUNDLE / "core" / name).items():
+                if n not in profiled:
+                    total += int(re.fullmatch(r"(\d+)m", s.get("mem_limit", "0m")).group(1))
         self.assertLessEqual(total, 8192 * 0.7)
 
 

@@ -48,7 +48,12 @@ locals {
   agents      = var.agent_services_enabled
   platform_db = var.platform_database_enabled
   core_agent_files = local.agents ? merge(
-    { "compose.agents.yaml" = file("${path.module}/../../../deploy/hackathon/core/compose.agents.yaml") },
+    {
+      "compose.agents.yaml"             = file("${path.module}/../../../deploy/hackathon/core/compose.agents.yaml")
+      "sweep/pulso-agent-sweep.service" = file("${path.module}/../../../deploy/hackathon/core/sweep/pulso-agent-sweep.service")
+      "sweep/pulso-agent-sweep.timer"   = file("${path.module}/../../../deploy/hackathon/core/sweep/pulso-agent-sweep.timer")
+    },
+    local.container_db ? { "compose.agents.postgres.yaml" = file("${path.module}/../../../deploy/hackathon/core/compose.agents.postgres.yaml") } : {},
     local.container_db ? { "initdb/sql/20_agent_databases.sql" = file("${path.module}/../../modules/hackathon_data/sql/20_agent_databases.sql") } : {},
     # Shared Postgres: platform and tool-service databases; the exporter grants run by hand after the platform's first migration.
     local.container_db && local.platform_db ? {
@@ -57,7 +62,49 @@ locals {
     } : {},
   ) : {}
   platform_agent_files = local.agents ? { "compose.agents.yaml" = file("${path.module}/../../../deploy/hackathon/platform/compose.agents.yaml") } : {}
-  restricted_readers   = local.agents ? [module.iam.instance_role_arn_core] : []
+
+  # agent-core serve is the shared Core (ADR 0009): agent-core's own image replaces the core-bridge services. The legacy services stay
+  # in compose.yaml behind a profile that compose.agents.yaml sets, so CORE_IMAGE only has to interpolate: it aliases the agent image
+  # unless a legacy `core` digest is given.
+  images_core = local.agents && !contains(keys(var.images.core), "core") ? merge(var.images.core, { core = var.images.core.agent }) : var.images.core
+
+  # Load caps of `agentcore serve` by core instance memory (docs/agent-core-serve.md section 3): max in-flight /v1 requests, sync worker
+  # threads, DB pool per process (Postgres max_connections is 100, shared with platform, tools and engine).
+  host_memory_mb = {
+    "t3.micro"       = 1024, "t3.small" = 2048, "t3.medium" = 4096, "t3.large" = 8192,
+    "t4g.micro"      = 1024, "t4g.small" = 2048, "t8i.micro" = 1024, "t8i.small" = 2048,
+    "c7i-flex.large" = 4096, "m7i-flex.large" = 8192,
+  }
+  core_memory_mb = lookup(local.host_memory_mb, local.instance_types["core"], 2048)
+  agent_limits = (local.core_memory_mb >= 8192 ? { inflight = 32, workers = 16, pool = 10 } :
+  local.core_memory_mb >= 4096 ? { inflight = 16, workers = 12, pool = 6 } : { inflight = 8, workers = 8, pool = 4 })
+  agent_env = local.agents ? {
+    AGENT_SERVE_ARGS     = var.agent_serve_args
+    AGENT_SERVE_AGENTS   = var.agent_serve_agents
+    AGENT_MAX_INFLIGHT   = tostring(local.agent_limits.inflight)
+    AGENT_WORKER_THREADS = tostring(local.agent_limits.workers)
+    AGENT_DB_POOL_MAX    = tostring(local.agent_limits.pool)
+  } : {}
+
+  # OTLP forwarder sidecars (decision B1), off by default.
+  otlp       = var.otlp_forwarder_enabled
+  otlp_env   = local.otlp ? { OTLP_TRACE_CONTENT = var.otlp_trace_content ? "1" : "0" } : {}
+  core_otlp  = local.otlp ? { "compose.observability.yaml" = file("${path.module}/../../../deploy/hackathon/core/compose.observability.yaml") } : {}
+  engine_obs = local.otlp ? { "compose.observability.yaml" = file("${path.module}/../../../deploy/hackathon/engine/compose.observability.yaml") } : {}
+
+  # The improvement-loop job on the engine host (docs/engine-loop.md).
+  loop = var.engine_loop_enabled
+  engine_loop = local.loop ? {
+    "compose.loop.yaml"              = file("${path.module}/../../../deploy/hackathon/engine/compose.loop.yaml")
+    "loop/pulso-inputs-sync.sh"      = file("${path.module}/../../../deploy/hackathon/engine/loop/pulso-inputs-sync.sh")
+    "loop/pulso-loop-status.sh"      = file("${path.module}/../../../deploy/hackathon/engine/loop/pulso-loop-status.sh")
+    "loop/pulso-loop.service"        = file("${path.module}/../../../deploy/hackathon/engine/loop/pulso-loop.service")
+    "loop/pulso-loop.timer"          = file("${path.module}/../../../deploy/hackathon/engine/loop/pulso-loop.timer")
+    "loop/pulso-loop-failed.service" = file("${path.module}/../../../deploy/hackathon/engine/loop/pulso-loop-failed.service")
+    "loader/check_cells_k.py"        = file("${path.module}/../../../deploy/hackathon/engine/loader/check_cells_k.py")
+  } : {}
+  engine_loop_obs    = local.loop && local.otlp ? { "compose.loop.observability.yaml" = file("${path.module}/../../../deploy/hackathon/engine/compose.loop.observability.yaml") } : {}
+  restricted_readers = local.agents ? [module.iam.instance_role_arn_core] : []
 
   ecr_registry_url = coalesce(var.ecr_registry_url, "${local.account_id}.dkr.ecr.${var.region}.amazonaws.com")
 
@@ -111,6 +158,11 @@ module "data" {
   platform_database_enabled   = local.platform_db
   auto_loader_enabled         = local.loader_on
   agent_keys_suffix           = var.agent_keys_suffix
+  engine_extra_key_suffixes   = var.engine_extra_key_suffixes
+  engine_active_key_suffix    = var.engine_active_key_suffix
+  engine_retire_base_key      = var.engine_retire_base_key
+  otlp_forwarder_enabled      = local.otlp
+  langfuse_base_url           = var.langfuse_base_url
   restricted_reader_role_arns = local.restricted_readers
   tags                        = local.tags
 }
@@ -162,14 +214,15 @@ module "compute_core" {
   secret_arn              = module.data.secret_arn
   kms_key_arn             = module.data.kms_key_arn
   ecr_registry_url        = local.ecr_registry_url
-  images                  = var.images.core
+  images                  = local.images_core
   db_volume_size_gb       = local.container_db ? var.db_volume_size_gb : 0
-  extra_service_envs      = concat(local.container_db ? ["db"] : [], local.agents ? ["agent", "tools"] : [])
-  compose_files           = concat(["compose.yaml"], local.container_db ? ["compose.postgres.yaml"] : [], local.agents ? ["compose.agents.yaml"] : [])
-  extra_bundle_files      = merge(local.core_db_files, local.core_agent_files)
-  extra_ports             = concat(["8080:8080"], local.agents ? ["8001:8001"] : [])
-  extra_env               = local.agents ? { AGENT_SERVE_ARGS = var.agent_serve_args } : {}
-  tags                    = local.tags
+  extra_service_envs      = concat(local.container_db ? ["db"] : [], local.agents ? ["agent", "tools"] : [], local.otlp ? ["langfuse"] : [])
+  compose_files = concat(["compose.yaml"], local.container_db ? ["compose.postgres.yaml"] : [], local.agents ? ["compose.agents.yaml"] : [],
+  local.agents && local.container_db ? ["compose.agents.postgres.yaml"] : [], local.otlp ? ["compose.observability.yaml"] : [])
+  extra_bundle_files = merge(local.core_db_files, local.core_agent_files, local.core_otlp)
+  extra_ports        = concat(["8080:8080"], local.agents ? ["8001:8001"] : [])
+  extra_env          = merge(local.agent_env, local.otlp_env)
+  tags               = local.tags
 }
 
 module "compute_platform" {
@@ -220,15 +273,20 @@ module "compute_engine" {
   kms_key_arn             = module.data.kms_key_arn
   ecr_registry_url        = local.ecr_registry_url
   images                  = var.images.engine
-  extra_service_envs      = local.loader_on ? ["loader"] : []
+  extra_service_envs      = concat(local.loader_on ? ["loader"] : [], local.otlp ? ["langfuse"] : [])
   loader_swap_gb          = local.loader_on ? var.loader_swap_gb : 0
-  extra_bundle_files = local.loader_on ? {
+  loop_enabled            = local.loop
+  loop_interval           = var.engine_loop_interval
+  compose_files = concat(["compose.yaml"], local.loop ? ["compose.loop.yaml"] : [], local.otlp ? ["compose.observability.yaml"] : [],
+  local.loop && local.otlp ? ["compose.loop.observability.yaml"] : [])
+  extra_env = merge(local.loop ? { PULSO_CELLS_SOURCE = var.engine_loop_cells_source, PULSO_LOOP_PROFILE = var.engine_loop_profile } : {}, local.otlp_env)
+  extra_bundle_files = merge(local.engine_loop, local.engine_obs, local.engine_loop_obs, local.loader_on ? {
     "loader/pulso-loader.sh"             = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader.sh")
     "loader/check_cells_k.py"            = file("${path.module}/../../../deploy/hackathon/engine/loader/check_cells_k.py")
     "loader/pulso-loader.service"        = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader.service")
     "loader/pulso-loader.timer"          = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader.timer")
     "loader/pulso-loader-failed.service" = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader-failed.service")
-  } : {}
+  } : {})
   tags = local.tags
 }
 
@@ -269,6 +327,11 @@ locals {
     "agent-core-serve" = { repository = "${var.ecr_repository_prefix}/agent-core-serve" }
     "tool-service"     = { repository = "${var.ecr_repository_prefix}/tool-service" }
   } : {}
+  # The OTLP forwarder image: the engine repo's scripts/o11y plus this repo's docker/otlp-forwarder.Dockerfile (put it in the source zip);
+  # digest in images.core.forwarder and images.engine.forwarder (the same image).
+  otlp_build_services = local.otlp ? {
+    "otlp-forwarder" = { repository = "${var.ecr_repository_prefix}/otlp-forwarder", dockerfile = "docker/otlp-forwarder.Dockerfile" }
+  } : {}
   # The data-pipeline image (dbt + DuckDB) is built from its own repository; digest in images.engine.pipeline.
   loader_build_services = local.loader_on ? {
     "data-pipeline" = { repository = "${var.ecr_repository_prefix}/data-pipeline" }
@@ -283,7 +346,7 @@ module "image_builder" {
   bucket_name  = module.data.bucket_name
   kms_key_arn  = module.data.kms_key_arn
   ecr_registry = local.ecr_registry_url
-  services     = merge(local.build_services, local.agent_build_services, local.loader_build_services)
+  services     = merge(local.build_services, local.agent_build_services, local.loader_build_services, local.otlp_build_services)
   compute_type = local.compute_type
   tags         = local.tags
 }
@@ -296,9 +359,9 @@ module "deployers" {
   kms_key_arn = module.data.kms_key_arn
   workloads = {
     core = {
-      image_keys     = concat(["core", "gateway"], local.agents ? ["agent", "tools"] : [])
-      repositories   = concat(["${var.ecr_repository_prefix}/core-runtime", "${var.ecr_repository_prefix}/llm-gateway"], local.agents ? ["${var.ecr_repository_prefix}/agent-core-serve", "${var.ecr_repository_prefix}/tool-service"] : [])
-      build_services = concat(["core-runtime", "llm-gateway"], keys(local.agent_build_services))
+      image_keys     = concat(["core", "gateway"], local.agents ? ["agent", "tools"] : [], local.otlp ? ["forwarder"] : [])
+      repositories   = concat(["${var.ecr_repository_prefix}/core-runtime", "${var.ecr_repository_prefix}/llm-gateway"], local.agents ? ["${var.ecr_repository_prefix}/agent-core-serve", "${var.ecr_repository_prefix}/tool-service"] : [], local.otlp ? ["${var.ecr_repository_prefix}/otlp-forwarder"] : [])
+      build_services = concat(["core-runtime", "llm-gateway"], keys(local.agent_build_services), keys(local.otlp_build_services))
     }
     platform = {
       image_keys     = ["support_api", "support_web"]
@@ -306,8 +369,8 @@ module "deployers" {
       build_services = ["support-platform-api", "support-platform-web"]
     }
     engine = {
-      image_keys     = concat(["pulso"], local.loader_on ? ["pipeline"] : [])
-      repositories   = concat(["${var.ecr_repository_prefix}/pulso-engine"], local.loader_on ? ["${var.ecr_repository_prefix}/data-pipeline"] : [])
+      image_keys     = concat(["pulso"], local.loader_on ? ["pipeline"] : [], local.otlp ? ["forwarder"] : [])
+      repositories   = concat(["${var.ecr_repository_prefix}/pulso-engine"], local.loader_on ? ["${var.ecr_repository_prefix}/data-pipeline"] : [], local.otlp ? ["${var.ecr_repository_prefix}/otlp-forwarder"] : [])
       build_services = concat(["pulso-engine"], keys(local.loader_build_services))
     }
   }

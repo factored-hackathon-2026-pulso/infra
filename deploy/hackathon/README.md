@@ -5,7 +5,7 @@ terminates TLS and sends HTTP to port 80 of the platform proxy and port 8080 of 
 
 | Host | Services (mem MB) | Published |
 |---|---|---|
-| core | core-migrate 256 (one-shot), core-runtime 768, core-exporter 128, llm-gateway 128 | core-runtime 8000 (SG: platform+engine only) |
+| core | core-migrate 256 (one-shot), core-runtime 768, core-exporter 128, llm-gateway 128 (without agent services); with agent services: agent-core-migrate 256 (one-shot), agent-core 768, tool-service 1024, llm-gateway 128 (the three core-bridge services are disabled by a profile) | core-runtime 8000, or agent-core 8001 (SG: platform+engine only) |
 | platform | support-platform-api 512, support-platform-web 64, proxy 64 | proxy 80 |
 | engine | pulso 512 (`pulso healthcheck`, 70 s stop grace), proxy 64 | proxy 8080 |
 
@@ -15,6 +15,8 @@ engine proxy `/pulso/*` -> pulso:8080, `/internal*` 404. `/healthz` answers on b
 Files on a host: `/srv/stack` is synced from S3 `engine/deploy/<workload>/` (compose, Caddyfile, `.env` rendered by Terraform).
 `/run/pulso/env/<svc>.env` (tmpfs, 0600) is generated at every start from the host's slice of the ONE Secrets Manager secret
 (JSON keys `<SERVICE>__<VAR>`) plus non-secret SSM values under `<ssm_prefix>/<workload>/<svc>/<VAR>`. Never commit values.
+
+Optional, off by default, each behind a Terraform variable: agent-core serve [docs/agent-core-serve.md](../../docs/agent-core-serve.md), the improvement-loop one-shot on the engine host (`engine/compose.loop.yaml`, [docs/engine-loop.md](../../docs/engine-loop.md)), OTLP forwarder sidecars (`*/compose.observability.yaml`, [docs/otlp-forwarder.md](../../docs/otlp-forwarder.md)).
 
 Operate: `sudo systemctl stop|start pulso-stack`; Terraform `enabled` map stops an instance; logs by `docker compose -p pulso logs -f <svc>`.
 Support-platform stays single instance and in non-prod settings (prod refuses without an email adapter).

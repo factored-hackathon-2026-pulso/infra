@@ -43,7 +43,7 @@ class GatewayReachability(unittest.TestCase):
         # The network module opens core:8080 from the engine security group; the engine calls <core private IP>:8080.
         self.assertIn("8080:8080", CORE["llm-gateway"].get("ports", []))
         env_main = (TF / "envs" / "hackathon" / "main.tf").read_text(encoding="utf-8")
-        self.assertIn('extra_ports             = concat(["8080:8080"]', env_main)
+        self.assertRegex(env_main, r'extra_ports\s*=\s*concat\(\["8080:8080"\]')
 
     def test_gateway_uses_the_probe_its_distroless_image_ships(self):
         hc = CORE["llm-gateway"]["healthcheck"]
@@ -111,7 +111,7 @@ class ComposeHygiene(unittest.TestCase):
     def test_one_shot_jobs_never_restart(self):
         for svcs in (CORE, AGENTS):
             for name in ("core-migrate", "agent-core-migrate"):
-                if name in svcs:
+                if name in svcs and "image" in svcs[name]:  # an override that only sets a profile has no restart of its own
                     self.assertEqual(svcs[name]["restart"], "no")
 
     def test_disabled_healthchecks_are_justified_in_a_comment(self):
@@ -147,7 +147,7 @@ class ObservabilityForwarder(unittest.TestCase):
 
     def test_fragment_defines_one_sidecar_per_producer_without_published_ports(self):
         svcs = load(self.FRAGMENT)
-        self.assertEqual(set(svcs), {"otlp-forwarder-gateway", "otlp-forwarder-agent"})
+        self.assertEqual({n for n in svcs if n.startswith("otlp-")}, {"otlp-forwarder-gateway", "otlp-forwarder-agent"})
         for name, producer in (("otlp-forwarder-gateway", "llm-gateway"), ("otlp-forwarder-agent", "agent-core")):
             s = svcs[name]
             self.assertEqual(s["network_mode"], f"service:{producer}")
@@ -166,9 +166,10 @@ class ObservabilityForwarder(unittest.TestCase):
         for needed in ("otlp_forwarder.py", "runtrace_bridge.py", "trace_id.py", "agentcore_poller.py"):
             self.assertIn(needed, text)
 
-    def test_fragment_is_not_wired_into_terraform_until_the_owner_decides(self):
+    def test_fragment_is_wired_into_terraform_only_behind_the_variable(self):
         env_main = (TF / "envs" / "hackathon" / "main.tf").read_text(encoding="utf-8")
-        self.assertNotIn("compose.observability.yaml", env_main)
+        self.assertIn('local.otlp ? ["compose.observability.yaml"] : []', env_main)
+        self.assertRegex(env_main, r"otlp\s*=\s*var\.otlp_forwarder_enabled")
 
 
 if __name__ == "__main__":
@@ -220,17 +221,15 @@ class DbBootstrapJob(unittest.TestCase):
 
 
 class LoopJobSlot(unittest.TestCase):
+    """The loop job is wired now (docs/engine-loop.md, tests/test_engine_loop_contract.py); the old slots are closed."""
+
     LOOP = BUNDLE / "engine" / "compose.loop.yaml"
 
-    def test_loop_job_is_opt_in_unwired_and_names_its_env_contract(self):
+    def test_loop_job_is_wired_behind_its_variable_and_no_slot_remains(self):
         svc = load(self.LOOP)["pulso-loop"]
         self.assertEqual(svc["image"], "${PULSO_IMAGE:?set}")
-        self.assertEqual(svc["restart"], "no")
-        env = svc["environment"]
-        self.assertEqual(env["PULSO_MODEL_PORT"], "gateway")
-        self.assertEqual(env["PULSO_CORE_PORT"], "live")
-        self.assertEqual(env["STEPS_RUNNER_EXE"], "/usr/local/bin/steps_cli")
+        self.assertEqual(svc["command"], ["loop"])
         text = self.LOOP.read_text(encoding="utf-8")
-        self.assertIn("SLOT", text)
+        self.assertNotIn("SLOT", text)
         self.assertIn("PULSO_SERVICE_SEED_HEX", text)
-        self.assertNotIn("compose.loop.yaml", (TF / "envs" / "hackathon" / "main.tf").read_text(encoding="utf-8"))
+        self.assertIn("compose.loop.yaml", (TF / "envs" / "hackathon" / "main.tf").read_text(encoding="utf-8"))

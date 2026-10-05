@@ -14,6 +14,10 @@ Start with the quickstart; the rest is reference. These docs are checked against
 | [security-model.md](security-model.md) | understand who can do what, trade-offs, what is not protected |
 | [costs.md](costs.md) | estimate and control the monthly bill |
 | [decisions.md](decisions.md) | ADR index and the simplification decision |
+| [deploy-readiness.md](deploy-readiness.md) | check everything before the first apply: offline plan review, state key migration, secrets, apply order, cost, rollback, what the platform team still owes |
+| [agent-core-serve.md](agent-core-serve.md) | see how agent-core's own image runs as the shared Core: every `serve` environment name, health, load caps, migrations, engine key rotation |
+| [engine-loop.md](engine-loop.md) | run `pulso loop` as a systemd one-shot with minted credentials and the S3 inputs mirror (`engine_loop_enabled`) |
+| [otlp-forwarder.md](otlp-forwarder.md) | send traces to Langfuse through loopback sidecars (`otlp_forwarder_enabled`) |
 | [run-and-health.md](run-and-health.md) | see how each service runs on the hosts: image, command, env names, ports, probes, restart, start order, limits |
 | [runbooks/build-and-release.md](runbooks/build-and-release.md) | build with Podman, scan, push to ECR, pin digests, roll out and roll back when there is no CI |
 | [prodlike-rehearsal.md](prodlike-rehearsal.md) | rehearse the host stacks locally with Podman (`scripts/prodlike`) before any apply |

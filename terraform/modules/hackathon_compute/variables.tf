@@ -188,3 +188,20 @@ variable "loader_swap_gb" {
     error_message = "loader_swap_gb must be 0 to 16."
   }
 }
+
+variable "loop_enabled" {
+  description = "Install the improvement-loop one-shot (pulso-loop.service + timer, inputs mirror sync, status hook) on the engine host. The bundle must also carry loop/* and compose.loop.yaml (extra_bundle_files, compose_files); the engine env wires that."
+  type        = bool
+  default     = false
+}
+
+variable "loop_interval" {
+  description = "systemd time span between the end of one loop run and the start of the next (OnUnitInactiveSec of pulso-loop.timer), for example 6h or 90min."
+  type        = string
+  default     = "6h"
+
+  validation {
+    condition     = can(regex("^[0-9]+(min|h|d)$", var.loop_interval))
+    error_message = "loop_interval is a number plus min, h or d, for example 6h."
+  }
+}

@@ -1,0 +1,12 @@
+# Container-mode Postgres ordering for the agent services (database_mode=container; merged after compose.agents.yaml). Not part of
+# the RDS bundle, where the database is already up. The agent-core one-shot waits for a HEALTHY Postgres; serve then waits for the
+# one-shot (compose.agents.yaml), so the chain is: postgres healthy -> agent-core-migrate completed -> agent-core (/readyz).
+#
+# pulso-db-bootstrap (compose.postgres.yaml) is deliberately NOT in this chain: it enables the engine's pulso_* logins after the
+# ENGINE's first migrations (another host) created those roles, waits up to BOOTSTRAP_WAIT_SECS and exits 0 either way. Chaining
+# serve behind it would delay the core by that wait on every first boot for nothing: the agent databases do not depend on it.
+services:
+  agent-core-migrate:
+    depends_on:
+      postgres:
+        condition: service_healthy
