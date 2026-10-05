@@ -25,7 +25,7 @@ on the two tables by name, so a new table with personal data is unreadable by th
 ## Secrets
 
 All in the one Secrets Manager secret (names only). Role passwords `DB__DB_PASSWORD_<ROLE>` (container mode) for `PLATFORM_OWNER`,
-`PLATFORM_APP`, `PLATFORM_EXPORTER_RO`, `TOOLS_OWNER`, `TOOLS_APP`; DSNs (set out of band, with `set-secret`):
+`PLATFORM_APP`, `PLATFORM_EXPORTER_RO`, `TOOLS_OWNER`, `TOOLS_APP`; DSNs (assembled by Terraform from the generated passwords, [secrets-wiring](secrets-wiring.md)):
 
 | Key | Value shape | Rendered into |
 |---|---|---|

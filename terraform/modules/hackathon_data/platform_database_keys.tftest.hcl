@@ -28,8 +28,8 @@ run "platform_database_seeds_roles_dsns_and_the_engine_token" {
     error_message = "Role passwords (container mode, DB__ prefix), platform DSNs and the engine's read-only DSN are seeded."
   }
   assert {
-    condition     = nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))["PULSO__PULSO_PG_PRODUCT_DSN"] == "CHANGE_ME"
-    error_message = "DSNs carry passwords: set out of band, Terraform seeds the placeholder."
+    condition     = nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))["PULSO__PULSO_PG_PRODUCT_DSN"] != "CHANGE_ME"
+    error_message = "DSNs are assembled by Terraform from the generated passwords."
   }
   assert {
     condition     = nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))["PULSO__PULSO_PLATFORM_SERVICE_TOKEN"] == nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))["SUPPORT__CC_INTERNAL_SERVICE_TOKEN"]

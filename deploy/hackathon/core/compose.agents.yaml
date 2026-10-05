@@ -68,6 +68,8 @@ services:
       AGENTCORE_KEYS_RELOAD_SECONDS: "5"
       AGENTCORE_SERVE_AGENTS: ${AGENT_SERVE_AGENTS:-recepcion,disputas,consultas,copiloto-asesor}
       AGENTCORE_FX_RATES_FILE: /run/files/FX_RATES
+      # Language detection thresholds (PRODLIKE I3): without them a Portuguese turn is answered in Spanish. Authored file, config/agent.
+      AGENTCORE_LANG_THRESHOLDS: /run/files/LANG_THRESHOLDS
       # --- the seven real pieces (serve-env.md section 2)
       AGENTCORE_TOOL_SERVICE_URL: http://tool-service:8080
       AGENTCORE_TOOL_SERVICE_TIMEOUT_S: "10"

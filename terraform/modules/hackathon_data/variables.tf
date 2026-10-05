@@ -155,9 +155,9 @@ variable "gateway_consumers" {
 }
 
 variable "llm_provider_key_names" {
-  description = "Provider API key names stored in the secret (ASSUMED defaults; confirm with llm-gateway)."
+  description = "Provider API key names stored in the secret. The gateway has one endpoint, openrouter (ssm.tf); add names here only with a matching LLM_ENDPOINTS entry."
   type        = list(string)
-  default     = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY"]
+  default     = ["OPENROUTER_API_KEY"]
 }
 
 variable "bridge_signer_names" {
@@ -226,4 +226,10 @@ variable "auto_loader_enabled" {
   description = "Seed the secret key of the automatic loader (LOADER__PSEUDONYM_KEY, the data pipeline's pseudonymisation HMAC key; out of band). Off by default."
   type        = bool
   default     = false
+}
+
+variable "private_zone_name" {
+  description = "Private Route 53 zone of the hosts (module.network zone_name). Remote hosts reach the Postgres container as core.<zone>; used to assemble the DSNs Terraform generates."
+  type        = string
+  default     = "pulso.internal"
 }

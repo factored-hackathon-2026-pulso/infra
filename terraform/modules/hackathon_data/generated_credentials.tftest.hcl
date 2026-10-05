@@ -83,16 +83,16 @@ run "secret_holds_generated_values_and_keeps_other_placeholders" {
     error_message = "Every generated key is in the secret."
   }
   assert {
-    condition     = jsondecode(aws_secretsmanager_secret_version.this.secret_string)["GATEWAY__OPENROUTER_API_KEY"] == "CHANGE_ME" && jsondecode(aws_secretsmanager_secret_version.this.secret_string)["CORE__AGENTCORE_REGISTRY_DSN"] == "CHANGE_ME"
-    error_message = "Provider keys, DSNs and the JEV key stay out-of-band placeholders."
+    condition     = jsondecode(aws_secretsmanager_secret_version.this.secret_string)["GATEWAY__OPENROUTER_API_KEY"] == "CHANGE_ME" && jsondecode(aws_secretsmanager_secret_version.this.secret_string)["GATEWAY__JEV_API_KEY"] == "CHANGE_ME" && startswith(jsondecode(aws_secretsmanager_secret_version.this.secret_string)["CORE__AGENTCORE_REGISTRY_DSN"], "postgresql://core_app:")
+    error_message = "Only the provider keys stay out-of-band placeholders; DSNs are derived."
   }
   assert {
     condition     = jsondecode(aws_secretsmanager_secret_version.this.secret_string)["AGENT__AGENTCORE_LLM_GATEWAY_TOKEN"] == jsondecode(aws_secretsmanager_secret_version.this.secret_string)["GATEWAY__GATEWAY_TOKEN_AGENT_SERVE"] && jsondecode(aws_secretsmanager_secret_version.this.secret_string)["TOOLS__TOOL_SERVICE_TOKENS"] == format("agent-core:%s", jsondecode(aws_secretsmanager_secret_version.this.secret_string)["AGENT__AGENTCORE_TOOL_SERVICE_TOKEN"])
     error_message = "agent-core serve presents the token the gateway issues to AGENT_SERVE and the one tool-service accepts for agent-core."
   }
   assert {
-    condition     = jsondecode(aws_secretsmanager_secret_version.this.secret_string)["AGENT__AGENTCORE_REGISTRY_DSN"] == "CHANGE_ME" && jsondecode(aws_secretsmanager_secret_version.this.secret_string)["FILES__AGENT__FIELD_GRANTS"] == "CHANGE_ME"
-    error_message = "DSNs and data-governance files stay out of band."
+    condition     = jsondecode(aws_secretsmanager_secret_version.this.secret_string)["AGENT__AGENTCORE_JEV_API_KEY"] == "CHANGE_ME" && startswith(jsondecode(aws_secretsmanager_secret_version.this.secret_string)["AGENT__AGENTCORE_REGISTRY_DSN"], "postgresql://agent_app:") && jsondecode(aws_secretsmanager_secret_version.this.secret_string)["FILES__AGENT__FIELD_GRANTS"] != "CHANGE_ME"
+    error_message = "The JEV key is human; agent DSNs are derived and the grants are the authored file."
   }
 }
 

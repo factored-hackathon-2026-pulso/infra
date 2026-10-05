@@ -35,7 +35,7 @@ variable "enabled" {
 variable "instance_types" {
   type        = map(string)
   default     = null
-  description = "Per host instance type. Null derives it from the profile: free_plan = core m7i-flex.large (8 GB, also runs Postgres), platform and engine t3.small; prod = t3.small x3. In the free_plan profile only the Free Tier eligible types are accepted."
+  description = "Per host instance type. Null derives it from the profile: free_plan = core m7i-flex.large (8 GB, also runs Postgres), platform t3.small, engine m7i-flex.large when auto_loader_enabled (else t3.small; m7i-flex.large is the largest Free Plan type, flex xlarge is not on the list); prod = t3.small x3. In the free_plan profile only the Free Tier eligible types are accepted."
 
   validation {
     condition     = var.instance_types == null || var.profile != "free_plan" || alltrue([for t in values(var.instance_types) : contains(["c7i-flex.large", "m7i-flex.large", "t3.micro", "t3.small", "t4g.micro", "t4g.small", "t8i.micro", "t8i.small"], t)])
@@ -332,19 +332,19 @@ variable "loader_cells_cmd" {
 
 variable "loader_memory" {
   type        = string
-  default     = "1g"
-  description = "docker --memory of the pipeline container. The full build (15.6M events, 4.4M transactions) is unmeasured on EC2; on a 2 GiB engine host use a larger engine instance_type."
+  default     = "4g"
+  description = "docker --memory of the pipeline container. Default 4g on the 8 GiB engine host (m7i-flex.large, the largest Free Plan type; the loader measurement was skipped by decision). The full build (15.6M events, 4.4M transactions) is unmeasured on EC2."
 }
 
 variable "loader_cpus" {
   type        = string
-  default     = "1.0"
+  default     = "2.0"
   description = "docker --cpus of the pipeline container."
 }
 
 variable "loader_duckdb_memory" {
   type        = string
-  default     = "2GB"
+  default     = "3GB"
   description = "DuckDB memory_limit passed to the pipeline (DUCKDB_MEMORY_LIMIT; spill to DUCKDB_TEMP_DIRECTORY on the data volume). UNVERIFIED: the data-pipeline profiles do not read these variables yet (docs/auto-loader.md, ask to its owners); docker --memory is the enforced cap."
 }
 

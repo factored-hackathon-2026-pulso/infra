@@ -39,7 +39,7 @@ The human's account is on the AWS Free Plan: it refuses instance types outside t
 |---|---|---|
 | NAT gateway + data processing | ~37 | **0** (`enable_nat` null = off: hosts in public subnets with public IPs, outbound only) |
 | Public IPv4 addresses (3 hosts, 0.005 USD per hour each) | 0 | ~11 (the NAT EIP in prod is already inside the NAT line) |
-| EC2 | 3 x t3.small ~46 | core `m7i-flex.large` (8 GB, also runs Postgres) + 2 x `t3.small`; flex types are billed less than their m7i/c7i siblings, check the pricing page |
+| EC2 | 3 x t3.small ~46 | core `m7i-flex.large` (8 GB, also runs Postgres) + engine `m7i-flex.large` when the loader is on (the largest Free Plan type; else `t3.small`) + platform `t3.small`; flex types are billed less than their m7i/c7i siblings, check the pricing page |
 | RDS db.t4g.micro | ~15 | **0** (`database_mode = "container"`: Postgres 16 on the core host) |
 | Postgres EBS volume (`db_volume_size_gb`, default 30) + daily snapshots | 0 | ~3 |
 | WAFv2 | ~8 | **0** (`enable_waf` null = off) |

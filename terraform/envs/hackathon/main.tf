@@ -26,7 +26,7 @@ locals {
   waf          = var.enable_waf == null ? !local.free_plan : var.enable_waf
   host_builder = var.enable_host_builder == null ? local.free_plan : var.enable_host_builder
   instance_types = coalesce(var.instance_types, local.free_plan ?
-    { core = "m7i-flex.large", platform = "t3.small", engine = var.auto_loader_enabled ? "c7i-flex.large" : "t3.small" } :
+    { core = "m7i-flex.large", platform = "t3.small", engine = var.auto_loader_enabled ? "m7i-flex.large" : "t3.small" } :
   { core = "t3.small", platform = "t3.small", engine = "t3.small" })
   compute_type = coalesce(var.image_builder_compute_type, local.free_plan ? "BUILD_GENERAL1_SMALL" : "BUILD_GENERAL1_MEDIUM")
   container_db = local.db_mode == "container"
@@ -163,6 +163,7 @@ module "data" {
   engine_retire_base_key      = var.engine_retire_base_key
   otlp_forwarder_enabled      = local.otlp
   langfuse_base_url           = var.langfuse_base_url
+  private_zone_name           = module.network.zone_name
   restricted_reader_role_arns = local.restricted_readers
   tags                        = local.tags
 }
@@ -405,6 +406,24 @@ resource "aws_ssm_parameter" "engine_platform" {
     PULSO_SOURCE_SCHEMA        = "public"
   } : {}
   name  = "${module.data.ssm_prefix}/engine/pulso/${each.key}"
+  type  = "String"
+  value = each.value
+  tags  = local.tags
+}
+
+# Platform public URL and CORS origin, derived from the CloudFront domain (no human value). Without the edge they fall back to the
+# platform proxy's private name. CC_CORS_ORIGINS is a JSON list string (support-platform settings.py). The edge depends on the
+# platform host, so these live here and not in the data module (that would be a cycle).
+locals {
+  platform_public_url = local.edge ? "https://${module.edge[0].cloudfront_domain_name}" : "http://platform.${trimsuffix(module.network.zone_name, ".")}"
+}
+
+resource "aws_ssm_parameter" "platform_public" {
+  for_each = {
+    CC_PUBLIC_APP_URL = local.platform_public_url
+    CC_CORS_ORIGINS   = jsonencode([local.platform_public_url])
+  }
+  name  = "${module.data.ssm_prefix}/platform/support/${each.key}"
   type  = "String"
   value = each.value
   tags  = local.tags

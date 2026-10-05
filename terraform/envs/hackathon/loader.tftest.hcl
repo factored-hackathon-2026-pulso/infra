@@ -163,8 +163,8 @@ run "loader_wires_role_bundle_parameters_and_a_bigger_engine_host" {
     error_message = "k>=10 and the loader env names the script reads."
   }
   assert {
-    condition     = output.profile_effective.instance_types["engine"] == "c7i-flex.large"
-    error_message = "With the loader the engine host defaults to c7i-flex.large (4 GiB, Free Tier eligible); t3.small (2 GiB) cannot hold the build."
+    condition     = output.profile_effective.instance_types["engine"] == "m7i-flex.large"
+    error_message = "With the loader the engine host defaults to m7i-flex.large (8 GiB, the largest Free Plan type); t3.small (2 GiB) cannot hold the build."
   }
   assert {
     condition     = !contains(keys(aws_ssm_parameter.engine_loader), "LOADER_CELLS_CMD")

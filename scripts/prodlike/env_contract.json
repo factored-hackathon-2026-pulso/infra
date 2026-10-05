@@ -10,9 +10,6 @@
       {"name": "LLM_ENDPOINTS", "infra": "core/gateway/LLM_ENDPOINTS", "kind": "ssm-derived", "local": "llm_endpoints"},
       {"name": "GATEWAY_TOKEN_<CONSUMER>", "infra": "GATEWAY__GATEWAY_TOKEN_", "kind": "terraform-generated", "local": "per_consumer_token"},
       {"name": "OPENROUTER_API_KEY", "infra": "OPENROUTER_API_KEY", "kind": "secrets-manager-out-of-band", "local": "external"},
-      {"name": "OPENAI_API_KEY", "infra": "OPENAI_API_KEY", "kind": "secrets-manager-out-of-band", "local": "placeholder"},
-      {"name": "ANTHROPIC_API_KEY", "infra": "ANTHROPIC_API_KEY", "kind": "secrets-manager-out-of-band", "local": "placeholder"},
-      {"name": "GOOGLE_API_KEY", "infra": "GOOGLE_API_KEY", "kind": "secrets-manager-out-of-band", "local": "placeholder"},
       {"name": "JEV_API_KEY", "infra": "GATEWAY__JEV_API_KEY", "kind": "secrets-manager-out-of-band", "local": "external"}
     ],
     "tools": [

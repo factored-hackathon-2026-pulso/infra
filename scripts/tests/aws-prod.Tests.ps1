@@ -927,6 +927,37 @@ Describe 'set-secret' {
         Get-Calls | Should Not Match 'put-secret-value'
     }
 
+    It 'writes the JEV key to the gateway and to agent-core serve (one typed value, two consumers)' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        $script:Captured = $null
+        Mock Invoke-Aws {
+            if ($CliArgs[0] -eq 'secretsmanager' -and $CliArgs[1] -eq 'get-secret-value') { return '{"GATEWAY__JEV_API_KEY":"CHANGE_ME","AGENT__AGENTCORE_JEV_API_KEY":"CHANGE_ME","KEEP":"k"}' }
+            if ($CliArgs[1] -eq 'put-secret-value') { $f = ($CliArgs | Where-Object { $_ -like 'file://*' }) -replace '^file://', ''; $script:Captured = Get-Content -Raw $f; return }
+            '{"UserId":"x","Account":"000000000000","Arn":"arn:aws:iam::000000000000:user/x"}'
+        }
+        $out = Run 'set-secret' 'pulso-prod' @{ SecretKey = 'GATEWAY__JEV_API_KEY' }
+        $j = $script:Captured | ConvertFrom-Json
+        $j.GATEWAY__JEV_API_KEY | Should Be $script:Plain
+        $j.AGENT__AGENTCORE_JEV_API_KEY | Should Be $script:Plain
+        $j.KEEP | Should Be 'k'
+        $out | Should Not Match ([regex]::Escape($script:Plain))
+    }
+
+    It 'status lists secret key names as set or unset and never a value' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Invoke-Aws {
+            if ($CliArgs[0] -eq 'secretsmanager') { return '{"GATEWAY__OPENROUTER_API_KEY":"CHANGE_ME","GATEWAY__JEV_API_KEY":"supersecretvalue1","SUPPORT__CC_SESSION_SECRET":"","PULSO__PULSO_ADMIN_TOKEN":"anothersecret22"}' }
+            if ($CliArgs[0] -eq 'ec2') { return @() }
+            '{"UserId":"x","Account":"000000000000","Arn":"arn:aws:iam::000000000000:user/x"}'
+        }
+        $out = (Run 'status' 'pulso-prod' @{}) -join "`n"
+        $out | Should Match 'GATEWAY__OPENROUTER_API_KEY'
+        $out | Should Match 'SUPPORT__CC_SESSION_SECRET'
+        $out | Should Match 'SET      : 2 key'
+        $out | Should Not Match 'supersecretvalue1'
+        $out | Should Not Match 'anothersecret22'
+    }
+
     It 'has no parameter that carries the value' {
         $names = (Get-Command $script:Target).Parameters.Keys
         foreach ($bad in 'Value', 'SecretValue', 'Secret', 'Password', 'ValueFile', 'FromFile') { ($names -contains $bad) | Should Be $false }

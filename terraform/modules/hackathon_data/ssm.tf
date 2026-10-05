@@ -5,13 +5,14 @@
 locals {
   ssm_prefix = "/pulso"
 
-  ssm_placeholders = {
+  # Legacy core-bridge values (lab broker, control API, tenant, budget): read only by the core-bridge services, which agent services
+  # replace (ADR 0009). They stay out-of-band placeholders ONLY without agent_services_enabled. CC_CORS_ORIGINS and CC_PUBLIC_APP_URL
+  # are derived in the environment root (they need the CloudFront domain, which depends on this module).
+  ssm_placeholders = var.agent_services_enabled ? {} : {
     "core/core/PULSO_LAB_BROKER_URL"       = "CHANGE_ME"
     "core/core/PULSO_CONTROL_API_URL"      = "CHANGE_ME"
     "core/core/PULSO_TENANT_ID"            = "CHANGE_ME"
     "core/core/AGENTCORE_DAILY_BUDGET_USD" = "CHANGE_ME"
-    "platform/support/CC_CORS_ORIGINS"     = "CHANGE_ME"
-    "platform/support/CC_PUBLIC_APP_URL"   = "CHANGE_ME"
   }
 
   # Gateway config: consumers name the env var that holds each token (the values are generated, generated.tf); the only

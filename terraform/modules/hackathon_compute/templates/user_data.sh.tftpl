@@ -74,7 +74,7 @@ systemctl enable --now pulso-stack
 cat > /usr/local/bin/pulso-autoheal <<'AUTOHEAL'
 #!/bin/bash
 set -uo pipefail
-SERVICES="$${AUTOHEAL_SERVICES:-pulso agent-core}"
+SERVICES="$${AUTOHEAL_SERVICES:-pulso}"
 MAX="$${AUTOHEAL_MAX_PER_HOUR:-6}"
 STATE=/run/pulso-autoheal
 mkdir -p "$STATE"
