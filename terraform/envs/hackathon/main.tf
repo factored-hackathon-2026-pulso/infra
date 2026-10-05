@@ -99,6 +99,7 @@ module "data" {
 
   # tool-service on the core host reads data-pipeline's restricted publication (gold_restricted, PII in the clear).
   agent_services_enabled      = local.agents
+  agent_keys_suffix           = var.agent_keys_suffix
   restricted_reader_role_arns = local.restricted_readers
   tags                        = local.tags
 }
@@ -285,4 +286,18 @@ module "deployers" {
     }
   }
   project_arns = module.image_builder.project_arns
+}
+
+# Engine -> shared Core and gateway addresses. The engine client only accepts IP literals (or localhost) for plaintext hosts, so
+# these are the core host's private IP, not its DNS name. The shared Core is agent-core serve (:8001) when agent_services_enabled
+# (ADR 0009); the IP changes if the core instance is replaced and the next apply rewrites the values.
+resource "aws_ssm_parameter" "engine_core_addr" {
+  for_each = {
+    PULSO_CORE_ADDR        = "${module.compute_core.private_ip}:${local.agents ? 8001 : 8000}"
+    PULSO_LLM_GATEWAY_ADDR = "${module.compute_core.private_ip}:8080"
+  }
+  name  = "${module.data.ssm_prefix}/engine/pulso/${each.key}"
+  type  = "String"
+  value = each.value
+  tags  = local.tags
 }

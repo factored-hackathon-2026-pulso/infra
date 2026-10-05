@@ -57,3 +57,19 @@ output "origin_verify_secret" {
   value       = random_password.origin_verify.result
   sensitive   = true
 }
+
+output "engine_core_kid" {
+  description = "kid of the engine's Ed25519 key in the Core's identity-keys and staff-keys documents (public)."
+  value       = local.engine_kid
+}
+
+output "engine_core_public_key" {
+  description = "Public half (base64url, 32 bytes) of the engine's Ed25519 key (public information)."
+  value       = local.agent_keys["engine"].public_b64url
+}
+
+output "generated_secrets" {
+  description = "SENSITIVE. Every key Terraform generates for the secret (name -> value). Read only by `aws-prod.ps1 seed-secret-keys`, which merges the missing ones into an existing secret and never prints a value."
+  value       = local.generated_secrets
+  sensitive   = true
+}

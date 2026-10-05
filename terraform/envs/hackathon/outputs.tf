@@ -114,3 +114,19 @@ output "agent_services_effective" {
     agent_core_url     = local.agents ? "http://core.${module.network.zone_name}:8001" : null
   }
 }
+
+output "engine_core_kid" {
+  description = "kid of the engine's Ed25519 key in the Core's identity-keys and staff-keys documents (public)."
+  value       = module.data.engine_core_kid
+}
+
+output "engine_core_public_key" {
+  description = "Public half of that key (base64url). Public information; the seed is the secret PULSO__PULSO_SERVICE_SEED_HEX."
+  value       = module.data.engine_core_public_key
+}
+
+output "generated_secrets" {
+  description = "SENSITIVE. Terraform-generated secret keys, for `aws-prod.ps1 seed-secret-keys` (merge-only reseed of an existing secret)."
+  value       = module.data.generated_secrets
+  sensitive   = true
+}

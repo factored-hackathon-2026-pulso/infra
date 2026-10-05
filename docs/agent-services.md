@@ -60,7 +60,7 @@ platform host                                core host (m7i-flex.large, free_pla
    directories). Override it only to append flags (`--agents`, `--lang-thresholds`). Demo doubles (`testing.*`) are
    rejected by the variable and by `serve` itself.
 5. Set the secret values (below), then `plan` and `apply`. A secret that already exists keeps its keys
-   (`ignore_changes`): add the new keys with `set-secret`, Terraform does not add them to an existing secret.
+   (`ignore_changes`): add the new keys with `set-secret`, or the Terraform-generated ones (tokens, key documents; ADR 0009) with `seed-secret-keys` (merge only).
 6. Database: see below (new volume: automatic; existing volume: one command).
 7. Restart order: core (`sudo systemctl restart pulso-stack`), then platform.
 

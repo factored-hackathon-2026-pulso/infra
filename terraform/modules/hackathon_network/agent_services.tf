@@ -1,5 +1,6 @@
 # Agent services on the core host (agent-core serve, tool-service). Two paths, both between sibling SGs only:
 #   platform -> core:8001  support-platform calls agent-core serve (core-runtime keeps 8000)
+#   engine -> core:8001    the engine registers proposals and reads runs through the shared Core (registry/export APIs)
 #   core -> platform:8000  agent-core's grant_active asks the platform API whether a delegation is still active
 # The platform API is published on the host only for this; CloudFront still reaches the proxy on :80 only.
 
@@ -41,4 +42,24 @@ resource "aws_vpc_security_group_egress_rule" "core_to_platform_api" {
   ip_protocol                  = "tcp"
   from_port                    = 8000
   to_port                      = 8000
+}
+
+resource "aws_vpc_security_group_ingress_rule" "agent_from_engine" {
+  count                        = var.agent_services_enabled ? 1 : 0
+  security_group_id            = aws_security_group.core.id
+  description                  = "agent-core serve from the engine"
+  referenced_security_group_id = aws_security_group.engine.id
+  ip_protocol                  = "tcp"
+  from_port                    = 8001
+  to_port                      = 8001
+}
+
+resource "aws_vpc_security_group_egress_rule" "engine_to_agent" {
+  count                        = var.agent_services_enabled ? 1 : 0
+  security_group_id            = aws_security_group.engine.id
+  description                  = "agent-core serve on the core host"
+  referenced_security_group_id = aws_security_group.core.id
+  ip_protocol                  = "tcp"
+  from_port                    = 8001
+  to_port                      = 8001
 }

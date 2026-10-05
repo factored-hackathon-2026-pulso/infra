@@ -308,6 +308,28 @@ resource "aws_vpc_security_group_egress_rule" "to_core" {
   to_port                      = 8000
 }
 
+# llm-gateway (core host :8080): the engine host calls it with its own bearer token (consumer ENGINE). The platform is a
+# gateway consumer too (SUPPORT_PLATFORM) but has no gateway path in this change; open it by adding "platform" below.
+resource "aws_vpc_security_group_ingress_rule" "gateway_from" {
+  for_each                     = toset(["engine"])
+  security_group_id            = aws_security_group.core.id
+  description                  = "llm-gateway on the core host, from ${each.key}"
+  referenced_security_group_id = local.sg_ids[each.key]
+  ip_protocol                  = "tcp"
+  from_port                    = 8080
+  to_port                      = 8080
+}
+
+resource "aws_vpc_security_group_egress_rule" "to_gateway" {
+  for_each                     = toset(["engine"])
+  security_group_id            = local.sg_ids[each.key]
+  description                  = "llm-gateway on the core host"
+  referenced_security_group_id = aws_security_group.core.id
+  ip_protocol                  = "tcp"
+  from_port                    = 8080
+  to_port                      = 8080
+}
+
 resource "aws_vpc_security_group_egress_rule" "dns" {
   for_each          = { for p in setproduct(local.workloads, ["tcp", "udp"]) : "${p[0]}-${p[1]}" => { sg = p[0], proto = p[1] } }
   security_group_id = local.sg_ids[each.value.sg]

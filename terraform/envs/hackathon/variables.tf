@@ -199,3 +199,9 @@ variable "db_volume_size_gb" {
   default     = 30
   description = "Postgres container data volume (free_plan, database_mode=container), snapshotted daily."
 }
+
+variable "agent_keys_suffix" {
+  description = "Suffix of the generated Ed25519 key ids (cc-principal-<s>, cc-grant-<s>, cc-staff-<s>, pulso-engine-<s>). Rotate by publishing a new suffix (docs/secrets-keys.md)."
+  type        = string
+  default     = "hk1"
+}

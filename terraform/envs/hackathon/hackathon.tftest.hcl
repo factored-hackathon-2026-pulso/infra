@@ -350,3 +350,16 @@ run "profile_is_validated" {
   }
   expect_failures = [var.profile]
 }
+
+run "engine_credentials_and_addresses" {
+  command = apply
+
+  assert {
+    condition     = output.engine_core_kid == "pulso-engine-hk1" && length(output.engine_core_public_key) == 43
+    error_message = "The engine key id and a 32-byte base64url public key are exposed (public information)."
+  }
+  assert {
+    condition     = aws_ssm_parameter.engine_core_addr["PULSO_CORE_ADDR"].name == "/pulso/engine/pulso/PULSO_CORE_ADDR" && endswith(aws_ssm_parameter.engine_core_addr["PULSO_LLM_GATEWAY_ADDR"].name, "PULSO_LLM_GATEWAY_ADDR")
+    error_message = "Engine host gets the Core and gateway addresses as SSM values (IP literals from the core host)."
+  }
+}

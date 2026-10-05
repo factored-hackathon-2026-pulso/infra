@@ -285,3 +285,28 @@ run "agent_services_open_exactly_two_paths_between_platform_and_core" {
     error_message = "agent-core reaches the platform API on platform:8000 for grant_active (ingress on platform, egress on core)."
   }
 }
+
+run "gateway_8080_only_from_engine" {
+  command = plan
+
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.gateway_from) == 1 && aws_vpc_security_group_ingress_rule.gateway_from["engine"].from_port == 8080 && aws_vpc_security_group_ingress_rule.gateway_from["engine"].cidr_ipv4 == null
+    error_message = "The llm-gateway port is open on the core SG from the engine SG only."
+  }
+  assert {
+    condition     = length(aws_vpc_security_group_egress_rule.to_gateway) == 1 && aws_vpc_security_group_egress_rule.to_gateway["engine"].from_port == 8080
+    error_message = "The engine may egress 8080 to the core SG."
+  }
+}
+
+run "engine_reaches_agent_core_only_with_the_flag" {
+  command = plan
+  variables {
+    agent_services_enabled = true
+  }
+
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.agent_from_engine[0].from_port == 8001 && aws_vpc_security_group_ingress_rule.agent_from_engine[0].cidr_ipv4 == null && aws_vpc_security_group_egress_rule.engine_to_agent[0].to_port == 8001
+    error_message = "The engine reaches agent-core serve on 8001 through security groups only."
+  }
+}

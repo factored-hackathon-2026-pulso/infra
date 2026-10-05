@@ -51,7 +51,8 @@ locals {
     local.agent_secret_keys,
   )
 
-  secret_placeholders = { for k in local.secret_keys : k => "CHANGE_ME" }
+  # Generated keys (generated.tf) replace the placeholder of the same name; the rest stay CHANGE_ME for out-of-band values.
+  secret_placeholders = { for k in local.secret_keys : k => "CHANGE_ME" if !contains(keys(local.generated_secrets), k) }
 }
 
 resource "aws_secretsmanager_secret" "this" {
@@ -65,6 +66,7 @@ resource "aws_secretsmanager_secret_version" "this" {
   secret_id = aws_secretsmanager_secret.this.id
   secret_string = jsonencode(merge(
     local.secret_placeholders,
+    local.generated_secrets,
     { RDS_MASTER_PASSWORD = random_password.db_master.result, COMMON__ORIGIN_VERIFY = random_password.origin_verify.result },
     var.database_mode == "container" ? { DB__POSTGRES_PASSWORD = random_password.db_master.result } : {},
   ))

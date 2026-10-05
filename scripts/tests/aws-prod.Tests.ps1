@@ -933,3 +933,37 @@ Describe 'set-secret' {
     }
 }
 
+Describe 'seed-secret-keys' {
+    AfterEach { Restore-Fakes }
+    BeforeEach {
+        Mock Read-TypedWord {}
+        Mock Initialize-Env {}
+        $script:Gen = 'gen-' + 'Q1w2e3r4t5'
+        Mock Get-GeneratedSecrets { '{"GATEWAY__GATEWAY_TOKEN_ENGINE":"' + $script:Gen + '","CORE__STAFF_KEYS_JSON":"{}","DB_PASSWORD_CORE_APP":"must-not-win"}' }
+    }
+
+    It 'merges only missing or placeholder keys, keeps existing values, and never prints a value' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        $script:Captured = $null
+        Mock Invoke-Aws {
+            if ($CliArgs[1] -eq 'get-secret-value') { return '{"GATEWAY__GATEWAY_TOKEN_ENGINE":"CHANGE_ME","DB_PASSWORD_CORE_APP":"keep-me","SUPPORT__CC_TOTP_SECRET_KEY":"totp-keep"}' }
+            if ($CliArgs[1] -eq 'put-secret-value') { $f = ($CliArgs | Where-Object { $_ -like 'file://*' }) -replace '^file://', ''; $script:Captured = Get-Content -Raw $f; return }
+            '{"UserId":"x","Account":"000000000000","Arn":"arn:aws:iam::000000000000:user/x"}'
+        }
+        $out = Run 'seed-secret-keys' 'pulso-prod' @{}
+        $j = $script:Captured | ConvertFrom-Json
+        $j.GATEWAY__GATEWAY_TOKEN_ENGINE | Should Be $script:Gen
+        $j.CORE__STAFF_KEYS_JSON | Should Be '{}'
+        $j.DB_PASSWORD_CORE_APP | Should Be 'keep-me'
+        $j.SUPPORT__CC_TOTP_SECRET_KEY | Should Be 'totp-keep'
+        $out | Should Not Match ([regex]::Escape($script:Gen))
+        $out | Should Match 'GATEWAY__GATEWAY_TOKEN_ENGINE'
+    }
+
+    It 'writes nothing when every key already has a value' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Set-Resp 'secretsmanager-get-secret-value' '{"GATEWAY__GATEWAY_TOKEN_ENGINE":"a","CORE__STAFF_KEYS_JSON":"b","DB_PASSWORD_CORE_APP":"c"}'
+        Run 'seed-secret-keys' 'pulso-prod' @{} | Out-Null
+        Get-Calls | Should Not Match 'put-secret-value'
+    }
+}

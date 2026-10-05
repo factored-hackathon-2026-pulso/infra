@@ -138,9 +138,14 @@ variable "enable_eventbridge" {
 }
 
 variable "gateway_consumers" {
-  description = "Consumer names for GATEWAY_TOKEN_<CONSUMER> keys (names only)."
+  description = "Consumer names for GATEWAY_TOKEN_<CONSUMER> keys; a token is generated for each. AGENT_CORE (core-runtime), AGENT_SERVE (agent-core serve) and ENGINE are required."
   type        = list(string)
-  default     = ["AGENT_CORE", "ENGINE", "SUPPORT_PLATFORM"]
+  default     = ["AGENT_CORE", "AGENT_SERVE", "ENGINE", "SUPPORT_PLATFORM"]
+
+  validation {
+    condition     = alltrue([for c in ["AGENT_CORE", "AGENT_SERVE", "ENGINE"] : contains(var.gateway_consumers, c)])
+    error_message = "gateway_consumers must include AGENT_CORE, AGENT_SERVE and ENGINE."
+  }
 }
 
 variable "llm_provider_key_names" {
@@ -153,4 +158,15 @@ variable "bridge_signer_names" {
   description = "Names of the PULSO_BRIDGE_*_SIGNER keys (ASSUMED defaults; confirm with agent-core)."
   type        = list(string)
   default     = ["PULSO_BRIDGE_CONTROL_SIGNER", "PULSO_BRIDGE_LAB_SIGNER"]
+}
+
+variable "agent_keys_suffix" {
+  description = "Goes in every generated kid (cc-principal-<suffix>, cc-grant-<suffix>, cc-staff-<suffix>, pulso-engine-<suffix>)."
+  type        = string
+  default     = "hk1"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{0,23}$", var.agent_keys_suffix))
+    error_message = "agent_keys_suffix must be lowercase letters, digits and dashes (max 24 characters)."
+  }
 }

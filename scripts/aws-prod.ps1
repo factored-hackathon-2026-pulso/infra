@@ -3,7 +3,12 @@
   One helper to create and operate the single "prod" AWS environment from your machine (docs/aws-prod-quickstart.md).
 .DESCRIPTION
   Subcommands: check, root-keys-reminder, bootstrap-plan, bootstrap-apply, images, plan, apply, status,
-  upload, destroy-plan, destroy, deploy, set-secret.
+  upload, destroy-plan, destroy, deploy, set-secret, seed-secret-keys.
+
+  seed-secret-keys merges the values Terraform generated (sensitive output generated_secrets: gateway tokens, Ed25519 keys, Core key
+  documents) into the EXISTING secret. Merge only: a key that is missing or still CHANGE_ME is added; every key that already holds a
+  value (DB passwords, TOTP key, session secret) is kept. Only key names are printed; typed word SEED. Never use
+  terraform apply -replace on the secret version: it resets every out-of-band key to CHANGE_ME.
 
   set-secret -SecretKey <SERVICE>__<VAR> sets one key of the single Secrets Manager secret pulso-prod/hackathon from a
   secure prompt (no echo). The value is never a parameter, never printed or logged, never read from a file, and never
@@ -32,7 +37,7 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('check', 'root-keys-reminder', 'bootstrap-plan', 'bootstrap-apply', 'images', 'plan', 'apply',
-        'status', 'upload', 'destroy-plan', 'destroy', 'deploy', 'set-secret')]
+        'status', 'upload', 'destroy-plan', 'destroy', 'deploy', 'set-secret', 'seed-secret-keys')]
     [string]$Command,
     [string]$Profile = '',
     [switch]$AllowAnyProfile,
@@ -686,6 +691,44 @@ function Invoke-SetSecret($p, $id) {
     Write-Host "OK: $($p.SecretKey) set in $name. Hosts pick it up on the next pulso-stack restart or deploy."
 }
 
+function Get-GeneratedSecrets([string]$Dir) {
+    # The sensitive output is captured into a variable, never echoed: the values stay out of the console and the logs.
+    $json = (& terraform "-chdir=$Dir" output -json generated_secrets) -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw 'terraform output generated_secrets failed: apply the stack (or run it against the right state) first.' }
+    $json
+}
+
+function Invoke-SeedSecretKeys($p, $id) {
+    $name = "$($script:EcrPrefix)/hackathon"
+    $prof = $p.Profile
+    Initialize-Env $id.Account
+    $desired = (Get-GeneratedSecrets (Get-EnvDir)) | ConvertFrom-Json
+    $current = ((Invoke-Aws -AwsProfile $prof -CliArgs @('secretsmanager', 'get-secret-value', '--secret-id', $name, '--query', 'SecretString', '--output', 'text')) -join "`n") | ConvertFrom-Json
+    $add = @(); $keep = @()
+    foreach ($prop in $desired.PSObject.Properties) {
+        $cur = $current.PSObject.Properties[$prop.Name]
+        if (-not $cur -or [string]$cur.Value -eq 'CHANGE_ME' -or [string]::IsNullOrEmpty([string]$cur.Value)) { $add += $prop.Name } else { $keep += $prop.Name }
+    }
+    Write-Host "Secret   : $name"
+    Write-Host "Will add : $(if ($add.Count) { $add -join ', ' } else { '(nothing)' })"
+    Write-Host "Kept     : $(if ($keep.Count) { $keep -join ', ' } else { '(none)' }) (already hold a value; never overwritten)"
+    Write-Host 'Every other key of the secret is kept. Values are never printed or logged.'
+    if (-not $add.Count) { Write-Host 'Nothing to seed.'; return }
+    Read-TypedWord 'SEED'
+    $merged = [ordered]@{}
+    foreach ($prop in $current.PSObject.Properties) { $merged[$prop.Name] = $prop.Value }
+    foreach ($k in $add) { $merged[$k] = $desired.PSObject.Properties[$k].Value }
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ('pulso-secret-' + [guid]::NewGuid().ToString('N') + '.json')
+    try {
+        [IO.File]::WriteAllText($tmp, ($merged | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding($false)))
+        Invoke-Aws -AwsProfile $prof -CliArgs @('secretsmanager', 'put-secret-value', '--secret-id', $name, '--secret-string', ('file://' + ($tmp -replace '\\', '/'))) | Out-Null
+    } finally {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force }
+        $merged = $null; $desired = $null
+    }
+    Write-Host "OK: $($add.Count) key(s) added to $name. Restart pulso-stack (or deploy) on each host to pick them up."
+}
+
 function Invoke-PlanBuilderStage($p, $id, [string]$Work) {
     # Stage 1 of a brand-new account: network + data + the CodeBuild builder, with throw-away digests, so the images
     # can be built before the hosts exist. Run plan without -Stage afterwards for everything else.
@@ -754,7 +797,7 @@ function Invoke-AwsProd {
     [CmdletBinding()]
     param([string]$Command, [string]$Profile, [bool]$AllowAnyProfile = $false, [hashtable]$Options = @{})
     $p = @{} + $Options; $p.Profile = $Profile
-    if (-not $Command) { throw 'Usage: aws-prod.ps1 <check|root-keys-reminder|bootstrap-plan|bootstrap-apply|images|plan|apply|status|upload|destroy-plan|destroy|deploy|set-secret> -Profile <name>' }
+    if (-not $Command) { throw 'Usage: aws-prod.ps1 <check|root-keys-reminder|bootstrap-plan|bootstrap-apply|images|plan|apply|status|upload|destroy-plan|destroy|deploy|set-secret|seed-secret-keys> -Profile <name>' }
 
     if ($Command -eq 'root-keys-reminder') { $script:RootWarned = $false; Show-RootWarning; return }
 
@@ -785,6 +828,7 @@ function Invoke-AwsProd {
         'images' { if ($p.Service) { Invoke-ImagesCloud $p $id } else { Invoke-Images $p $id } }
         'deploy' { Invoke-Deploy $p $id }
         'set-secret' { Invoke-SetSecret $p $id }
+        'seed-secret-keys' { Invoke-SeedSecretKeys $p $id }
         'plan' {
             if ($p.Stage) {
                 if ($p.Stage -ne 'builder') { throw "Unknown -Stage '$($p.Stage)'. The only stage is: builder." }
