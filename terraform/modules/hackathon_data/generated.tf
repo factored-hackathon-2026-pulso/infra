@@ -14,8 +14,11 @@ locals {
 
   agent_key_roles = toset(["engine", "principal", "delegation", "staff"])
 
+  # Every Ed25519 key: the four roles plus the engine's extra rotation keys (engine_<suffix>), see engine_extra_key_suffixes.
+  all_agent_tls = merge(tls_private_key.agent, { for s, k in tls_private_key.engine_extra : "engine_${s}" => k })
+
   agent_keys = {
-    for role, k in tls_private_key.agent : role => {
+    for role, k in local.all_agent_tls : role => {
       public_b64url = replace(replace(substr(replace(k.public_key_pem, "/-----[A-Z ]+-----|[[:space:]]/", ""), 16, 43), "+", "-"), "/", "_")
       seed_bits     = "${substr(join("", [for c in split("", replace(k.private_key_pem, "/-----[A-Z ]+-----|[[:space:]]/", "")) : format("%06b", index(local.b64_alphabet, c))]), 128, 256)}00"
     }
@@ -32,22 +35,33 @@ locals {
     ])
   }
 
-  engine_kid     = "pulso-engine-${var.agent_keys_suffix}"
-  principal_kid  = "cc-principal-${var.agent_keys_suffix}"
-  delegation_kid = "cc-grant-${var.agent_keys_suffix}"
-  staff_kid      = "cc-staff-${var.agent_keys_suffix}"
+  # Engine key rotation (agent-core docs/serve-env.md section 8, docs/agent-core-serve.md): the key generated first has kid
+  # pulso-engine-<agent_keys_suffix> (role "engine"); engine_extra_key_suffixes adds keys pulso-engine-<suffix> beside it. EVERY listed
+  # kid is published in identity-keys and staff-keys (serve reloads the files, no restart); only the ACTIVE one is minted with
+  # (PULSO_SERVICE_KID and PULSO_SERVICE_SEED_HEX). engine_retire_base_key drops the first key from the documents.
+  engine_active_suffix = coalesce(var.engine_active_key_suffix, var.agent_keys_suffix)
+  engine_active_id     = local.engine_active_suffix == var.agent_keys_suffix ? "engine" : "engine_${local.engine_active_suffix}"
+  engine_kid           = "pulso-engine-${local.engine_active_suffix}"
+  engine_published = merge(
+    var.engine_retire_base_key ? {} : { "pulso-engine-${var.agent_keys_suffix}" = "engine" },
+    { for s in var.engine_extra_key_suffixes : "pulso-engine-${s}" => "engine_${s}" },
+  )
+  engine_published_public = { for kid, id in local.engine_published : kid => local.agent_keys[id].public_b64url }
+  principal_kid           = "cc-principal-${var.agent_keys_suffix}"
+  delegation_kid          = "cc-grant-${var.agent_keys_suffix}"
+  staff_kid               = "cc-staff-${var.agent_keys_suffix}"
 
   # agent-core `--identity-keys` (principal credentials of /v1/runs and delegations): the platform's principal and delegation
   # keys plus the engine's key (it calls /v1/runs as `builder`).
   core_identity_keys = jsonencode({
-    principal_keys  = { (local.principal_kid) = local.agent_keys["principal"].public_b64url, (local.engine_kid) = local.agent_keys["engine"].public_b64url }
+    principal_keys  = merge({ (local.principal_kid) = local.agent_keys["principal"].public_b64url }, local.engine_published_public)
     delegation_keys = { (local.delegation_kid) = local.agent_keys["delegation"].public_b64url }
   })
   # agent-core `--staff-keys` (registry API and export): the platform's staff key plus the engine's key. TRUST: the Core checks
   # the roles claimed INSIDE the credential, not a per-kid ceiling, so any key in this file can claim any role (including
   # aprobador/human). The engine key is therefore a trust grant; the engine itself never signs approve/publish/promote.
   core_staff_keys = jsonencode({
-    principal_keys = { (local.staff_kid) = local.agent_keys["staff"].public_b64url, (local.engine_kid) = local.agent_keys["engine"].public_b64url }
+    principal_keys = merge({ (local.staff_kid) = local.agent_keys["staff"].public_b64url }, local.engine_published_public)
   })
   # The platform's private seeds (`CC_AGENT_KEYS_FILE`; same shape as gen_agent_keys.py private.json).
   platform_agent_keys = jsonencode({
@@ -64,7 +78,7 @@ locals {
       "CORE__AGENTCORE_LLM_GATEWAY_TOKEN" = random_password.gateway_token["AGENT_CORE"].result
       "PULSO__PULSO_LLM_GATEWAY_KEY"      = random_password.gateway_token["ENGINE"].result
       # The engine's Ed25519 seed as the 64 hex characters the engine reads; its kid is the SSM value PULSO_SERVICE_KID.
-      "PULSO__PULSO_SERVICE_SEED_HEX" = local.agent_seeds_hex["engine"]
+      "PULSO__PULSO_SERVICE_SEED_HEX" = local.agent_seeds_hex[local.engine_active_id]
       # `pulso run` on a non-loopback bind exits 2 without two DIFFERENT bearer tokens of at least 24 characters.
       "PULSO__PULSO_DEBUG_TOKEN" = random_password.engine_debug.result
       "PULSO__PULSO_ADMIN_TOKEN" = random_password.engine_admin.result
@@ -91,6 +105,23 @@ locals {
 resource "tls_private_key" "agent" {
   for_each  = local.agent_key_roles
   algorithm = "ED25519"
+}
+
+# Extra engine keys for rotation (empty by default). Never rotates by itself: the secret version ignores later changes, so a new key
+# reaches the hosts only through the documented merge (docs/agent-core-serve.md section 5).
+resource "tls_private_key" "engine_extra" {
+  for_each  = toset(var.engine_extra_key_suffixes)
+  algorithm = "ED25519"
+}
+
+# Fail closed on a rotation state the Core cannot serve (the active kid must be published).
+resource "terraform_data" "engine_key_rotation_guard" {
+  lifecycle {
+    precondition {
+      condition     = contains(keys(local.engine_published), local.engine_kid)
+      error_message = "The active engine kid must be one of the published kids: engine_active_key_suffix is retired or unknown."
+    }
+  }
 }
 
 resource "random_password" "gateway_token" {

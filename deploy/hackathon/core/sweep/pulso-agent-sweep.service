@@ -1,0 +1,12 @@
+[Unit]
+Description=agent-core sweep: close expired runs as abandoned (agentcore sweep --once)
+After=docker.service pulso-stack.service
+Requires=docker.service
+ConditionPathExists=/srv/stack/.env
+
+[Service]
+Type=oneshot
+# One pass and exit; serve-env.md section 7 asks the deployer to schedule it every few minutes. Needs agent-core to have migrated.
+ExecStart=/usr/bin/docker compose -p pulso --project-directory /srv/stack run --rm --no-TTY agent-core-sweep
+TimeoutStartSec=10min
+Nice=10

@@ -92,7 +92,7 @@ class GatewayIsReachableFromTheEngineHost(unittest.TestCase):
         block = compose[compose.index("  llm-gateway:"):]
         self.assertIn('- "8080:8080"', block, "PULSO_LLM_GATEWAY_ADDR=<core private IP>:8080 needs a published port")
         env_main = read(ROOT / "terraform" / "envs" / "hackathon" / "main.tf")
-        self.assertIn('extra_ports             = concat(["8080:8080"]', env_main)
+        self.assertRegex(env_main, r'extra_ports\s*=\s*concat\(\["8080:8080"\]')
 
 
 class EngineEnvContract(unittest.TestCase):

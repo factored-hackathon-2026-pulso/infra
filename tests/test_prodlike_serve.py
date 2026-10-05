@@ -105,11 +105,10 @@ class AgentEnvContract(unittest.TestCase):
         listed = re.search(r'for f in \[(.*?)\] : "FILES__AGENT__', secrets_tf, re.S).group(1)
         self.assertEqual(re.findall(r'"(\w+)"', listed), CONTRACT["agent_files"]["names"])
 
-    def test_agent_serve_args_are_real_pieces_only(self):
+    def test_agent_serve_args_default_is_empty_because_the_real_pieces_are_serves_defaults(self):
         args = pl.terraform_default("agent_serve_args")
         self.assertNotIn("testing.", args)
-        for flag in ("--tools", "--authz", "--field-classifier", "--grant-active", "--transcript", "--calibration", "--classifier"):
-            self.assertIn(flag, args)
+        self.assertEqual(args, "")
 
 
 class RenderedSecrets(unittest.TestCase):
@@ -248,7 +247,7 @@ class RenderAllWithServe(unittest.TestCase):
             self.assertIn("agent-core", report["hosts"]["core"])
             self.assertIn("platform", report["hosts"]["core"])
             dotenv = (core / ".env").read_text(encoding="utf-8")
-            self.assertIn("AGENT_SERVE_ARGS=--tools ", dotenv)
+            self.assertIn("AGENT_SERVE_ARGS=", dotenv)
             compose_text = (core / "compose.yaml").read_text(encoding="utf-8")
             for secret in re.findall(r"=(\S{20,})", (core / "env" / "agent.env").read_text(encoding="utf-8")):
                 self.assertNotIn(secret, compose_text + dotenv)

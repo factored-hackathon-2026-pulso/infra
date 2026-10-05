@@ -19,7 +19,7 @@ locals {
   gateway_consumers_json = jsonencode({ for c in var.gateway_consumers : replace(lower(c), "_", "-") => { token_env = "GATEWAY_TOKEN_${c}" } })
   llm_endpoints_json     = jsonencode({ openrouter = { base_url = "https://openrouter.ai/api/v1", api_key_env = "OPENROUTER_API_KEY" } })
 
-  ssm_derived = {
+  ssm_derived = merge({
     "core/gateway/GATEWAY_CONSUMERS" = local.gateway_consumers_json
     "core/gateway/LLM_ENDPOINTS"     = local.llm_endpoints_json
     # Engine -> shared Core, named as the engine reads them (real_core.rs): kid here, seed hex in PULSO__PULSO_SERVICE_SEED_HEX.
@@ -30,7 +30,13 @@ locals {
     "engine/pulso/PULSO_DATA_MODE"    = "dataset"
     "core/core/AGENTCORE_BLOB_BUCKET" = "s3://${local.bucket_name}/core/blobs"
     "engine/pulso/PIPELINE_ROOT"      = "s3://${local.bucket_name}/lake"
-  }
+    },
+    # The forwarder sidecars of the core and engine hosts read the Langfuse base URL from their own host slice.
+    var.otlp_forwarder_enabled ? {
+      "core/langfuse/LANGFUSE_BASE_URL"   = var.langfuse_base_url
+      "engine/langfuse/LANGFUSE_BASE_URL" = var.langfuse_base_url
+    } : {},
+  )
 }
 
 resource "aws_ssm_parameter" "placeholder" {

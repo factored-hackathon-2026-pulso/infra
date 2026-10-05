@@ -1,11 +1,27 @@
-# OPT-IN, NOT WIRED into Terraform (decision pending, docs/run-and-health.md section 6). OTLP forwarder sidecars on the core
-# host: the single egress to Langfuse Cloud for llm-gateway and agent-core. The forwarder listens on 127.0.0.1 only, so each
-# sidecar shares the network namespace of its producer; the producer exports to http://127.0.0.1:4318 (OTEL_EXPORTER_OTLP_ENDPOINT
-# in its own env). The Langfuse keys live ONLY in langfuse.env (secret keys LANGFUSE__LANGFUSE_BASE_URL, _PUBLIC_KEY,
-# _SECRET_KEY, service env "langfuse"); the producers never see them. The engine host has no sidecar: the engine has no OTel
-# exporter, its story traces are posted by scripts/o11y/engine_trace.py (run by a person) to a forwarder.
-# To wire: add "langfuse" to extra_service_envs, this file to compose_files, FORWARDER_IMAGE to images.core, the three secret keys.
+# OTLP forwarder sidecars on the core host (Terraform variable otlp_forwarder_enabled, default false; docs/otlp-forwarder.md; decision
+# B1). The forwarder (engine repo scripts/o11y/otlp_forwarder.py) is the single egress to Langfuse for the gateway and agent-core. It
+# listens on 127.0.0.1 ONLY, so each sidecar shares the network namespace of its producer (network_mode: service:<producer>) and the
+# producer exports OTLP/protobuf to http://127.0.0.1:4318. The Langfuse keys live ONLY in langfuse.env (secret keys
+# LANGFUSE__LANGFUSE_BASE_URL, LANGFUSE__LANGFUSE_PUBLIC_KEY, LANGFUSE__LANGFUSE_SECRET_KEY, service env "langfuse"); the producers
+# never see them. Merged after compose.agents.yaml. Needs FORWARDER_IMAGE (images.core.forwarder).
+# Content: prompts and responses are NOT exported unless the variable otlp_trace_content is true (OTLP_TRACE_CONTENT=1 in .env), which
+# sets LLM_GATEWAY_TRACE_CONTENT (llm-gateway) and AGENTCORE_TRACE_CONTENT (agent-core audit view) together.
 services:
+  llm-gateway:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+      OTEL_SERVICE_NAME: llm-gateway
+      LLM_GATEWAY_TRACE_CONTENT: ${OTLP_TRACE_CONTENT:-0}
+
+  agent-core:
+    environment:
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: agent-core
+      AGENTCORE_TRACE_LANGFUSE: "1"
+      AGENTCORE_TRACE_CONTENT: ${OTLP_TRACE_CONTENT:-0}
+
   otlp-forwarder-gateway:
     image: ${FORWARDER_IMAGE:?set}
     network_mode: "service:llm-gateway"

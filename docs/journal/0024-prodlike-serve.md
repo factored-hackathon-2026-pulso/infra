@@ -16,7 +16,7 @@ real data, no secret printed (values only in child process environments, from th
   exercise driver (turns, registry flow, export, concurrency, restart mid-run) that runs under agent-core's Python.
 * `env_contract.json`: the `agent` env file (10 names) and the five `FILES__AGENT__*` files.
 * `deploy/hackathon/core/compose.agents.yaml`: `stop_grace_period: 30s` on agent-core (serve's own grace is 25 s; Docker's default 10 s would kill a turn in flight).
-* `deploy/hackathon/engine/compose.loop.yaml`: the loop job now matches engine `docs/dev/ENGINE_PROD.md` (command `loop`, its env), still opt-in and unwired.
+* `compose.loop.yaml`: main's wired version kept (merge).
 * Docs: `docs/prodlike-rehearsal.md`, `docs/run-and-health.md`. Tests: `tests/test_prodlike_serve.py` (new), `tests/test_run_health_contract.py` (loop job).
 
 ## Commands and results

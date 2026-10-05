@@ -1,32 +1,48 @@
-# OPT-IN, NOT WIRED into Terraform. The improvement-loop job on the engine host: same image as `pulso` (it ships `pulso loop`, the
-# regression proof's Python and steps_cli), run on demand or by a timer with
-#   docker compose -p pulso -f compose.yaml -f compose.loop.yaml run --rm pulso-loop
-# Contract: engine repo docs/dev/ENGINE_PROD.md (engine PRs 112, 119, 122). `pulso loop` mints its own short-lived Ed25519 `builder`
-# credential for agent-core `serve` from PULSO_SERVICE_SEED_HEX + PULSO_SERVICE_KID (both already in pulso.env; the public key is listed
-# under that kid in the Core's staff-keys), reads the registry address from PULSO_CORE_ADDR (core private IP:8001) and the gateway from
-# PULSO_LLM_GATEWAY_ADDR/KEY. Exit codes: 0 done, 1 could not run, 2 refused config (do not retry), 3 infrastructure failure in a finding,
-# 75 another run holds the lock. Rehearsed with scripts/prodlike/prodlike.py loop (planted SYNTHETIC cells, PULSO_PROFILE=demo).
-# Still to do by infra: sync s3://<bucket>/engine/inputs/ (the cells package) to /srv/data/pulso/inputs before the run, and a timer.
+# The improvement-loop job on the engine host (engine_loop_enabled; docs/engine-loop.md). Merged over compose.yaml through
+# COMPOSE_FILE in .env (written by Terraform). Same image as `pulso`: `pulso loop` is one run of the loop as its own process (no HTTP
+# service). It is NOT part of `up` (profile): the pulso-loop.service one-shot, started by pulso-loop.timer, runs
+#   docker compose -p pulso run --rm --no-TTY pulso-loop
+# Contract: improvement-engine docs/dev/ENGINE_PROD.md (names only; every value is a literal below, an SSM parameter or a secret).
+# Credentials: the engine MINTS short-lived Ed25519 credentials for agent-core serve from PULSO_SERVICE_SEED_HEX (secret
+# PULSO__PULSO_SERVICE_SEED_HEX) and PULSO_SERVICE_KID (SSM), both already rendered into pulso.env. There is NO static registry token:
+# PULSO_REGISTRY_TOKEN exists nowhere in this bundle (tests/test_engine_loop_contract.py).
+# Requires the engine image built from the ENGPROD image change (python3, PyYAML and scripts/regression inside): with
+# PULSO_EVAL_BEFORE_ANNOUNCE=on a job without them exits 2 before any model call.
 services:
   pulso-loop:
     image: ${PULSO_IMAGE:?set}
     command: ["loop"]
+    profiles: ["loop"]
     restart: "no"
     mem_limit: 768m
-    # `pulso loop` does not trap SIGTERM: a stop leaves loop.lock (the next run takes it over after PULSO_LOOP_LOCK_TTL_S).
-    stop_grace_period: 30s
+    # `docker stop`/SIGTERM from systemd ends the run (143, a clean stop for the unit); the lock it leaves is removed by pulso-loop-status.
+    stop_grace_period: 60s
     env_file: [/run/pulso/env/common.env, /run/pulso/env/pulso.env]
     environment:
-      PULSO_LOOP_INPUTS_DIR: /var/lib/pulso/inputs
-      # What the cells are: bank | e0 | synthetic. Never defaulted: PULSO_PROFILE=demo is refused for anything but synthetic.
-      PULSO_CELLS_SOURCE: ${PULSO_CELLS_SOURCE:?set bank, e0 or synthetic}
-      PULSO_WORK_DIR: /var/lib/pulso/work
+      PULSO_LOOP_COMMAND: loop
+      # Where proposals go: the shared agent-core serve (PULSO_REGISTRY_ADDR, falling back to PULSO_CORE_ADDR = core IP:8001).
       PULSO_REGISTRY_ENV: shared
+      PULSO_REGISTRY_VIA: api
+      PULSO_REGISTRY_AUTH: mint
+      PULSO_SERVICE_CRED_TTL_S: "300"
+      # What the cells are: Terraform variable engine_loop_cells_source (bank | e0 | synthetic) -> .env. `demo` only with synthetic.
+      PULSO_CELLS_SOURCE: ${PULSO_CELLS_SOURCE:-bank}
+      PULSO_PROFILE: ${PULSO_LOOP_PROFILE:-standard}
+      # The S3-synced mirror of engine/inputs (pulso-inputs-sync); mounted read-only below. File: cells.ndjson.
+      PULSO_LOOP_INPUTS_DIR: /var/lib/pulso/inputs
+      PULSO_WORK_DIR: /var/lib/pulso/work
+      PULSO_LLM_GATEWAY: enabled
+      PULSO_EVAL_BEFORE_ANNOUNCE: "on"
+      # Above the unit's TimeoutStartSec (2h): a lock left by a SIGKILLed run is taken over after this.
+      PULSO_LOOP_LOCK_TTL_S: "10800"
     volumes:
+      # Lock, per-finding records, receipts, results: read-write on the data volume (owned by uid 10001 by pulso-stack-prepare).
       - /srv/data/pulso:/var/lib/pulso
+      - /srv/data/inputs:/var/lib/pulso/inputs:ro
+    # No `networks:`: the job reaches core, gateway and platform by their private IPs. The observability override joins the network
+    # namespace of `pulso` instead, to reach the forwarder on 127.0.0.1.
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
-    networks: [internal]

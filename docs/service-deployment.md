@@ -124,7 +124,7 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
   .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service agent-core-serve -SourceDir D:\src\agent-core
   .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-core -Service agent-core-serve -FromBuild <build id> -Wait
   ```
-- SSM key `/pulso/core/images/agent`; runs as `agent-core` on 8001 (`GET /readyz`), after the one-shot `agent-core-migrate`. Secrets `AGENT__*` and files `FILES__AGENT__*` ([agent-services](agent-services.md#secret-keys)).
+- SSM key `/pulso/core/images/agent`; runs as `agent-core` on 8001 (`GET /healthz` liveness, `GET /readyz` readiness), after the one-shot `agent-core-migrate`; the environment contract is [agent-core-serve](agent-core-serve.md). Secrets `AGENT__*` and files `FILES__AGENT__*` ([agent-services](agent-services.md#secret-keys)).
 
 ### tool-service (`tool-service`, agent services only)
 
@@ -143,6 +143,15 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
   .\scriptsws-prod.ps1 deploy -Profile pulso-deploy-engine -Service data-pipeline -FromBuild <build id> -Wait
   ```
 - SSM key `/pulso/engine/images/pipeline`; not a long-running service: the loader timer starts it per load.
+
+### otlp-forwarder (`otlp-forwarder`, OTLP forwarder only)
+
+- Only with `otlp_forwarder_enabled` ([otlp-forwarder](otlp-forwarder.md)). Image: the engine repository's `scripts/o11y` packaged by this repository's `docker/otlp-forwarder.Dockerfile`; put that file in the source zip and pass it with `-Dockerfile`.
+  ```powershell
+  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service otlp-forwarder -SourceDir D:\src\improvement-engine -Dockerfile docker/otlp-forwarder.Dockerfile
+  .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-core -Service otlp-forwarder -FromBuild <build id> -Wait
+  ```
+- SSM keys `/pulso/core/images/forwarder` and `/pulso/engine/images/forwarder` (the same digest). Loopback sidecar of its producers, never published.
 
 ### support-platform (`support-platform-api`, `support-platform-web`)
 

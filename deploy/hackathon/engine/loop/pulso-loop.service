@@ -1,0 +1,29 @@
+[Unit]
+Description=Pulso improvement loop (one run of `pulso loop`, then exit)
+After=network-online.target docker.service pulso-stack.service
+Wants=network-online.target
+Requires=docker.service
+ConditionPathExists=/srv/stack/.env
+# A run that ends in failure for good (retries used up) is visible three ways: `systemctl --failed`, the err line of
+# pulso-loop-status and /srv/data/loop/FAILED (OnFailure leaves a second marker).
+OnFailure=pulso-loop-failed.service
+StartLimitIntervalSec=6h
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+# Refresh the S3 inputs mirror first; a failed sync keeps the previous mirror, no mirror at all fails the unit.
+ExecStartPre=/usr/local/bin/pulso-inputs-sync
+# docker compose returns the container's exit code. COMPOSE_FILE comes from /srv/stack/.env (loop file merged by Terraform).
+ExecStart=/usr/bin/docker compose -p pulso --project-directory /srv/stack run --rm --no-TTY pulso-loop
+ExecStopPost=/usr/local/bin/pulso-loop-status
+# 0 finished. 75: another run holds the lock. 143: SIGTERM, a clean stop. Everything else is a failure; exit 3 is the alert.
+SuccessExitStatus=75 143 SIGTERM
+# 2 = refused configuration (a named variable): retrying cannot help. 1 and 3 retry (a re-run resumes the per-finding records).
+RestartPreventExitStatus=2
+Restart=on-failure
+RestartSec=300
+# Below PULSO_LOOP_LOCK_TTL_S (10800): a killed run's lock is always older than the unit's longest life.
+TimeoutStartSec=2h
+TimeoutStopSec=90
+Nice=10

@@ -144,8 +144,8 @@ run "agent_services_wire_core_platform_network_iam_and_data" {
   }
 
   assert {
-    condition     = join(",", module.compute_core.compose_files) == "compose.yaml,compose.postgres.yaml,compose.agents.yaml"
-    error_message = "The core host merges the agent services override after the Postgres one."
+    condition     = join(",", module.compute_core.compose_files) == "compose.yaml,compose.postgres.yaml,compose.agents.yaml,compose.agents.postgres.yaml"
+    error_message = "The core host merges the agent services override after the Postgres one, then the container-mode ordering file."
   }
   assert {
     condition     = contains(module.compute_core.extra_bundle_keys, "compose.agents.yaml") && contains(module.compute_core.extra_bundle_keys, "initdb/sql/20_agent_databases.sql")
@@ -177,20 +177,12 @@ run "agent_services_wire_core_platform_network_iam_and_data" {
   }
 }
 
-run "serve_defaults_to_the_seven_real_pieces_and_core_reads_its_artifacts" {
+run "serve_takes_no_piece_flags_by_default" {
   command = plan
 
   assert {
-    condition = alltrue([for f in [
-      "--tools agent_core.adapters.tools:http_tool_executor",
-      "--authz agent_core.adapters.policy_authz:policy_authz",
-      "--field-classifier agent_core.composition.classification:field_classifier",
-      "--grant-active agent_core.adapters.grants:http_grant_active",
-      "--transcript agent_core.composition.transcript:transcript",
-      "--calibration agent_core.composition.artifacts:calibration",
-      "--classifier agent_core.composition.artifacts:classifier_provider",
-    ] : strcontains(var.agent_serve_args, f)])
-    error_message = "serve starts outside demo only with every real piece (agent-core main, PR #42 and #38 paths)."
+    condition     = var.agent_serve_args == "" && var.agent_serve_agents == "recepcion,disputas,consultas,copiloto-asesor"
+    error_message = "The seven real pieces are serve's defaults (agent-core PRs 62 to 70): no piece flag, only optional extras."
   }
 }
 

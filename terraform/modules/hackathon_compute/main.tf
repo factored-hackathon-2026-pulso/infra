@@ -52,9 +52,12 @@ locals {
     workload      = var.workload
     registry      = var.ecr_registry_url
     # tool-service reads data-pipeline's publication from local disk: synced at every start (agent services).
-    sync_publication   = contains(local.service_env_names, "tools")
-    sync_artifacts     = contains(local.service_env_names, "agent")
-    install_loader     = var.workload == "engine" && contains(local.service_env_names, "loader")
+    sync_publication = contains(local.service_env_names, "tools")
+    sync_artifacts   = contains(local.service_env_names, "agent")
+    install_loader   = var.workload == "engine" && contains(local.service_env_names, "loader")
+    # The improvement-loop job (docs/engine-loop.md): units, inputs sync and status hook come from the bundle (loop/).
+    install_loop       = var.workload == "engine" && var.loop_enabled
+    loop_interval      = var.loop_interval
     loader_swap_gb     = var.loader_swap_gb
     publication_prefix = trim(var.publication_prefix, "/")
   })

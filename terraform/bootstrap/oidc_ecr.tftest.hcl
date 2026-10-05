@@ -54,7 +54,7 @@ run "ecr_has_the_engine_repository_only_by_default" {
   command = apply
 
   assert {
-    condition     = toset(keys(module.ecr)) == toset(["pulso-engine", "core-runtime", "llm-gateway", "support-platform-api", "support-platform-web", "caddy", "agent-core-serve", "tool-service"])
+    condition     = toset(keys(module.ecr)) == toset(["pulso-engine", "core-runtime", "llm-gateway", "support-platform-api", "support-platform-web", "caddy", "agent-core-serve", "tool-service", "data-pipeline", "otlp-forwarder"])
     error_message = "Default repositories are exactly the images the hackathon compose bundles pull (console is not needed; caddy is a digest-pinned mirror; agent-core-serve and tool-service for agent_services_enabled)."
   }
 }

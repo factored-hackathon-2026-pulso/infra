@@ -59,13 +59,18 @@ output "origin_verify_secret" {
 }
 
 output "engine_core_kid" {
-  description = "kid of the engine's Ed25519 key in the Core's identity-keys and staff-keys documents (public)."
+  description = "kid the engine MINTS with (its ACTIVE Ed25519 key) in the Core's identity-keys and staff-keys documents (public)."
   value       = local.engine_kid
 }
 
 output "engine_core_public_key" {
   description = "Public half (base64url, 32 bytes) of the engine's Ed25519 key (public information)."
-  value       = local.agent_keys["engine"].public_b64url
+  value       = local.agent_keys[local.engine_active_id].public_b64url
+}
+
+output "engine_published_keys" {
+  description = "kid -> public key (base64url, 32 bytes) of every engine key published in identity-keys and staff-keys (public information). More than one entry means a rotation is in progress."
+  value       = local.engine_published_public
 }
 
 output "generated_secrets" {
