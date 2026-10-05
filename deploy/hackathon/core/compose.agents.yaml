@@ -47,9 +47,14 @@ services:
       AGENTCORE_AUTHZ_FIELD_GRANTS_FILE: /run/files/FIELD_GRANTS
       # The current publication's catalog (synced by the start script) plus the engine's own fields.
       AGENTCORE_FIELD_CLASSIFICATION_FILES: /catalog/field_classification.json,/run/files/FIELD_OVERLAY
+      # Calibration (<run_id>.json) and classifier (<ref>.json) artifacts of the data team, synced by the start script
+      # from s3://<bucket>/core/artifacts/{calibrations,classifiers}/.
+      AGENTCORE_CALIBRATION_DIR: /artifacts/calibrations
+      AGENTCORE_CLASSIFIER_ARTIFACTS_DIR: /artifacts/classifiers
     volumes:
       - /run/pulso/files/agent:/run/files:ro
       - /srv/data/tools/current:/catalog:ro
+      - /srv/data/agent/artifacts:/artifacts:ro
     # Reachable from the platform host as http://core.<private zone>:8001 (security group limited).
     ports:
       - "8001:8001"

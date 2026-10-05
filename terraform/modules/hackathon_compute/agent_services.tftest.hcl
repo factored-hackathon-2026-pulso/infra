@@ -91,6 +91,23 @@ run "agent_services_render_files_and_sync_the_publication" {
   }
 }
 
+run "agent_host_syncs_the_calibration_and_classifier_artifacts" {
+  command = apply
+  variables {
+    workload           = "core"
+    instance_type      = "m7i-flex.large"
+    extra_service_envs = ["agent", "tools"]
+    extra_ports        = ["8001:8001"]
+    compose_files      = ["compose.yaml", "compose.agents.yaml"]
+    extra_bundle_files = { "compose.agents.yaml" = "services: {}\n" }
+  }
+
+  assert {
+    condition     = strcontains(local.prepare_script, "s3://$BUCKET/core/artifacts/") && strcontains(local.prepare_script, "for d in calibrations classifiers") && strcontains(local.prepare_script, "/srv/data/agent/artifacts/$d/")
+    error_message = "With agent-core on the host, the start script syncs core/artifacts/ (calibrations, classifiers) to the read-only mount."
+  }
+}
+
 run "hosts_without_tool_service_never_sync_the_publication" {
   command = apply
   variables {
@@ -98,7 +115,7 @@ run "hosts_without_tool_service_never_sync_the_publication" {
   }
 
   assert {
-    condition     = !strcontains(local.prepare_script, "lake/publish") && local.allowed_ports == ["8000:8000"]
+    condition     = !strcontains(local.prepare_script, "lake/publish") && !strcontains(local.prepare_script, "core/artifacts") && local.allowed_ports == ["8000:8000"]
     error_message = "Without the agent services nothing reads the restricted publication and only 8000 is published."
   }
 }

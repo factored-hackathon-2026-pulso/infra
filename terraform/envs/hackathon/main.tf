@@ -117,7 +117,8 @@ module "iam" {
   engine_can_load           = var.engine_host_can_load
   engine_lake_read_prefixes = ["lake/gold_masked", "lake/gold_analytics"]
   # tool-service syncs the current publication (latest.json, gold_restricted.duckdb, field_classification.json).
-  core_read_prefixes = local.agents ? ["lake/publish"] : []
+  # agent-core serve syncs its calibration and classifier artifacts from core/artifacts/.
+  core_read_prefixes = local.agents ? ["lake/publish", "core/artifacts"] : []
 
   ecr_repository_arns_core     = local.ecr_arns.core
   ecr_repository_arns_platform = local.ecr_arns.platform

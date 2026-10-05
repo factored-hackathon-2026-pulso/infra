@@ -67,6 +67,12 @@ class CoreAgentServices(unittest.TestCase):
         self.assertEqual(env["AGENTCORE_GRANTS_URL"], "http://platform.${PRIVATE_ZONE_NAME:?set}:8000")
         self.assertEqual(env["AGENTCORE_AUTHZ_BIND_KEYS"], "subject_ref,customer_id")
 
+    def test_calibration_and_classifier_artifacts_are_mounted_read_only(self):
+        env = self.svc["agent-core"]["environment"]
+        self.assertEqual(env["AGENTCORE_CALIBRATION_DIR"], "/artifacts/calibrations")
+        self.assertEqual(env["AGENTCORE_CLASSIFIER_ARTIFACTS_DIR"], "/artifacts/classifiers")
+        self.assertIn("/srv/data/agent/artifacts:/artifacts:ro", self.svc["agent-core"]["volumes"])
+
     def test_migrate_uses_the_owner_dsn_and_runs_before_serve(self):
         migrate = self.svc["agent-core-migrate"]
         self.assertEqual(migrate["restart"], "no")

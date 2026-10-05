@@ -177,6 +177,52 @@ run "agent_services_wire_core_platform_network_iam_and_data" {
   }
 }
 
+run "serve_defaults_to_the_seven_real_pieces_and_core_reads_its_artifacts" {
+  command = plan
+
+  assert {
+    condition = alltrue([for f in [
+      "--tools agent_core.adapters.tools:http_tool_executor",
+      "--authz agent_core.adapters.policy_authz:policy_authz",
+      "--field-classifier agent_core.composition.classification:field_classifier",
+      "--grant-active agent_core.adapters.grants:http_grant_active",
+      "--transcript agent_core.composition.transcript:transcript",
+      "--calibration agent_core.composition.artifacts:calibration",
+      "--classifier agent_core.composition.artifacts:classifier_provider",
+    ] : strcontains(var.agent_serve_args, f)])
+    error_message = "serve starts outside demo only with every real piece (agent-core main, PR #42 and #38 paths)."
+  }
+}
+
+run "agent_core_host_reads_the_artifacts_prefix" {
+  command = apply
+  variables {
+    agent_services_enabled = true
+    images = {
+      core = {
+        core    = "r/pulso-prod/core-runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        gateway = "r/pulso-prod/llm-gateway@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        agent   = "r/pulso-prod/agent-core-serve@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        tools   = "r/pulso-prod/tool-service@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      }
+      platform = {
+        support_api = "r/support-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        support_web = "r/support-web@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        proxy       = "r/caddy@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+      engine = {
+        pulso = "r/pulso@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        proxy = "r/caddy@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    }
+  }
+
+  assert {
+    condition     = strcontains(jsonencode(output.agent_services_effective.core_read_prefixes), "core/artifacts") && strcontains(jsonencode(output.agent_services_effective.core_read_prefixes), "lake/publish")
+    error_message = "The core host reads the publication and core/artifacts (read-only)."
+  }
+}
+
 run "agent_services_need_both_image_digests" {
   command = plan
   variables {

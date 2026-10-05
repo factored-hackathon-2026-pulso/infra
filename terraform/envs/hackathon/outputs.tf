@@ -110,6 +110,7 @@ output "agent_services_effective" {
   value = {
     enabled            = local.agents
     restricted_readers = local.restricted_readers
+    core_read_prefixes = local.agents ? ["lake/publish", "core/artifacts"] : []
     agent_core_url     = local.agents ? "http://core.${module.network.zone_name}:8001" : null
   }
 }

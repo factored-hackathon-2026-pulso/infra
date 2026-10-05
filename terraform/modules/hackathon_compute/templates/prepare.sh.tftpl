@@ -66,6 +66,17 @@ printf '%s' "$SECRET_JSON" | jq -r 'keys[] | select(test("^FILES__(${svc_regex})
     chown 10001:10001 "$out"; chmod 400 "$out"
   done
 unset SECRET_JSON
+%{ if sync_artifacts ~}
+# agent-core serve: calibration and classifier artifacts (data team output, uploaded by an admin to
+# s3://<bucket>/core/artifacts/{calibrations,classifiers}/). Mirrored with --delete so a withdrawn artifact goes away;
+# the directories always exist (serve refuses a missing one). A failed sync keeps the previous copy.
+for d in calibrations classifiers; do
+  install -d -m 755 -o 10001 -g 10001 "/srv/data/agent/artifacts/$d"
+  aws s3 sync "s3://$BUCKET/core/artifacts/$d/" "/srv/data/agent/artifacts/$d/" --delete --region "$REGION" --only-show-errors ||
+    echo "WARNING: could not sync core/artifacts/$d; agent-core keeps the previous copy" >&2
+done
+chown -R 10001:10001 /srv/data/agent/artifacts
+%{ endif ~}
 %{ if sync_publication ~}
 # tool-service: copy the CURRENT publication of data-pipeline (s3://<bucket>/${publication_prefix}/latest.json -> its run)
 # to /srv/data/tools/data/publish, pointer last. Only gold_restricted.duckdb and field_classification.json are copied
