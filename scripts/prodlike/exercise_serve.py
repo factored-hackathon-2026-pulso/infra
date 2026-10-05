@@ -104,17 +104,19 @@ TURN_CASES = [
     # name, agent, lines, advisor, expectation (outcome set or text fragment)
     ("recepcion es: disputa 120 USD (transfer to disputas)", "recepcion", ["no reconozco un cargo en la Tienda Aurora", "el de 120 dólares"], False, {"resolved", "escalated"}),
     ("recepcion es: fraud interrupt", "recepcion", ["me robaron la tarjeta"], False, {"escalated"}),
-    ("recepcion pt: dispute 120 USD", "recepcion", ["não reconheço uma compra na Tienda Aurora", "a de 120 dólares"], False, {"resolved", "escalated"}),
+    ("recepcion pt: dispute 120 USD", "recepcion", ["Olá, eu não reconheço uma compra no meu cartão de crédito feita ontem na loja Aurora, preciso de ajuda", "a de 120 dólares"], False, {"resolved", "escalated"}),
     ("disputas es: direct", "disputas", ["no reconozco un cargo de 120 dólares en la Tienda Aurora"], False, {"resolved", "escalated", None}),
     ("consultas es: case status", "consultas", ["quiero saber el estado de mi reclamo", "CASE-1"], False, {"resolved", "escalated", "abstained", None}),
-    ("consultas pt: case status", "consultas", ["quero saber o estado da minha reclamação", "CASE-1"], False, {"resolved", "escalated", "abstained", None}),
+    ("consultas pt: case status", "consultas", ["Olá, eu gostaria de saber o estado da minha reclamação, por favor", "CASE-1"], False, {"resolved", "escalated", "abstained", None}),
     ("copiloto-asesor es: card balance", "copiloto-asesor", ["¿cuánto debe en la tarjeta?"], True, "1342.8"),
-    ("copiloto-asesor pt: card balance", "copiloto-asesor", ["quanto ele deve no cartão?"], True, "1342.8"),
+    ("copiloto-asesor pt: card balance", "copiloto-asesor", ["Quanto o cliente deve no cartão de crédito e qual é o limite disponível agora?"], True, "1342.8"),
 ]
 
 
-def run_turns(c: Client) -> None:
+def run_turns(c: Client, match: str = "") -> None:
     for name, agent, lines, advisor, expect in TURN_CASES:
+        if match and match not in name:
+            continue
         try:
             r = converse(c, agent, lines, advisor=advisor)
         except Exception as e:  # a crash is a result, not an abort
@@ -282,13 +284,14 @@ def main() -> int:
     ap.add_argument("--prefix", default="prodlike")
     ap.add_argument("--only", default="turns,registry,export,load")
     ap.add_argument("--n", type=int, default=20)
+    ap.add_argument("--match", default="", help="turns: only the cases whose name contains this text")
     ap.add_argument("--out", help="write the results as JSON here")
     a = ap.parse_args()
     ports = pl.port_map(a.prefix)
     c = Client(f"http://127.0.0.1:{ports[('agent-core', 8001)]}")
     todo = set(a.only.split(","))
     if "turns" in todo:
-        run_turns(c)
+        run_turns(c, a.match)
     if "registry" in todo:
         run_registry(c, a.prefix)
     if "export" in todo:
