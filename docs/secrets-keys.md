@@ -22,7 +22,7 @@ Host-consumed keys are `<SERVICE>__<VAR>`: the compute start script writes `<VAR
 Non-secret configuration is in SSM Parameter Store (standard tier, free) under `/pulso/<workload>/<service>/<NAME>` (workload `core|platform|engine`, service `core|gateway|support|pulso|common`; each host role reads only `/pulso/<its workload>/*`):
 agent-core `PULSO_LAB_BROKER_URL`, `PULSO_CONTROL_API_URL`, `PULSO_TENANT_ID`, `AGENTCORE_DAILY_BUDGET_USD`,
 `AGENTCORE_BLOB_BUCKET` (derived `s3://<bucket>/core/blobs`); llm-gateway `GATEWAY_CONSUMERS`, `LLM_ENDPOINTS`;
-support-platform `CC_CORS_ORIGINS`, `CC_PUBLIC_APP_URL`; engine `PULSO_DATA_MODE`, `PIPELINE_ROOT` (derived
+support-platform `CC_CORS_ORIGINS`, `CC_PUBLIC_APP_URL`; engine `PULSO_DATA_MODE` (derived: `platform` with `platform_database_enabled`, else `dataset`), `PIPELINE_ROOT` (derived
 `s3://<bucket>/lake`).
 
 Host grant: `secretsmanager:GetSecretValue` on the single `secret_arn` output, and `ssm:GetParameter*` on

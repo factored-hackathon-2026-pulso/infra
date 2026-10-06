@@ -156,8 +156,10 @@ module "data" {
   break_glass_principal_arns = local.break_glass
 
   # tool-service on the core host reads data-pipeline's restricted publication (gold_restricted, PII in the clear).
-  agent_services_enabled      = local.agents
-  platform_database_enabled   = local.platform_db
+  agent_services_enabled    = local.agents
+  platform_database_enabled = local.platform_db
+  # product-postgres (engine_platform below) is valid only in platform mode; the bank dataset reaches the engine through the loader.
+  engine_data_mode            = local.platform_db ? "platform" : "dataset"
   auto_loader_enabled         = local.loader_on
   agent_keys_suffix           = var.agent_keys_suffix
   engine_extra_key_suffixes   = var.engine_extra_key_suffixes

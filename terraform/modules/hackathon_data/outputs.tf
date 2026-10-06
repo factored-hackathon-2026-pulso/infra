@@ -78,3 +78,8 @@ output "generated_secrets" {
   value       = local.generated_secrets
   sensitive   = true
 }
+
+output "engine_data_mode" {
+  description = "PULSO_DATA_MODE written to SSM for the engine daemon (dataset or platform)."
+  value       = var.engine_data_mode
+}

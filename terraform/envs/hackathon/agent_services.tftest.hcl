@@ -268,6 +268,10 @@ run "platform_database_publishes_sql_and_engine_wiring" {
     condition     = aws_ssm_parameter.engine_platform["PULSO_SOURCE_ADAPTER"].value == "product-postgres" && endswith(aws_ssm_parameter.engine_platform["PULSO_PLATFORM_URL"].name, "/engine/pulso/PULSO_PLATFORM_URL")
     error_message = "Engine reads the platform through the read-only Postgres role; names are the engine's own variables."
   }
+  assert {
+    condition     = module.data.engine_data_mode == "platform"
+    error_message = "product-postgres is valid only with PULSO_DATA_MODE=platform; the engine refuses dataset + product-postgres at startup."
+  }
 }
 
 run "engine_platform_params_absent_by_default" {
@@ -276,5 +280,9 @@ run "engine_platform_params_absent_by_default" {
   assert {
     condition     = length(aws_ssm_parameter.engine_platform) == 0
     error_message = "No engine -> platform wiring without platform_database_enabled."
+  }
+  assert {
+    condition     = module.data.engine_data_mode == "dataset"
+    error_message = "Without the platform event log the engine stays in dataset mode (no product-* adapter)."
   }
 }
