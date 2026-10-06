@@ -122,6 +122,28 @@ variable "agent_serve_agents" {
   }
 }
 
+variable "agent_proposal_quota_per_day" {
+  type        = number
+  default     = 30
+  description = "AGENTCORE_PROPOSAL_QUOTA_PER_DAY: proposals the autonomous builder (origin=auto_detect) may create per rolling 24 h; beyond it the API answers quota_exceeded. Config, not a secret. agent-core's own default is 10; tripled here."
+
+  validation {
+    condition     = var.agent_proposal_quota_per_day >= 1 && floor(var.agent_proposal_quota_per_day) == var.agent_proposal_quota_per_day
+    error_message = "agent_proposal_quota_per_day is a positive integer (serve refuses to start otherwise)."
+  }
+}
+
+variable "agent_proposal_quota_overrides" {
+  type        = string
+  default     = "pulso-engine=600"
+  description = "AGENTCORE_PROPOSAL_QUOTA_OVERRIDES: `principal=limit,principal=limit`. The improvement engine (principal pulso-engine) creates 2-3 proposals per finding (proof scratch + deliverable); that principal counts only its own proposals. Config, not a secret."
+
+  validation {
+    condition     = var.agent_proposal_quota_overrides == "" || can(regex("^[A-Za-z0-9][A-Za-z0-9_.:-]*=[1-9][0-9]*(,[A-Za-z0-9][A-Za-z0-9_.:-]*=[1-9][0-9]*)*$", var.agent_proposal_quota_overrides))
+    error_message = "agent_proposal_quota_overrides is `principal=limit` pairs separated by commas, limits positive integers."
+  }
+}
+
 variable "otlp_forwarder_enabled" {
   type        = bool
   default     = false

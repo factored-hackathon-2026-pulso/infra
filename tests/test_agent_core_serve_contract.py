@@ -41,7 +41,8 @@ SERVE_ENV = {
     "core": ["AGENTCORE_REGISTRY_DSN", "AGENTCORE_KEYS_FINGERPRINT", "AGENTCORE_KEYS_TOKEN_MAP", "AGENTCORE_JEV_API_KEY",
              "AGENTCORE_SERVE_AGENTS", "AGENTCORE_GIT_SHA", "AGENTCORE_DB_POOL_MAX", "AGENTCORE_LANG_THRESHOLDS",
              "AGENTCORE_FX_RATES_FILE", "AGENTCORE_IDENTITY_KEYS_FILE", "AGENTCORE_REGISTRY_API", "AGENTCORE_STAFF_KEYS_FILE",
-             "AGENTCORE_EVAL_DSN", "AGENTCORE_KEYS_RELOAD_SECONDS"],
+             "AGENTCORE_EVAL_DSN", "AGENTCORE_KEYS_RELOAD_SECONDS", "AGENTCORE_PROPOSAL_QUOTA_PER_DAY",
+             "AGENTCORE_PROPOSAL_QUOTA_OVERRIDES"],
     "pieces": ["AGENTCORE_TOOL_SERVICE_URL", "AGENTCORE_TOOL_SERVICE_TOKEN", "AGENTCORE_TOOL_SERVICE_TIMEOUT_S",
                "AGENTCORE_AUTHZ_FIELD_GRANTS_FILE", "AGENTCORE_AUTHZ_BIND_KEYS", "AGENTCORE_CALIBRATION_DIR",
                "AGENTCORE_CLASSIFIER_ARTIFACTS_DIR", "AGENTCORE_FIELD_CLASSIFICATION_FILES", "AGENTCORE_GRANTS_URL",
@@ -167,6 +168,34 @@ class HealthAndLoad(unittest.TestCase):
                     continue  # disabled legacy services and one-shots under a profile never run together with serve
                 total += int(re.fullmatch(r"(\d+)m", s.get("mem_limit", "0m")).group(1))
         self.assertLessEqual(total, 8192 * 0.7)
+
+
+class ProposalQuota(unittest.TestCase):
+    """The engine (principal pulso-engine) creates 2-3 proposals per finding; agent-core PR 82 makes the daily quota configurable."""
+
+    def setUp(self):
+        self.env = load(CORE / "compose.agents.yaml")["agent-core"]["environment"]
+        self.variables = read(TF / "envs" / "hackathon" / "variables.tf")
+        self.main = read(TF / "envs" / "hackathon" / "main.tf")
+
+    def test_compose_wires_both_names_with_tripled_defaults(self):
+        self.assertEqual(self.env["AGENTCORE_PROPOSAL_QUOTA_PER_DAY"], "${AGENT_PROPOSAL_QUOTA_PER_DAY:-30}")
+        self.assertEqual(self.env["AGENTCORE_PROPOSAL_QUOTA_OVERRIDES"], "${AGENT_PROPOSAL_QUOTA_OVERRIDES:-pulso-engine=600}")
+
+    def test_terraform_variables_carry_the_defaults_and_render_into_env(self):
+        self.assertRegex(self.variables, r'variable "agent_proposal_quota_per_day"[^}]*default\s*=\s*30')
+        self.assertRegex(self.variables, r'variable "agent_proposal_quota_overrides"[^}]*default\s*=\s*"pulso-engine=600"')
+        self.assertRegex(self.main, r"AGENT_PROPOSAL_QUOTA_PER_DAY\s*=\s*tostring\(var\.agent_proposal_quota_per_day\)")
+        self.assertRegex(self.main, r"AGENT_PROPOSAL_QUOTA_OVERRIDES\s*=\s*var\.agent_proposal_quota_overrides")
+
+    def test_the_values_are_config_not_secrets(self):
+        secrets_tf = read(TF / "modules" / "hackathon_data" / "secrets.tf")
+        self.assertNotIn("PROPOSAL_QUOTA", secrets_tf)
+        self.assertIn("`AGENTCORE_PROPOSAL_QUOTA_OVERRIDES`", read(ROOT / "docs" / "secrets-wiring.md"))
+        contract = json.loads(read(ROOT / "scripts" / "prodlike" / "env_contract.json"))
+        names = contract["compose_environment"]["variables"]
+        self.assertIn("AGENT_PROPOSAL_QUOTA_PER_DAY", names)
+        self.assertIn("AGENT_PROPOSAL_QUOTA_OVERRIDES", names)
 
 
 class LegacyBridgeIsReplaced(unittest.TestCase):

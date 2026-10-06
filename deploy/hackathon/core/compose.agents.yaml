@@ -95,6 +95,10 @@ services:
       AGENTCORE_MAX_INFLIGHT: ${AGENT_MAX_INFLIGHT:-16}
       AGENTCORE_WORKER_THREADS: ${AGENT_WORKER_THREADS:-12}
       AGENTCORE_DB_POOL_MAX: ${AGENT_DB_POOL_MAX:-6}
+      # Autonomous-builder proposal quota (agent-core serve-env.md): config, not a secret. The engine (principal pulso-engine) creates
+      # 2-3 proposals per finding, so it gets its own higher cap; every other principal keeps the global per-day value.
+      AGENTCORE_PROPOSAL_QUOTA_PER_DAY: ${AGENT_PROPOSAL_QUOTA_PER_DAY:-30}
+      AGENTCORE_PROPOSAL_QUOTA_OVERRIDES: ${AGENT_PROPOSAL_QUOTA_OVERRIDES:-pulso-engine=600}
       # Must stay below stop_grace_period (docker kills at that deadline); uvicorn drains in-flight requests until then.
       AGENTCORE_SHUTDOWN_GRACE_SECONDS: "25"
     volumes:

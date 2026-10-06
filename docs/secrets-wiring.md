@@ -30,6 +30,7 @@ Containers on the core host reach Postgres as `postgres:5432`; the platform and 
 | `AGENTCORE_FX_RATES_FILE` | F (`config/agent/fx-rates.json`) | fixed invented rates from agent-core `serve_state.py` |
 | `AGENTCORE_TOOL_SERVICE_URL`, `_GRANTS_URL`, `_LLM_GATEWAY_URL`, `_SERVE_AGENTS`, `_REGISTRY_API`, `_KEYS_RELOAD_SECONDS`, `_AUTHZ_BIND_KEYS`, `_CALIBRATION_DIR`, `_CLASSIFIER_ARTIFACTS_DIR`, timeouts, readiness switches, caps, `_AUTO_MIGRATE`, `_SHUTDOWN_GRACE_SECONDS` | L | `compose.agents.yaml` |
 | `AGENTCORE_DB_POOL_MAX`, `_MAX_INFLIGHT`, `_WORKER_THREADS` | L | by instance memory (`agent_limits`) |
+| `AGENTCORE_PROPOSAL_QUOTA_PER_DAY`, `AGENTCORE_PROPOSAL_QUOTA_OVERRIDES` | L | Terraform variables `agent_proposal_quota_per_day` (30) and `agent_proposal_quota_overrides` (`pulso-engine=600`); config, not secrets |
 | `AGENTCORE_BLOB_*`, `_EVENTS_TOPIC_ARN`, rate limits, `_DAILY_BUDGET_USD`, `_GIT_SHA` | C | unset on purpose |
 | `AGENTCORE_ALLOW_DOUBLES` / `_ALLOW_DEMO` | never | prohibited; the start script and tests refuse it |
 | Calibration and classifier artifacts | data team (S3 `core/artifacts/`) | not a secret and not a variable; synced at start |
