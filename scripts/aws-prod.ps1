@@ -827,17 +827,27 @@ function Show-SecretStatus([string]$AwsProfile) {
     $json = (Invoke-Aws -AwsProfile $AwsProfile -CliArgs @('secretsmanager', 'get-secret-value', '--secret-id', $name, '--query', 'SecretString', '--output', 'text')) -join "`n"
     $cur = $json | ConvertFrom-Json
     $json = $null
-    $unset = @(); $set = 0
+    $unset = @(); $set = 0; $present = @()
     foreach ($prop in $cur.PSObject.Properties) {
+        $present += $prop.Name
         $v = [string]$prop.Value
         if ([string]::IsNullOrEmpty($v) -or $v -eq 'CHANGE_ME') { $unset += $prop.Name } else { $set++ }
     }
     $cur = $null
     Write-Host "--- secret $name (names only) ---"
     Write-Host "SET      : $set key(s)"
-    $human = @($unset | Where-Object { $script:HumanSecretKeys -contains $_ } | Sort-Object)
+    # A human key ABSENT from the secret (e.g. a secret created with an older schema) is as unset as a CHANGE_ME one.
+    $humanLines = @()
+    foreach ($k in ($script:HumanSecretKeys | Sort-Object)) {
+        $absent = $present -notcontains $k
+        if (-not $absent -and $unset -notcontains $k) { continue }
+        $notes = @()
+        if ($absent) { $notes += 'MISSING' }
+        if ($k -like 'LANGFUSE__*') { $notes += 'optional unless the otlp forwarder is on' }
+        $humanLines += $(if ($notes.Count) { "$k ($($notes -join ', '))" } else { $k })
+    }
     $other = @($unset | Where-Object { $script:HumanSecretKeys -notcontains $_ } | Sort-Object)
-    Write-Host "UNSET (human, set with set-secret): $(if ($human.Count) { $human -join ', ' } else { '(none)' })"
+    Write-Host "UNSET (human, set with set-secret): $(if ($humanLines.Count) { $humanLines -join ', ' } else { '(none)' })"
     Write-Host "UNSET (should be wired; run seed-secret-keys): $(if ($other.Count) { $other -join ', ' } else { '(none)' })"
 }
 
