@@ -16,6 +16,16 @@ override_resource {
   values = { hex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" }
 }
 
+# RFC 8032 section 7.1 test vector 1 (a published test key, not a secret), as the PEM the tls provider returns for ED25519:
+# seed 9d61b19d...7f60 -> public key d75a9801...511a (base64url 11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo).
+override_resource {
+  target = tls_private_key.agent
+  values = {
+    private_key_pem = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIJ1hsZ3v/VpguoRK9JLsLMREScVpezJpGXA7rAMcrn9g\n-----END PRIVATE KEY-----\n"
+    public_key_pem  = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=\n-----END PUBLIC KEY-----\n"
+  }
+}
+
 variables {
   name_prefix               = "pulso-hk"
   region                    = "us-east-1"
