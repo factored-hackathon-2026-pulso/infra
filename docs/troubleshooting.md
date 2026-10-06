@@ -5,7 +5,7 @@ Known failure modes, with the exact checks. Host commands run in an SSM shell: `
 ## Provider start timeout
 
 Symptom: `terraform init`, `validate` or `test` hangs or fails with "timeout while waiting for plugin to start" (large aws provider on Windows, antivirus scanning).
-Checks: only one terraform process runs (`Get-Process terraform`); `$env:TF_PLUGIN_CACHE_DIR = 'D:/tf-plugin-cache'` is set; the provider is already cached. Kill a run that exceeds about 6 minutes and retry once. Add the plugin cache directory to the antivirus exclusions if it keeps happening.
+Checks: only one terraform process runs (`Get-Process terraform`); `TF_PLUGIN_CACHE_DIR` is UNSET (`Remove-Item Env:TF_PLUGIN_CACHE_DIR -ErrorAction SilentlyContinue`; the earlier advice to set it was withdrawn after the runs on this machine). Kill a run that exceeds about 10 minutes and retry once. The cause is Windows Defender scanning the large provider binary on every start: exclude the repository `terraform` folder, the plugin directory and `terraform.exe` from real-time scanning (administrator). Full list of the failures already met: [infra-day-one](infra-day-one.md#troubleshooting-the-failures-already-met).
 
 ## CloudFront VPC origin
 

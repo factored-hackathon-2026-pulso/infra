@@ -1,6 +1,6 @@
 # AWS prod quickstart (one page)
 
-One environment (`prod`), region us-east-1, one new AWS account, everything driven by `scripts/aws-prod.ps1` from your machine. No budgets, no CI role, no Organizations or Identity Center. Nothing is applied without a saved plan, a printed summary and you typing `APPLY`. Longer docs: [operations](operations.md), [architecture](architecture.md), [security model](security-model.md), [costs](costs.md), [troubleshooting](troubleshooting.md).
+One environment (`prod`), region us-east-1, one new AWS account, everything driven by `scripts/aws-prod.ps1` from your machine. No budgets, no CI role, no Organizations or Identity Center. Nothing is applied without a saved plan, a printed summary and you typing `APPLY`. The full system in order, with every check and the failures already met: [infra-day-one](infra-day-one.md). Longer docs: [operations](operations.md), [architecture](architecture.md), [security model](security-model.md), [costs](costs.md), [troubleshooting](troubleshooting.md).
 
 Prerequisites on your machine: PowerShell 7, Terraform >= 1.10, AWS CLI v2, Docker, Git, and these repos cloned next to each other (paths are examples): the Pulso engine, `agent-core`, `llm-gateway`, `support-platform`.
 

@@ -58,7 +58,7 @@
   },
   "agent_files": {
     "_doc": "Files under /run/pulso/files/agent on the core host (secret keys FILES__AGENT__*). Rendered locally by `prodlike.py state`.",
-    "names": ["IDENTITY_KEYS", "STAFF_KEYS", "FIELD_GRANTS", "FIELD_OVERLAY", "FX_RATES"]
+    "names": ["IDENTITY_KEYS", "STAFF_KEYS", "FIELD_GRANTS", "FIELD_OVERLAY", "FX_RATES", "LANG_THRESHOLDS"]
   },
   "slots": {
     "support":["CC_SESSION_SECRET", "CC_TOTP_SECRET_KEY", "CC_DATABASE_URL", "CC_INTERNAL_SERVICE_TOKEN", "CC_CORS_ORIGINS", "CC_PUBLIC_APP_URL"],
