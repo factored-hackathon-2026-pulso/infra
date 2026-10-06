@@ -178,7 +178,9 @@ encrypt      = true
 function Resolve-VarFile([string]$Explicit) {
     $file = if ($Explicit) { $Explicit } else { Join-Path (Get-EnvDir) 'prod.tfvars' }
     if (-not (Test-Path -LiteralPath $file)) { throw "Missing $file. Run: aws-prod.ps1 images (it writes it), or copy prod.tfvars.example and fill the digests." }
-    if ((Get-Content -Raw $file) -match 'REPLACE_WITH|<registry>') { throw "$file still has placeholders (REPLACE_WITH_..., <registry>). Run aws-prod.ps1 images, or fill them by hand." }
+    # Comment lines (first non-space char '#') are documentation, not values: the examples mention <registry> in prose.
+    $values = (Get-Content -LiteralPath $file | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+    if ($values -match 'REPLACE_WITH|<registry>') { throw "$file still has placeholders (REPLACE_WITH_..., <registry>). Run aws-prod.ps1 images, or fill them by hand." }
     $file
 }
 

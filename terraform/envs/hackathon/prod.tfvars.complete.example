@@ -11,7 +11,7 @@
 # The platform runs with CC_ENV=staging (deploy/hackathon/platform/compose.yaml): seeded demo accounts, dev MFA code, production
 # runtime rules. The public URL is intentionally not restricted (accepted risk); nothing here adds an allowlist or an edge secret.
 
-# Required. Format <registry>/<repo>@sha256:<64 hex>; repositories are created by terraform/bootstrap (prefix "pulso-prod/").
+# Required. Format: registry host, repo path, then @sha256: and the 64-hex digest; repositories are created by terraform/bootstrap (prefix "pulso-prod/").
 # `aws-prod.ps1 images -Service <name>` writes each digest here as it is built (docs/infra-day-one.md, layer 2).
 # images.core.core (the old core-bridge image) is not needed: agent-core serve replaces it (ADR 0009).
 images = {

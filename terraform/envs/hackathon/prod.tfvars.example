@@ -3,7 +3,7 @@
 # Everything else (region us-east-1, environment prod, name_prefix pulso-prod, registry URL, who may upload/load)
 # has a working default.
 
-# Required. Format <registry>/<repo>@sha256:<64 hex>, repos created by terraform/bootstrap (prefix "pulso-prod/").
+# Required. Format: registry host, repo path, then @sha256: and the 64-hex digest, repos created by terraform/bootstrap (prefix "pulso-prod/").
 # Replace <registry> with <account id>.dkr.ecr.us-east-1.amazonaws.com and each digest with the pushed one.
 images = {
   core = {
