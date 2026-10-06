@@ -118,7 +118,7 @@ run "the_task_role_is_the_only_reader_of_bronze" {
   assert {
     condition = anytrue([
       for s in jsondecode(module.lake.bucket_policy_json).Statement :
-      s.Sid == "DenyReadBronzeExceptPipeline" && s.Condition.ArnNotEquals["aws:PrincipalArn"] == [module.iam.task_role_arn]
+      s.Sid == "DenyReadBronzeExceptPipeline" && try(s.Condition.ArnNotEquals["aws:PrincipalArn"], null) == [module.iam.task_role_arn]
     ])
     error_message = "The lake must trust exactly the role this workload runs as."
   }
@@ -130,7 +130,7 @@ run "unconfigured_readers_fail_closed" {
   assert {
     condition = anytrue([
       for s in jsondecode(module.lake.bucket_policy_json).Statement :
-      s.Sid == "DenyReadRestrictedExceptRestrictedReaders" && s.Condition.ArnNotEquals["aws:PrincipalArn"] == ["arn:aws:iam::000000000000:role/data-lake-no-principal"]
+      s.Sid == "DenyReadRestrictedExceptRestrictedReaders" && try(s.Condition.ArnNotEquals["aws:PrincipalArn"], null) == ["arn:aws:iam::000000000000:role/data-lake-no-principal"]
     ])
     error_message = "With no restricted reader configured, nobody reads personal data in clear."
   }

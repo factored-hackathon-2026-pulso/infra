@@ -102,7 +102,7 @@ run "bucket_policy_tls_and_no_wildcard_allow" {
     error_message = "VPC endpoint restriction for landing/ expected."
   }
   assert {
-    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyPiiReadToOthers" && contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:role/loader") && !contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:user/human")]) == 1
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyPiiReadToOthers" && contains(try(s.Condition.StringNotLike["aws:PrincipalArn"], []), "arn:aws:iam::111111111111:role/loader") && !contains(try(s.Condition.StringNotLike["aws:PrincipalArn"], []), "arn:aws:iam::111111111111:user/human")]) == 1
     error_message = "Only loader and break-glass may read landing/ and lake/bronze/; the uploader may not."
   }
 }
@@ -266,7 +266,7 @@ run "loader_roles_are_exempt_from_the_vpce_restriction_but_others_are_not" {
   }
 
   assert {
-    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyLandingReadOutsideVpce" && contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:role/loader") && contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:user/admin")]) == 1
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyLandingReadOutsideVpce" && contains(try(s.Condition.StringNotLike["aws:PrincipalArn"], []), "arn:aws:iam::111111111111:role/loader") && contains(try(s.Condition.StringNotLike["aws:PrincipalArn"], []), "arn:aws:iam::111111111111:user/admin")]) == 1
     error_message = "Loader and break-glass principals are exempt from the endpoint-only landing/ read."
   }
 

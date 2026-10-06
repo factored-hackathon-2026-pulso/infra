@@ -330,15 +330,18 @@ function New-SourceZip([string]$ZipPath, [object[]]$Roots) {
         foreach ($root in $Roots) {
             $base = (Resolve-Path -LiteralPath $root.Dir).ProviderPath.TrimEnd('\', '/')
             $prefix = if ($root.Prefix) { $root.Prefix.Trim('/') + '/' } else { '' }
-            $pending = New-Object System.Collections.Generic.Stack[string]
-            $pending.Push($base)
+            # Each pending directory carries its own relative path: the root can come back as an 8.3 short path
+            # (C:\Users\RUNNER~1) while children report long names, so FullName.Substring($base.Length) is not safe.
+            $pending = New-Object System.Collections.Generic.Stack[object]
+            $pending.Push(@{ Dir = $base; Rel = '' })
             while ($pending.Count -gt 0) {
-                $dir = $pending.Pop()
+                $node = $pending.Pop()
+                $dir = $node.Dir
                 foreach ($item in (Get-ChildItem -LiteralPath $dir -Force)) {
-                    $rel = $item.FullName.Substring($base.Length + 1).Replace('\', '/')
+                    $rel = $node.Rel + $item.Name
                     $suffix = if ($item.PSIsContainer) { '/' } else { '' }
                     if ((Test-ExcludedPath $rel) -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $excluded.Add("$prefix$rel$suffix"); continue }
-                    if ($item.PSIsContainer) { $pending.Push($item.FullName); continue }
+                    if ($item.PSIsContainer) { $pending.Push(@{ Dir = $item.FullName; Rel = "$rel/" }); continue }
                     if ($rel -eq '.dockerignore' -and @($root.AllowInDockerignore).Count) {
                         # Staged context: a .dockerignore that excludes a path the Dockerfile needs (agent-core excludes
                         # contracts, but core-bridge/Dockerfile reads contracts/VERSION) is rewritten without those lines.

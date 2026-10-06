@@ -258,7 +258,6 @@ function Get-ZipEntries([string]$Zip) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $z = [IO.Compression.ZipFile]::OpenRead($Zip)
     try { @($z.Entries | ForEach-Object { $_.FullName }) } finally { $z.Dispose() }
-    Write-Host "DEBUG-ENTRIES pwsh=$($PSVersionTable.PSVersion) :: $((@([IO.Compression.ZipFile]::OpenRead($Zip).Entries | ForEach-Object { $_.FullName }) | Select-Object -First 12) -join ' | ')"
 }
 
 Describe 'Resolve-Service' {
