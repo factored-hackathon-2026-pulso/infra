@@ -17,7 +17,7 @@ case "$PSEUDONYM_KEY" in CHANGE_ME|"") echo "loader refused: LOADER__PSEUDONYM_K
 LOADER_MEMORY="${LOADER_MEMORY:-1g}"
 LOADER_CPUS="${LOADER_CPUS:-1.0}"
 LOADER_DUCKDB_MEMORY="${LOADER_DUCKDB_MEMORY:-2GB}"   # DuckDB memory_limit; the docker --memory cap is the hard stop above it
-LOADER_TABLE_BATCHES="${LOADER_TABLE_BATCHES:-}"        # e.g. "customers,products;complaints": ingest_bank table by table
+LOADER_TABLE_BATCHES="${LOADER_TABLE_BATCHES:-}"        # e.g. "customers,marketing_campaigns;transactions": ingest_bank batch by batch, fresh credentials each
 LOADER_K_MIN="${LOADER_K_MIN:-10}"
 LOADER_DATASET_PREFIX="${LOADER_DATASET_PREFIX:-landing/bank}"
 # The data pipeline strips this prefix from every key and takes the first path segment as the table (ingest_bank.table_of):
@@ -91,10 +91,12 @@ CELLS="$WORK/cells/cells.ndjson"
 CELLS_P="s3://$LOADER_BUCKET/lake/gold_analytics/bank_cells"
 if [ -n "${LOADER_CELLS_CMD:-}" ]; then
   STEP="cells-export"
+  assume_loader # fresh 1 h session: the E0 sync above may have eaten into the first one
   with_loader env CELLS_OUT="$CELLS" RUN_KEY="$RUN_KEY" LOADER_K_MIN="$LOADER_K_MIN" LOADER_DATASET_PREFIX="$LOADER_DATASET_PREFIX" LOADER_BUCKET="$LOADER_BUCKET" bash -c "$LOADER_CELLS_CMD"
   STEP="cells-gate"
   python3 "$CHECK" "$CELLS"
   STEP="cells-stage"
+  assume_loader # the export and the gate can take most of an hour
   SUM="$(sha256sum "$CELLS" | cut -d' ' -f1)"; ROWS="$(wc -l < "$CELLS" | tr -d ' ')"
   printf '{"run":"%s","sha256":"%s","rows":%s,"k_min":%s}\n' "$RUN_KEY" "$SUM" "$ROWS" "$LOADER_K_MIN" > "$WORK/cells/MANIFEST.json"
   with_loader aws s3 cp "$CELLS" "$CELLS_P/$RUN_KEY/cells.ndjson" --sse aws:kms --only-show-errors
@@ -103,24 +105,29 @@ else
   log "LOADER_CELLS_CMD is empty: no bank_cells export in this run" warning
 fi
 STEP="pipeline"
-assume_loader
 
 # 6. The data pipeline (one container; limits so the engine keeps running). It reads landing/ through the standard credential chain.
 IMAGE="$(grep -E '^PIPELINE_IMAGE=' /srv/stack/.env | cut -d= -f2-)"
 [ -n "$IMAGE" ] || { echo "no PIPELINE_IMAGE in /srv/stack/.env" >&2; exit 78; }
 ENVF="$(mktemp /run/pulso/loader/pipeline.XXXXXX)"
+write_pipeline_env() { # regenerate the whole 0600 env file from the CURRENT $CREDS (called after every assume_loader)
 { cat "$CREDS"
   printf 'DUCKDB_MEMORY_LIMIT=%s\nDUCKDB_TEMP_DIRECTORY=/work/duckdb_tmp\nTMPDIR=/work/tmp\nDBT_THREADS=1\n' "$LOADER_DUCKDB_MEMORY"
   printf 'PSEUDONYM_KEY=%s\nPIPELINE_ROOT=s3://%s/lake\nDATASET_BUCKET=%s\nDATASET_PREFIX=%s\nDATASET_REGION=%s\nAWS_DEFAULT_REGION=%s\nWORK_DIR=/work\n' \
     "$PSEUDONYM_KEY" "$LOADER_BUCKET" "$LOADER_BUCKET" "$LOADER_DATASET_PREFIX" "$LOADER_REGION" "$LOADER_REGION"
   [ -n "$E0_PREFIX" ] && printf 'E0_SOURCE_DIR=/e0\n'; true
 } > "$ENVF"
+}
 trap 'rm -f "$ENVF"; rc=$?; [ $rc -ne 0 ] && { status failed "exit $rc at step $STEP"; log "loader run $RUN_KEY failed (exit $rc at step $STEP)" err; }; rm -f "$MARKER"; cleanup' EXIT
 run_pipeline() { # run_pipeline <docker args...>: bounded container, scratch on the data volume (never RAM-backed tmpfs)
+  # Every container starts on a fresh session (chained roles are capped at 1 h): re-assume and rewrite the env file first.
+  assume_loader
+  write_pipeline_env
   docker run --rm --name "pulso-pipeline-$RUN_KEY" --memory "$LOADER_MEMORY" --memory-swap "$LOADER_MEMORY" --cpus "$LOADER_CPUS" --pids-limit 512 \
     --env-file "$ENVF" -v "$WORK/e0:/e0:ro" -v "$WORK/scratch:/work" "$@"
 }
-# By table (UNVERIFIED contract, docs/auto-loader.md): each batch is its own short container, so peak memory is one batch.
+# By table (docs/auto-loader.md): each batch is its own short container on fresh credentials, so peak memory is one batch and no
+# container outlives one session. ingest_bank is resumable per file (etag manifest): a retry skips what is already ingested.
 if [ -n "$LOADER_TABLE_BATCHES" ]; then
   IFS=';' read -ra BATCHES <<< "$LOADER_TABLE_BATCHES"
   for B in "${BATCHES[@]}"; do
@@ -133,6 +140,7 @@ rm -f "$ENVF"
 # 7. Cells to the engine: the pointer moves LAST (the engine host's inputs mirror reads bank_cells/latest.json, verifies the sha256
 # and re-runs the k>=10 gate). Only after the pipeline succeeded, so the engine never sees cells of a run whose lake is incomplete.
 STEP="cells-publish"
+assume_loader # the pipeline may have run for most of an hour
 if [ -s "$WORK/cells/MANIFEST.json" ]; then
   with_loader aws s3 cp "$WORK/cells/MANIFEST.json" "$CELLS_P/latest.json" --sse aws:kms --only-show-errors
 fi
@@ -140,6 +148,7 @@ STEP="done"
 
 # 8. Done marker (idempotency), status, and drop the credentials (trap).
 printf '{"run":"%s","at":"%s"}\n' "$RUN_KEY" "$(date -u +%FT%TZ)" > "$WORK/done.json"
+assume_loader
 with_loader aws s3 cp "$WORK/done.json" "s3://$LOADER_BUCKET/lake/loader/done/$RUN_KEY.json" --sse aws:kms --only-show-errors
 status ok "loaded"
 rm -f /srv/data/loader/FAILED

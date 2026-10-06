@@ -61,7 +61,43 @@ The first publication (`lake/publish/latest.json`) is not optional on a first br
 - Limits: the pipeline runs with `docker --memory` and `--cpus` (defaults 4g and 2.0; variables `loader_memory`, `loader_cpus`),
   and the unit has `Nice=10`, `IOSchedulingClass=idle`, `CPUQuota=100%`, `MemoryMax=512M` (the unit cgroup holds the script; docker
   puts the container elsewhere, hence the docker flags).
-- Sessions last at most one hour; a longer run fails (re-run after raising the pipeline speed or splitting steps).
+- Sessions last at most one hour; the script re-assumes the role before every step and container (next section), but a single container must still finish inside one session: split it with `loader_table_batches`.
+
+## Credential refresh and retry after a partial failure
+
+The loader role is chained from the engine host role, so STS caps every session at 3600 s. A first load of about 5 GB of CSV can
+outlive one session. The script therefore assumes the role again (and rewrites the 0600 pipeline env file from the new credentials)
+before the cells export, before the cells staging upload, before EVERY `docker run` (each `LOADER_TABLE_BATCHES` batch and the final
+`build,publish` or `ingest_e0,build,publish` container, through `run_pipeline`), before the `bank_cells/latest.json` pointer and before
+the done marker. A container still cannot outlive its own session: split long work into batches so each one stays well under an hour.
+The successful path of a short run is unchanged apart from the extra `sts:AssumeRole` calls.
+
+Retry after a partial failure (the timer fires every 5 minutes; a run fails closed, the done marker is written last):
+
+| Step | On retry |
+| --- | --- |
+| cells export and staging (`bank_cells/<key>/`) | reused when the staged sha256 matches the manifest; `latest.json` still not moved |
+| `ingest_bank --tables <batch>` | idempotent and resumable per file: the bronze manifest (`bronze/_manifest/bank.parquet`, key + etag) skips CSV partitions already ingested; a batch that died mid-way re-ingests only its files not yet in the manifest (the manifest is written once at the end of a batch, so the files of the interrupted batch are redone; outputs go to a deterministic path and are overwritten) |
+| `ingest_e0` | re-run from the local E0 copy; not partial-state sensitive |
+| `build` (dbt) | rebuilds from bronze; needs ALL 13 tables ingested |
+| `publish` | NOT idempotent: it refuses to overwrite an existing `publish/<run>/`; it runs only after every earlier step succeeded, so a credential failure before it leaves nothing to overwrite. Never let a container reach `publish` on credentials that may expire mid-step: that is why the final container starts on fresh credentials |
+| `bank_cells/latest.json`, done marker | written once, last, on fresh credentials |
+
+Recommended `loader_table_batches` for the bank dataset (13 tables: six reference CSV at the root, seven partitioned facts); the batches
+must cover all 13, because with batches set the final container runs only `build,publish` and `build` needs every table:
+
+```
+customers,products,branches,service_agents,marketing_campaigns,daily_exchange_rates;call_center_interactions;call_transcripts;campaign_sends;complaints;digital_events;satisfaction_surveys;transactions
+```
+
+(the six small reference tables in one batch, then one batch per partitioned fact table; `transactions` and `digital_events` are the largest).
+The default stays empty (a single `ingest_bank` step) so nothing deployed changes until the operator sets the variable.
+
+Operator, to use batching on a retry: the live host runs a hot-patched copy of the old script. (1) Merge this change and let the engine
+bundle be republished to S3; (2) set `loader_table_batches` to the value above (a Terraform change to `loader.env`, or edit
+`LOADER_TABLE_BATCHES` in the host `loader.env` for the retry); (3) restart `pulso-stack` on the engine host, which re-copies the bundle
+`pulso-loader.sh` over the hot-patched copy; (4) `sudo systemctl start pulso-loader.service` (or wait for the timer). Already ingested
+files are skipped by the manifest. No data is deleted by a retry.
 
 ## k>=10 gate for bank_cells
 

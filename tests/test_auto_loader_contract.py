@@ -185,5 +185,46 @@ class Wiring(unittest.TestCase):
             self.assertIn(k.split("=")[0], read(LOADER / "pulso-loader.sh") + "LOADER_ROLE_ARN LOADER_EXTERNAL_ID LOADER_BUCKET LOADER_REGION LOADER_K_MIN LOADER_MEMORY LOADER_CPUS")
 
 
+class CredentialRefresh(unittest.TestCase):
+    """The chained loader role is capped at 3600 s: every long step must start on fresh credentials."""
+
+    def setUp(self):
+        self.s = read(LOADER / "pulso-loader.sh")
+
+    def body(self, name):
+        m = re.search(r"^" + re.escape(name) + r"\(\) \{.*?^\}$", self.s, re.S | re.M)
+        self.assertIsNotNone(m, name)
+        return m.group(0)
+
+    def test_every_docker_run_re_assumes_the_role_and_regenerates_the_env_file(self):
+        rp = self.body("run_pipeline")
+        self.assertEqual(self.s.count("docker run"), 1)
+        self.assertLess(rp.index("assume_loader"), rp.index("docker run"))
+        self.assertLess(rp.index("write_pipeline_env"), rp.index("docker run"))
+        env = self.body("write_pipeline_env")
+        self.assertIn('cat "$CREDS"', env)
+        self.assertIn('> "$ENVF"', env)
+
+    def test_batches_and_the_final_step_all_go_through_run_pipeline(self):
+        self.assertGreaterEqual(len(re.findall(r"^\s*run_pipeline\b", self.s, re.M)), 2)
+        loop = self.s[self.s.index("for B in"):]
+        loop = loop[:loop.index("done")]
+        self.assertIn("run_pipeline", loop)
+
+    def test_fresh_credentials_right_before_export_stage_pointer_and_done_marker(self):
+        for anchor in ('with_loader env CELLS_OUT=', 'cp "$CELLS" "$CELLS_P/$RUN_KEY/cells.ndjson"',
+                       'cp "$WORK/cells/MANIFEST.json" "$CELLS_P/latest.json"', 'cp "$WORK/done.json"'):
+            before = self.s[: self.s.index(anchor)]
+            tail = before[before.rindex("assume_loader"):]
+            for slow in ("docker run", "run_pipeline ", "python3", "aws s3 sync"):
+                self.assertNotIn(slow, tail, anchor)
+
+    def test_retry_idempotency_is_documented(self):
+        d = read(ROOT / "docs" / "auto-loader.md")
+        self.assertIn("Retry after a partial failure", d)
+        self.assertIn("loader_table_batches", d)
+        self.assertIn("customers,marketing_campaigns", read(ROOT / "terraform" / "envs" / "hackathon" / "variables.tf"))
+
+
 if __name__ == "__main__":
     unittest.main()

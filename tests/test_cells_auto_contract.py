@@ -199,7 +199,7 @@ class LoaderOrdering(unittest.TestCase):
     def test_gate_stage_reassume_pipeline_pointer_done_in_that_order(self):
         s = self.s
         order = [s.index('bash -c "$LOADER_CELLS_CMD"'), s.index('python3 "$CHECK" "$CELLS"'), s.index('"$CELLS_P/$RUN_KEY/cells.ndjson"'),
-                 s.index('STEP="pipeline"\nassume_loader'), s.index('run_pipeline "$IMAGE" --steps "$STEPS"'),
+                 s.index('  assume_loader\n  write_pipeline_env'), s.index('run_pipeline "$IMAGE" --steps "$STEPS"'),
                  s.index('"$CELLS_P/latest.json"'), s.index('lake/loader/done/$RUN_KEY.json" --sse')]
         self.assertEqual(order, sorted(order), "cells export, gate, staging, fresh session, pipeline, pointer last, done marker")
 
@@ -207,7 +207,7 @@ class LoaderOrdering(unittest.TestCase):
         self.assertEqual(self.s.count('"$CELLS_P/latest.json" --sse'), 1)
 
     def test_role_is_assumed_again_and_creds_still_sourced_in_one_place(self):
-        self.assertEqual(len(re.findall(r"(?m)^assume_loader$", self.s)), 2)
+        self.assertEqual(len(re.findall(r"(?m)^\s*assume_loader\b", self.s)), 7)  # definition, initial, export, stage, run_pipeline, pointer, done marker
         self.assertEqual(len(re.findall(r'\. "\$CREDS"', self.s)), 1)
         self.assertNotRegex(self.s, r"(?m)^\s*export\s+AWS_")
 
