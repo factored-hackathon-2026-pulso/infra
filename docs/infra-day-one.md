@@ -169,7 +169,7 @@ sudo docker compose -p pulso --project-directory /srv/stack ps
 curl -s http://127.0.0.1:8000/readyz        # the API: database ok, Core ok or degraded
 ```
 
-The restart matters on a first apply: the parameters of the public URL are written after the host exists ([edge-audit](edge-audit.md), row E11). The schema is created by the one-shot `support-platform-migrate` (owner role) that runs before the API starts (it exits 0 in `ps -a`). Then, once, the exporter grants for the engine's read-only role ([shared-postgres](shared-postgres.md#create-the-databases)), on the CORE host
+The restart matters on a first apply: the parameters of the public URL are written after the host exists ([edge-audit](edge-audit.md), row E11). The schema is created by the one-shot `support-platform-migrate` (owner role) that runs before the API starts (it exits 0 in `ps -a`). The exporter grants for the engine's read-only role are then applied AUTOMATICALLY by the core service `platform-exporter-grants` within about 30 s of the first migration (it logs `exporter grants applied`; [shared-postgres](shared-postgres.md#create-the-databases)). Manual fallback, on the CORE host
 
 ```bash
 sudo docker compose -p pulso --project-directory /srv/stack exec postgres psql -v ON_ERROR_STOP=1 -U pulso_master -d platform -f /docker-entrypoint-initdb.d/sql/26_platform_exporter_grants.sql
