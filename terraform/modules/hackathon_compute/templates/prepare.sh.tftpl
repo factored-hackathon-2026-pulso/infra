@@ -135,6 +135,7 @@ install -d -m 755 /usr/local/lib/pulso-loader
 install -d -m 700 /srv/data/loader /run/pulso/loader
 install -m 755 /srv/stack/loader/pulso-loader.sh /usr/local/bin/pulso-loader
 install -m 644 /srv/stack/loader/check_cells_k.py /usr/local/lib/pulso-loader/check_cells_k.py
+install -m 755 /srv/stack/loader/run-bank-cells.sh /usr/local/lib/pulso-loader/run-bank-cells.sh
 install -m 644 /srv/stack/loader/pulso-loader.service /srv/stack/loader/pulso-loader.timer /srv/stack/loader/pulso-loader-failed.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now pulso-loader.timer

@@ -285,6 +285,7 @@ module "compute_engine" {
   extra_bundle_files = merge(local.engine_loop, local.engine_obs, local.engine_loop_obs, local.loader_on ? {
     "loader/pulso-loader.sh"             = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader.sh")
     "loader/check_cells_k.py"            = file("${path.module}/../../../deploy/hackathon/engine/loader/check_cells_k.py")
+    "loader/run-bank-cells.sh"           = file("${path.module}/../../../deploy/hackathon/engine/loader/run-bank-cells.sh")
     "loader/pulso-loader.service"        = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader.service")
     "loader/pulso-loader.timer"          = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader.timer")
     "loader/pulso-loader-failed.service" = file("${path.module}/../../../deploy/hackathon/engine/loader/pulso-loader-failed.service")
