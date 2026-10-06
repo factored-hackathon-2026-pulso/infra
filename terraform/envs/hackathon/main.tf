@@ -79,11 +79,11 @@ locals {
   agent_limits = (local.core_memory_mb >= 8192 ? { inflight = 32, workers = 16, pool = 10 } :
   local.core_memory_mb >= 4096 ? { inflight = 16, workers = 12, pool = 6 } : { inflight = 8, workers = 8, pool = 4 })
   agent_env = local.agents ? {
-    AGENT_SERVE_ARGS     = var.agent_serve_args
-    AGENT_SERVE_AGENTS   = var.agent_serve_agents
-    AGENT_MAX_INFLIGHT   = tostring(local.agent_limits.inflight)
-    AGENT_WORKER_THREADS = tostring(local.agent_limits.workers)
-    AGENT_DB_POOL_MAX    = tostring(local.agent_limits.pool)
+    AGENT_SERVE_ARGS               = var.agent_serve_args
+    AGENT_SERVE_AGENTS             = var.agent_serve_agents
+    AGENT_MAX_INFLIGHT             = tostring(local.agent_limits.inflight)
+    AGENT_WORKER_THREADS           = tostring(local.agent_limits.workers)
+    AGENT_DB_POOL_MAX              = tostring(local.agent_limits.pool)
     AGENT_PROPOSAL_QUOTA_PER_DAY   = tostring(var.agent_proposal_quota_per_day)
     AGENT_PROPOSAL_QUOTA_OVERRIDES = var.agent_proposal_quota_overrides
   } : {}
