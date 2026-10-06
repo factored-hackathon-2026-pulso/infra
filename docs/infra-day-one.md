@@ -34,7 +34,9 @@ agent-core serve loads the field catalog `/catalog/field_classification.json`. T
 7. restart `pulso-stack` on core, then platform, then engine (layers 6 to 8)
 8. `aws-acceptance.ps1` (layer 12)
 
-A `pulso-stack-prepare` 404 on `lake/publish/latest.json` is only a warning for tool-service (it answers `data_unavailable`), but it is fatal for agent-core. A core start before step 6 therefore fails by design: do steps 4 to 6 first and restart afterwards.
+Before the first publication `pulso-stack-prepare` seeds `/srv/data/tools/current/field_classification.json` with `{}` (never over an existing catalog). agent-core's `load_catalog` accepts any JSON object, so an empty catalog is valid: fields not in it are unclassified and treated as `pii_direct` (the safe side). agent-core therefore starts on a fresh bring-up; after the first publication, restart the stack (or `pulso-deploy-core`) so the real catalog replaces `{}` (agent-core reads it once at start). Tool-service still answers `data_unavailable` until the publication is copied.
+
+`pulso-stack-prepare` also fails closed (message names the key only, never a value) while `GATEWAY__OPENROUTER_API_KEY`, `GATEWAY__JEV_API_KEY` or `AGENT__AGENTCORE_JEV_API_KEY` is still `CHANGE_ME`, and when a compose `env_file` was not rendered. The Langfuse keys only warn. On a fresh bring-up set the provider keys (layer 5) BEFORE the first start finishes; `pulso-stack` retries every 60 s without recreating containers, so it comes up by itself once the secret is complete.
 
 ## Expected time (estimates, unmeasured)
 
@@ -129,6 +131,24 @@ CHECK: `Select-String -Path terraform\envs\hackathon\prod.tfvars -Pattern 'REPLA
 Before typing `APPLY`, run the offline plan review ([aws-plan-review-checklist](aws-plan-review-checklist.md)). The apply creates three `m7i-flex.large` hosts (core, platform, engine) with their data volumes, the Postgres volume, the loader role, the SSM parameters and the CloudFront distribution. If AWS refuses a service on a Free Plan account, read the message literally ([troubleshooting](troubleshooting.md#free-plan-errors-at-apply)): a refusal costs one step. Each host starts `pulso-stack` by itself on first boot.
 
 CHECK: `.\scripts\aws-prod.ps1 status -Profile pulso-prod` lists three running instances; the CloudFront domain is `terraform -chdir=terraform/envs/hackathon output -raw cloudfront_domain_name`. The site will not answer yet: the provider keys are still `CHANGE_ME` and the databases are not bootstrapped.
+
+## Controlled replacement window (applying a `user_data` change)
+
+`user_data_replace_on_change = true`: any change to `prepare.sh.tftpl` or `user_data.sh.tftpl` replaces the three hosts (core, platform, engine) on the next apply. The batch of fixes in these two templates (no recreate on `pulso-stack` retries, loop timer with `OnUnitActiveSec` and no `Restart=`, fail-closed `CHANGE_ME` and `env_file` checks, `{}` catalog seed) is meant to be applied in ONE window. Expected `terraform plan`: 3 `aws_instance` replaced (`-/+`), the three Route53 A records updated in place (new private IPs), the EBS attachments re-created, the SSM address parameters (`PULSO_CORE_ADDR`, `PULSO_REGISTRY_ADDR`, `PULSO_LLM_GATEWAY_ADDR`, `PULSO_PLATFORM_URL`) updated in place, and the CloudFront origin host (public DNS of platform and engine) changed in place when the hosts are public. Nothing destroyed outside that; data volumes and the Postgres volume must show NO replacement or destroy (`protect_data_volume = true`). Anything else in the plan is not from this batch: stop and read it.
+
+Before the window:
+
+1. `terraform plan` and the offline review ([aws-plan-review-checklist](aws-plan-review-checklist.md)); confirm the data and Postgres volumes are not in the replace list.
+2. Back up: take an EBS snapshot of the core data volume, the Postgres volume, and the platform and engine data volumes; note the snapshot ids. Take a `pg_dump` of the core databases if the demo data matters.
+3. Image digests: SSM parameters `/pulso/<host>/images/<key>` are seeded from `prod.tfvars` and then ignored (`ignore_changes`), so deploys moved them. A replaced host renders whatever SSM holds NOW, not `prod.tfvars`. Compare both (`aws ssm get-parameters-by-path --path /pulso/core/images`, same for platform and engine) and decide which set is current; fix the wrong side before the window (`aws-prod.ps1 deploy` or `put-parameter --overwrite`).
+4. Secrets: `aws-prod.ps1 status` shows no human key UNSET; the three `CHANGE_ME` keys above must hold real values, otherwise the new hosts refuse to finish `pulso-stack-prepare` (by design). Secrets live in Secrets Manager and survive replacement.
+5. Stop the engine loop timer if a run is in progress (`systemctl stop pulso-loop.timer`); a run killed by the replacement leaves no lock (the work volume persists, and the stale lock expires after 3 h or is cleared by the status hook).
+
+Window: apply; wait for `pulso-stack` on each host (`systemctl status pulso-stack`); order core, then platform, then engine, because platform and engine render the new core IP at their next prepare (a host started before core renders the old address: restart its `pulso-stack` or run `pulso-deploy-<workload>` after core is healthy). Then:
+
+- public DNS / CloudFront: with public hosts the origin host of platform and engine changes; the distribution update is part of the apply, allow the CloudFront deployment to finish (minutes) and re-check the site through the CloudFront domain. Any DNS record kept outside Terraform that points at an instance address must be updated by hand.
+- `aws-acceptance.ps1`; `systemctl list-timers | grep pulso` on the engine shows a NEXT for `pulso-loop.timer`.
+- Rollback: the previous instances are destroyed by the apply; recovery is a re-apply of the previous commit (hosts rebuilt from the same volumes) or restoring the snapshots.
 
 ## Layer 5. Provider keys (HUMAN)
 

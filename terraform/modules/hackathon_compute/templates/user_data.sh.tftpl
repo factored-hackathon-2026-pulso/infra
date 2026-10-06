@@ -42,6 +42,27 @@ ${prepare_script}
 PREPARE
 chmod 755 /usr/local/bin/pulso-stack-prepare
 
+# pulso-stack-up: containers are RECREATED once per boot, never on a retry.
+# /run/pulso is tmpfs, so after a reboot the bind sources of the old containers (env files, key files) are gone and they must be
+# recreated: that is the reason for --force-recreate. A failed start (a dependency still unhealthy, a transient S3 or SSM error)
+# is retried by systemd every RestartSec; recreating on every retry bounced healthy containers (Postgres every ~45 s, which broke
+# platform and engine connections). So: step 1 creates the containers without starting them (--no-start --force-recreate) and
+# only then sets the marker /run/pulso/.stack-created (tmpfs: it disappears at reboot, and ExecStopPost removes it on stop);
+# step 2 is a plain `up -d`, which starts what is not running and leaves healthy containers alone. To force a recreate by hand:
+# `systemctl stop pulso-stack; systemctl start pulso-stack` (deploys use deploy-stack.sh).
+cat > /usr/local/bin/pulso-stack-up <<'UP'
+#!/bin/bash
+set -euo pipefail
+MARK="$${STACK_MARK:-/run/pulso/.stack-created}"
+if [ ! -e "$MARK" ]; then
+  /usr/bin/docker compose -p pulso up --no-start --remove-orphans --force-recreate
+  install -d -m 755 "$(dirname "$MARK")"
+  : > "$MARK"
+fi
+exec /usr/bin/docker compose -p pulso up -d --remove-orphans
+UP
+chmod 755 /usr/local/bin/pulso-stack-up
+
 cat > /etc/systemd/system/pulso-stack.service <<'UNIT'
 [Unit]
 Description=Pulso hackathon compose stack
@@ -53,14 +74,14 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/srv/stack
 ExecStartPre=/usr/local/bin/pulso-stack-prepare
-# --force-recreate: /run/pulso is tmpfs, so after a reboot the bind sources of the old containers (env files, key files) are gone;
-# the unit only runs at boot or by hand (deploys use deploy-stack.sh), so recreating here is cheap and always correct.
-ExecStart=/usr/bin/docker compose -p pulso up -d --remove-orphans --force-recreate
+ExecStart=/usr/local/bin/pulso-stack-up
 ExecStop=/usr/bin/docker compose -p pulso down
+ExecStopPost=/bin/rm -f /run/pulso/.stack-created
 TimeoutStartSec=600
 # A transient S3, SSM, ECR or Secrets Manager error in pulso-stack-prepare must not leave the host up with nothing running.
+# The retry never recreates containers (see pulso-stack-up); a long RestartSec keeps a persistent failure from spinning.
 Restart=on-failure
-RestartSec=30
+RestartSec=60
 TimeoutStopSec=120
 
 [Install]

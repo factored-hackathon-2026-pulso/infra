@@ -115,8 +115,7 @@ class LoopUnits(unittest.TestCase):
 
     def test_exit_status_handling(self):
         self.assertEqual(unit_values(self.SERVICE, "SuccessExitStatus"), ["75 143 SIGTERM"])
-        self.assertEqual(unit_values(self.SERVICE, "RestartPreventExitStatus"), ["2"])
-        self.assertEqual(unit_values(self.SERVICE, "Restart"), ["on-failure"])
+        self.assertEqual(unit_values(self.SERVICE, "Restart"), [], "the timer is the retry (tests/test_userdata_batch_contract.py)")
         self.assertEqual(unit_values(self.SERVICE, "Type"), ["oneshot"])
         self.assertIn("OnFailure=pulso-loop-failed.service", self.SERVICE)
 
@@ -128,7 +127,7 @@ class LoopUnits(unittest.TestCase):
 
     def test_timer_interval_is_a_dropin_written_by_prepare(self):
         timer = read(LOOP / "pulso-loop.timer")
-        self.assertIn("OnUnitInactiveSec=", timer)
+        self.assertIn("OnUnitActiveSec=", timer)
         prepare = read(TF / "modules" / "hackathon_compute" / "templates" / "prepare.sh.tftpl")
         self.assertIn("pulso-loop.timer.d/interval.conf", prepare)
         self.assertIn("systemctl enable --now pulso-loop.timer", prepare)

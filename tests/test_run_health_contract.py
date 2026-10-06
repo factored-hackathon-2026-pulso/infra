@@ -68,9 +68,10 @@ class DataDirectoryOwnership(unittest.TestCase):
 
     def test_boot_recreates_containers_after_the_tmpfs_is_rendered(self):
         unit = (COMPUTE / "templates" / "user_data.sh.tftpl").read_text(encoding="utf-8")
-        start = re.search(r"^ExecStart=(.*)$", unit, re.M).group(1)
-        # /run/pulso is tmpfs: after a reboot the bind sources of the old containers are gone.
-        self.assertIn("--force-recreate", start)
+        # /run/pulso is tmpfs: after a reboot the bind sources of the old containers are gone; pulso-stack-up recreates once per
+        # boot (marker on tmpfs) and never on a retry (tests/test_userdata_batch_contract.py).
+        self.assertRegex(unit, r"(?m)^ExecStart=/usr/local/bin/pulso-stack-up$")
+        self.assertIn("--force-recreate", unit)
         self.assertRegex(unit, r"(?m)^Restart=on-failure$")
 
 

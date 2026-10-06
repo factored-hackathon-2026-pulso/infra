@@ -2,8 +2,10 @@
 Description=Run the Pulso improvement loop on an interval (interval from the drop-in written by pulso-stack-prepare)
 
 [Timer]
+# OnUnitActiveSec counts from the last START of the service, so a NEXT elapse exists whatever became of the last run (failed, killed,
+# slow). The inactive-relative setting re-armed only once the unit was inactive and left `NEXT n/a` forever while it sat in auto-restart or failed.
 OnBootSec=10min
-OnUnitInactiveSec=6h
+OnUnitActiveSec=6h
 AccuracySec=1min
 Persistent=false
 

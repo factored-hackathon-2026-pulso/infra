@@ -7,8 +7,8 @@ ConditionPathExists=/srv/stack/.env
 # A run that ends in failure for good (retries used up) is visible three ways: `systemctl --failed`, the err line of
 # pulso-loop-status and /srv/data/loop/FAILED (OnFailure leaves a second marker).
 OnFailure=pulso-loop-failed.service
-StartLimitIntervalSec=6h
-StartLimitBurst=3
+# No start limit: the timer starts it once per interval and the operator may start it by hand any number of times.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
@@ -19,10 +19,8 @@ ExecStart=/usr/bin/docker compose -p pulso --project-directory /srv/stack run --
 ExecStopPost=/usr/local/bin/pulso-loop-status
 # 0 finished. 75: another run holds the lock. 143: SIGTERM, a clean stop. Everything else is a failure; exit 3 is the alert.
 SuccessExitStatus=75 143 SIGTERM
-# 2 = refused configuration (a named variable): retrying cannot help. 1 and 3 retry (a re-run resumes the per-finding records).
-RestartPreventExitStatus=2
-Restart=on-failure
-RestartSec=300
+# No Restart=: the timer is the retry (next tick; a re-run resumes the per-finding records). Restart=on-failure kept the unit in
+# `activating (auto-restart)`, which starved the timer, and burned the start limit before the first cells existed.
 # Below PULSO_LOOP_LOCK_TTL_S (10800): a killed run's lock is always older than the unit's longest life.
 TimeoutStartSec=2h
 TimeoutStopSec=90

@@ -88,7 +88,7 @@ run "loop_installs_scripts_units_and_the_interval_dropin" {
     error_message = "The inputs sync and the status hook are installed from the bundle."
   }
   assert {
-    condition     = strcontains(local.prepare_script, "OnUnitInactiveSec=%s\\n' \"90min\"") && strcontains(local.prepare_script, "systemctl enable --now pulso-loop.timer")
+    condition     = strcontains(local.prepare_script, "OnUnitActiveSec=%s\\n' \"90min\"") && strcontains(local.prepare_script, "systemctl enable --now pulso-loop.timer")
     error_message = "The timer interval is the variable, in a drop-in, and the timer is enabled."
   }
   assert {

@@ -10,7 +10,7 @@ Checked by `tests/test_engine_loop_contract.py` and the Terraform tests of `terr
 |---|---|---|
 | `compose.loop.yaml` | `/srv/stack` (bundle) | service `pulso-loop`, profile `loop` (never part of `up`), `command: ["loop"]` |
 | `pulso-loop.service` | `/etc/systemd/system` | `Type=oneshot`: sync inputs, `docker compose run --rm pulso-loop`, status hook |
-| `pulso-loop.timer` | same + drop-in `interval.conf` | `OnBootSec=10min`, then `engine_loop_interval` (default 6h) after each run ends |
+| `pulso-loop.timer` | same + drop-in `interval.conf` | `OnBootSec=10min`, then `OnUnitActiveSec=` `engine_loop_interval` (default 6h) after each run STARTS (always a next elapse; the inactive-relative setting left `NEXT n/a` while the unit was failed or in auto-restart) |
 | `pulso-inputs-sync` | `/usr/local/bin` | S3 inputs mirror (below) |
 | `pulso-loop-status` | `/usr/local/bin` | exit-status handling and alert marker |
 | `pulso-loop-failed.service` | `/etc/systemd/system` | `OnFailure=` marker `/srv/data/loop/FAILED` |
@@ -49,11 +49,11 @@ The engine mints a short-lived Ed25519 credential (compact JWS, `type=builder`, 
 | 0 | finished, every finding closed | success; clears the `FAILED` marker |
 | 75 | another run holds `loop.lock`, nothing done | `SuccessExitStatus=75` |
 | 143 | SIGTERM (stop, shutdown) | `SuccessExitStatus=143 SIGTERM`: clean. The engine does not trap SIGTERM, so `pulso-loop-status` removes the orphaned `loop.lock` (only when no loop container is left) so the next run is not blocked until the TTL |
-| 3 | finished with an infrastructure failure (registry unreachable or unauthorized, evaluation `failed_infra`, model unavailable) | FAILURE and ALERT: journal priority `err` (`journalctl -t pulso-loop -p err`), `/srv/data/loop/FAILED`, `engine/loop/status/last.json`; `Restart=on-failure` re-runs after 5 minutes, up to 3 times in 6 hours, and a re-run resumes the per-finding records |
-| 2 | refused configuration (a named variable) | `RestartPreventExitStatus=2`: not retried; also an alert; fix the variable named in the log |
+| 3 | finished with an infrastructure failure (registry unreachable or unauthorized, evaluation `failed_infra`, model unavailable) | FAILURE and ALERT: journal priority `err` (`journalctl -t pulso-loop -p err`), `/srv/data/loop/FAILED`, `engine/loop/status/last.json`; there is no `Restart=`: the next timer tick (or a manual start) re-runs it and resumes the per-finding records |
+| 2 | refused configuration (a named variable) | also an alert; fix the variable named in the log, then start by hand |
 | 1, other | could not run (inputs not synced, work dir, model setup) | failure, retried like 3 |
 
-After the retries are used up the unit is `failed` and `pulso-loop-failed.service` leaves a second marker. No SNS topic or CloudWatch alarm is wired: the alert is the journal line plus the marker (an alarm on the `err` line needs `enable_cloudwatch_agent` and a metric filter, not done).
+A failed run leaves the unit `failed` and `pulso-loop-failed.service` leaves a second marker; the next run clears it on success. No SNS topic or CloudWatch alarm is wired: the alert is the journal line plus the marker (an alarm on the `err` line needs `enable_cloudwatch_agent` and a metric filter, not done).
 
 ## The inputs mirror
 
@@ -77,8 +77,8 @@ engine_loop_cells_source = "bank"   # synthetic only with engine_loop_profile = 
 
 Adds `compose.loop.yaml`, the `loop/` scripts and units to the engine bundle (and `loader/check_cells_k.py` if the loader is off). Changing the engine `user_data` replaces the engine host on the next apply (data volume persists), like every start-script change; plan review in [deploy-readiness](deploy-readiness.md).
 
-Manual run: `sudo systemctl start pulso-loop`; check `pulso loop --check` (validates configuration, prints one JSON line, takes no lock) with `docker compose -p pulso --project-directory /srv/stack run --rm pulso-loop loop --check`.
+Manual run: `sudo systemctl start --no-block pulso-loop` (operator helpers: `docs/reports-claude/run_engine_loop_once.ps1` and `read_engine_loop_status.ps1` in the workspace); check `pulso loop --check` (validates configuration, prints one JSON line, takes no lock) with `docker compose -p pulso --project-directory /srv/stack run --rm pulso-loop loop --check`.
 
 ## What is not verified
 
-Nothing ran: no `pulso loop` process, no systemd, no S3. Unconfirmed: that `docker compose run` returns the container's exit code through systemd and `SuccessExitStatus` (documented behaviour, not exercised), that `Restart=on-failure` on a `Type=oneshot` unit behaves as intended on the host's systemd, that `PULSO_REGISTRY_ADDR` falls back to `PULSO_CORE_ADDR` as the ASK states, the shape of the loader's `latest.json` (`run` and `sha256` fields, read from `pulso-loader.sh`), and the engine image contents.
+Nothing ran: no `pulso loop` process, no systemd, no S3. Unconfirmed: that `docker compose run` returns the container's exit code through systemd and `SuccessExitStatus` (documented behaviour, not exercised), that `PULSO_REGISTRY_ADDR` falls back to `PULSO_CORE_ADDR` as the ASK states, the shape of the loader's `latest.json` (`run` and `sha256` fields, read from `pulso-loader.sh`), and the engine image contents.

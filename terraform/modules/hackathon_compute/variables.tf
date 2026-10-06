@@ -196,7 +196,7 @@ variable "loop_enabled" {
 }
 
 variable "loop_interval" {
-  description = "systemd time span between the end of one loop run and the start of the next (OnUnitInactiveSec of pulso-loop.timer), for example 6h or 90min."
+  description = "systemd time span between the start of one loop run and the start of the next (OnUnitActiveSec of pulso-loop.timer), for example 6h or 90min."
   type        = string
   default     = "6h"
 

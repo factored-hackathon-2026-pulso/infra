@@ -63,6 +63,44 @@ if grep -qE '^AGENTCORE_ALLOW_(DOUBLES|DEMO)=' /run/pulso/env/*.env; then
   exit 1
 fi
 
+# BEGIN required-values-check
+# Fail closed on human-only keys still at their CHANGE_ME placeholder (they pass every format check and health stays green
+# while every generation fails). Names only, never values. Langfuse keys only warn: the engine and core run without them.
+PLACEHOLDER_BAD=0
+need_real() { # <env file> <VAR>
+  if [ -f "$1" ] && grep -qE "^$2=CHANGE_ME$" "$1"; then
+    echo "required value $2 is still CHANGE_ME in $(basename "$1"): set it in Secrets Manager (human-only key), then restart pulso-stack" >&2
+    PLACEHOLDER_BAD=1
+  fi
+}
+need_real /run/pulso/env/gateway.env OPENROUTER_API_KEY
+need_real /run/pulso/env/gateway.env JEV_API_KEY
+need_real /run/pulso/env/agent.env AGENTCORE_JEV_API_KEY
+for v in LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY; do
+  if [ -f /run/pulso/env/langfuse.env ] && grep -qE "^$v=CHANGE_ME$" /run/pulso/env/langfuse.env; then
+    echo "WARNING: $v is still CHANGE_ME in langfuse.env; no traces reach Langfuse until a human sets it" >&2
+  fi
+done
+[ "$PLACEHOLDER_BAD" = 0 ] || exit 1
+# END required-values-check
+# BEGIN env-files-check
+# Compose aborts the WHOLE project on a missing env_file (every later up, pull and reboot). Every env_file named by the compose
+# files of this bundle (COMPOSE_FILE from .env, else compose.yaml) must have been rendered above.
+COMPOSE_LIST="$(grep -E '^COMPOSE_FILE=' /srv/stack/.env | cut -d= -f2- | tr ':' ' ' || true)"
+[ -n "$COMPOSE_LIST" ] || COMPOSE_LIST="compose.yaml"
+ENVFILE_BAD=0
+for cf in $COMPOSE_LIST; do
+  [ -f "/srv/stack/$cf" ] || continue
+  for ef in $(grep -oE '/run/pulso/env/[A-Za-z0-9_.-]+\.env' "/srv/stack/$cf" | sort -u); do
+    if [ ! -f "$ef" ]; then
+      echo "env_file $ef (named by $cf) was not rendered: its service is missing from this host's service list" >&2
+      ENVFILE_BAD=1
+    fi
+  done
+done
+[ "$ENVFILE_BAD" = 0 ] || exit 1
+# END env-files-check
+
 # Files: secret keys "FILES__<SERVICE>__<NAME>" -> /run/pulso/files/<service>/<NAME> (tmpfs, 0400, uid 10001 = the app
 # user of the images). For values that are files to the services (key sets, grants); never rendered as env lines.
 # The directories and files are rewritten IN PLACE (never rm -rf the tree): agent-core bind-mounts /run/pulso/files/agent and
@@ -119,6 +157,11 @@ if aws s3 cp "s3://$BUCKET/${publication_prefix}/latest.json" /srv/data/tools/la
   rm -f /srv/data/tools/latest.json.new
 else
   echo "WARNING: no publication at s3://$BUCKET/${publication_prefix}/latest.json; tool-service answers data_unavailable" >&2
+  # agent-core serve loads this catalog at start and exits 2 without it. `{}` is a valid empty catalog (load_catalog accepts any
+  # JSON object; fields not in it are unclassified = pii_direct, the safe side), so agent-core can start before the first loader
+  # run. Never overwrites a real catalog; the first publication replaces it, followed by a restart of agent-core.
+  [ -s /srv/data/tools/current/field_classification.json ] ||
+    { printf '{}' | install -m 444 -o 10001 -g 10001 /dev/stdin /srv/data/tools/current/field_classification.json; }
 fi
 %{ endif ~}
 %{ if install_loader ~}
@@ -155,7 +198,7 @@ install -m 755 /srv/stack/loop/pulso-inputs-sync.sh /usr/local/bin/pulso-inputs-
 install -m 755 /srv/stack/loop/pulso-loop-status.sh /usr/local/bin/pulso-loop-status
 install -m 644 /srv/stack/loop/pulso-loop.service /srv/stack/loop/pulso-loop.timer /srv/stack/loop/pulso-loop-failed.service /etc/systemd/system/
 install -d -m 755 /etc/systemd/system/pulso-loop.timer.d
-printf '[Timer]\nOnUnitInactiveSec=\nOnUnitInactiveSec=%s\n' "${loop_interval}" > /etc/systemd/system/pulso-loop.timer.d/interval.conf
+printf '[Timer]\nOnUnitActiveSec=\nOnUnitActiveSec=%s\n' "${loop_interval}" > /etc/systemd/system/pulso-loop.timer.d/interval.conf
 systemctl daemon-reload
 systemctl enable --now pulso-loop.timer
 %{ endif ~}
