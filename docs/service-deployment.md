@@ -196,7 +196,7 @@ What it does, in order (it prints each step and the typed word `DEPLOY` is requi
 3. Starts the CodeBuild project `pulso-prod-build-<service>` (Linux x86_64, `BUILD_GENERAL1_MEDIUM`, 60 minute timeout, privileged Docker, default CodeBuild network, no secrets). It builds, pushes the tag `build-<id>` to ECR, reads the digest back from ECR and writes `{image, digest}` to `s3://<bucket>/engine/build-out/<service>/<id>.json` (14-day lifecycle). Tags in ECR are immutable; deployments always use the digest.
 4. Waits, prints `IMAGE <registry>/pulso-prod/<repo>@sha256:...` and records it in the uncommitted `terraform/envs/hackathon/prod.tfvars` and in `.scratch/aws-prod/images-state.json`.
 
-The build id is printed (format `<UTC timestamp>-<6 hex>`). A failed build prints its status and the log command (`aws logs tail /aws/codebuild/pulso-prod-build-<service> --since 2h`). The compute size is the infra variable `var.image_builder_compute_type`; the whole builder can be switched off with `var.enable_image_builder`.
+The build id is printed (format `<UTC timestamp>-<6 hex>`). A failed build prints its status and the log command (`aws logs tail /aws/codebuild/pulso-prod-build-<service> --since 2h`). The compute size is the infra variable `var.image_builder_compute_type`; the `pulso-engine` project (Rust release build inside `docker build`) is separate: `var.image_builder_engine_compute_type` (default `BUILD_GENERAL1_MEDIUM`, 7 GB) and a 120 minute timeout in every profile, so build it with `-BuildArg CARGO_BUILD_JOBS=4`; the whole builder can be switched off with `var.enable_image_builder`.
 
 Docker Hub limits anonymous pulls per IP; if a `FROM` fails with `toomanyrequests`, retry later or pull your base images from an ECR mirror (ask the infra owner).
 

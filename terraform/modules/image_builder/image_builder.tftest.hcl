@@ -279,3 +279,29 @@ run "records_use_the_bucket_default_key_not_the_aws_managed_one" {
     error_message = "No --sse flag: the bucket default (the data KMS key) encrypts the record; --sse aws:kms alone would pick the AWS-managed key that readers cannot decrypt with."
   }
 }
+
+run "a_service_can_override_compute_type_and_timeout" {
+  command = plan
+  variables {
+    enabled = true
+    services = {
+      "pulso-engine" = {
+        repository   = "pulso-prod/pulso-engine"
+        compute_type = "BUILD_GENERAL1_LARGE"
+        timeout_mins = 120
+      }
+      "llm-gateway" = {
+        repository = "pulso-prod/llm-gateway"
+      }
+    }
+  }
+
+  assert {
+    condition     = one(aws_codebuild_project.this["pulso-engine"].environment).compute_type == "BUILD_GENERAL1_LARGE" && aws_codebuild_project.this["pulso-engine"].build_timeout == 120
+    error_message = "The per-service compute_type and timeout_mins win."
+  }
+  assert {
+    condition     = one(aws_codebuild_project.this["llm-gateway"].environment).compute_type == "BUILD_GENERAL1_MEDIUM" && aws_codebuild_project.this["llm-gateway"].build_timeout == 60
+    error_message = "A service without overrides keeps the module defaults."
+  }
+}

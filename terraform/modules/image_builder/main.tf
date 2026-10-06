@@ -107,7 +107,7 @@ resource "aws_codebuild_project" "this" {
   name          = local.project_names[each.key]
   description   = "Builds ${each.key} from a source zip in S3 and pushes it to ECR (${each.value.repository}). Records the digest; does not deploy."
   service_role  = aws_iam_role.build[each.key].arn
-  build_timeout = var.timeout_mins
+  build_timeout = coalesce(each.value.timeout_mins, var.timeout_mins)
   tags          = local.tags
 
   artifacts {
@@ -115,7 +115,7 @@ resource "aws_codebuild_project" "this" {
   }
 
   environment {
-    compute_type    = var.compute_type
+    compute_type    = coalesce(each.value.compute_type, var.compute_type)
     image           = var.build_image
     type            = "LINUX_CONTAINER"
     privileged_mode = true # docker daemon inside the build

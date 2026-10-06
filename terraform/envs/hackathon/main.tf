@@ -79,11 +79,11 @@ locals {
   agent_limits = (local.core_memory_mb >= 8192 ? { inflight = 32, workers = 16, pool = 10 } :
   local.core_memory_mb >= 4096 ? { inflight = 16, workers = 12, pool = 6 } : { inflight = 8, workers = 8, pool = 4 })
   agent_env = local.agents ? {
-    AGENT_SERVE_ARGS     = var.agent_serve_args
-    AGENT_SERVE_AGENTS   = var.agent_serve_agents
-    AGENT_MAX_INFLIGHT   = tostring(local.agent_limits.inflight)
-    AGENT_WORKER_THREADS = tostring(local.agent_limits.workers)
-    AGENT_DB_POOL_MAX    = tostring(local.agent_limits.pool)
+    AGENT_SERVE_ARGS               = var.agent_serve_args
+    AGENT_SERVE_AGENTS             = var.agent_serve_agents
+    AGENT_MAX_INFLIGHT             = tostring(local.agent_limits.inflight)
+    AGENT_WORKER_THREADS           = tostring(local.agent_limits.workers)
+    AGENT_DB_POOL_MAX              = tostring(local.agent_limits.pool)
     AGENT_PROPOSAL_QUOTA_PER_DAY   = tostring(var.agent_proposal_quota_per_day)
     AGENT_PROPOSAL_QUOTA_OVERRIDES = var.agent_proposal_quota_overrides
   } : {}
@@ -317,14 +317,15 @@ module "edge" {
 # Cloud image builds and the deploy mechanism. Digests are changed by deployments (SSM), never by an apply;
 # the deployer policies below are for the IAM users or roles the human creates for the service teams.
 locals {
-  # One build project per repository created by terraform/bootstrap. core-runtime is built from the improvement-engine
+  # One build project per repository created by terraform/bootstrap. pulso-engine compiles the Rust workspace inside docker build
+  # (about 150 crates): it gets MEDIUM (7 GB) and 120 minutes in every profile, the others use the profile default. core-runtime is built from the improvement-engine
   # repo (core-bridge/) with the pinned agent-core checkout as the named build context "core".
   build_services = {
     "core-runtime"         = { repository = "${var.ecr_repository_prefix}/core-runtime", dockerfile = "core-bridge/Dockerfile", context_dir = "core-bridge", core_context_dir = "agent-core" }
     "llm-gateway"          = { repository = "${var.ecr_repository_prefix}/llm-gateway" }
     "support-platform-api" = { repository = "${var.ecr_repository_prefix}/support-platform-api", dockerfile = "backend/Dockerfile", context_dir = "backend" }
     "support-platform-web" = { repository = "${var.ecr_repository_prefix}/support-platform-web", dockerfile = "frontend/Dockerfile", context_dir = "frontend" }
-    "pulso-engine"         = { repository = "${var.ecr_repository_prefix}/pulso-engine" }
+    "pulso-engine"         = { repository = "${var.ecr_repository_prefix}/pulso-engine", compute_type = coalesce(var.image_builder_engine_compute_type, "BUILD_GENERAL1_MEDIUM"), timeout_mins = 120 }
     "caddy"                = { repository = "${var.ecr_repository_prefix}/caddy", mode = "mirror" }
   }
   # agent-core serve is built from the agent-core repo's own Dockerfile (not core-bridge); tool-service from its repo.
