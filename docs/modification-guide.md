@@ -44,6 +44,7 @@ A compute module needs: workload name (`core`, `platform`, `engine`), subnet, se
 | `data_volume_size_gb` | 20, 20, 40 | data volume per host |
 | `protect_data_volume` | `true` | `prevent_destroy` volume variant |
 | `enable_cloudwatch_agent` | `false` | ship docker logs to CloudWatch |
+| `docker_log_retention_days` | `30` | retention of the `/<name_prefix>/docker` log group (managed only with the agent on; import an existing agent-created group once) |
 | `ecr_registry_url` | derived | `<account id>.dkr.ecr.<region>.amazonaws.com` |
 | `images` | required | digest-pinned full image refs per host |
 | `enable_waf` | `true` | WAFv2 on the distribution |
