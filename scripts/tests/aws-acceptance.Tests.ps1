@@ -64,7 +64,7 @@ Describe 'aws-acceptance.ps1 (mocked curl and aws)' {
         Mock Invoke-Curl {
             $verb = if ($Method) { $Method } else { 'GET' }   # Pester mocks do not keep the default parameter values
             $key = "$verb " + ($Url -replace '^https://[^/]+', '' -replace '\?.*$', '')
-            $global:AccHttpLog.Add("$key token=$([bool]$Token)")
+            $global:AccHttpLog.Add("$key token=$([bool]$BearerToken)")
             if ($global:AccHttp.ContainsKey($key)) { return $global:AccHttp[$key] }
             [pscustomobject]@{ Status = 404; Body = ''; Error = '' }
         }

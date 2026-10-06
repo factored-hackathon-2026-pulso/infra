@@ -62,9 +62,9 @@ locals {
   } : {}
 
   wired_platform_db = var.platform_database_enabled ? {
-    "SUPPORT__CC_DATABASE_URL"         = local.dsn["platform_app"]
-    "MIGRATE__CC_DATABASE_URL" = local.dsn["platform_owner"]
-    "PULSO__PULSO_PG_PRODUCT_DSN"      = local.dsn["platform_exp"]
+    "SUPPORT__CC_DATABASE_URL"    = local.dsn["platform_app"]
+    "MIGRATE__CC_DATABASE_URL"    = local.dsn["platform_owner"]
+    "PULSO__PULSO_PG_PRODUCT_DSN" = local.dsn["platform_exp"]
   } : {}
 
   wired_loader = var.auto_loader_enabled ? { "LOADER__PSEUDONYM_KEY" = local.pseudonym_key } : {}

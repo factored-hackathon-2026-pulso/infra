@@ -95,7 +95,7 @@ function ConvertTo-CurlValue([string]$Value) {
 function Invoke-Curl {
     # One HTTP call. The URL, headers and body (which may hold a token or the demo password) go to curl as a config on its
     # standard input: nothing sensitive is ever in a command line or on disk. Returns Status (0 = no answer), Body, Error.
-    param([string]$Method = 'GET', [string]$Url, [string]$Token = '', [string]$Body = '', [hashtable]$Headers = @{}, [int]$TimeoutSec = 30)
+    param([string]$Method = 'GET', [string]$Url, [string]$BearerToken = '', [string]$Body = '', [hashtable]$Headers = @{}, [int]$TimeoutSec = 30)
     $cfg = New-Object System.Collections.Generic.List[string]
     $cfg.Add('url = "' + (ConvertTo-CurlValue $Url) + '"')
     $cfg.Add('request = "' + $Method + '"')
@@ -103,7 +103,7 @@ function Invoke-Curl {
     $cfg.Add('show-error')
     $cfg.Add('max-time = ' + $TimeoutSec)
     $cfg.Add('write-out = "\n%{http_code}"')
-    if ($Token) { $cfg.Add('header = "Authorization: Bearer ' + (ConvertTo-CurlValue $Token) + '"') }
+    if ($BearerToken) { $cfg.Add('header = "Authorization: Bearer ' + (ConvertTo-CurlValue $BearerToken) + '"') }
     foreach ($k in $Headers.Keys) { $cfg.Add('header = "' + (ConvertTo-CurlValue ("${k}: " + $Headers[$k])) + '"') }
     if ($Body) {
         $cfg.Add('header = "Content-Type: application/json"')
@@ -231,7 +231,7 @@ function Test-DemoLogin {
     $token = Get-Prop $mj @('token')
     if (-not $token) { Add-Result $id 'FAIL' "mfa $(Get-FailureText $m) (the dev code 000000 only works with CC_ENV=staging)"; return }
     $script:Tokens.Supervisor = $token
-    $me = Invoke-Curl -Url "$($script:Ctx.Base)/api/v1/auth/me" -Token $token -TimeoutSec 20
+    $me = Invoke-Curl -Url "$($script:Ctx.Base)/api/v1/auth/me" -BearerToken $token -TimeoutSec 20
     if ($me.Status -ne 200) { Add-Result $id 'FAIL' "session token refused by /auth/me: $(Get-FailureText $me)"; return }
     Add-Result $id 'PASS' 'supervisor logged in with password and the dev MFA code; session token accepted by /auth/me'
 }
@@ -251,14 +251,14 @@ function Test-CustomerChat {
     if (-not $ctoken) { Add-Result $id 'FAIL' "customer session $(Get-FailureText $s)"; return }
     $script:Tokens.Customer = $ctoken
     $mid = [guid]::NewGuid().ToString()
-    $t = Invoke-Curl -Method POST -Url "$base/api/v1/customer/conversation/turns" -Token $ctoken -Headers @{ 'Idempotency-Key' = $mid } `
+    $t = Invoke-Curl -Method POST -Url "$base/api/v1/customer/conversation/turns" -BearerToken $ctoken -Headers @{ 'Idempotency-Key' = $mid } `
         -Body (@{ text = $script:Cfg.CustomerMessage; clientMessageId = $mid } | ConvertTo-Json -Compress) -TimeoutSec 60
     if ($t.Status -notin 200, 201) { Add-Result $id 'FAIL' "writing the customer turn $(Get-FailureText $t) (agent-core, the gateway or the JEV key can be the cause: check agent-core-ready)"; return }
     $started = Get-Date
     $deadline = $started.AddSeconds($script:Cfg.ChatWaitSeconds)
     $answer = $null
     while ((Get-Date) -lt $deadline) {
-        $c = Invoke-Curl -Url "$base/api/v1/customer/conversation" -Token $ctoken -TimeoutSec 30
+        $c = Invoke-Curl -Url "$base/api/v1/customer/conversation" -BearerToken $ctoken -TimeoutSec 30
         $cj = Get-Json $c
         $turns = @(Get-Prop $cj @('turns'))
         $answer = $turns | Where-Object { $_ -and (Get-Prop $_ @('authorRole', 'author_role')) -eq 'assistant' } | Select-Object -First 1
@@ -266,7 +266,7 @@ function Test-CustomerChat {
         Start-Sleep -Seconds 3
     }
     if (-not $answer) {
-        Add-Result $id 'FAIL' "no assistant turn within ${ChatWaitSeconds}s: the platform did not get an answer from agent-core (check the AI switch, agent-core-ready, the gateway and the OpenRouter and JEV keys)"
+        Add-Result $id 'FAIL' "no assistant turn within $($script:Cfg.ChatWaitSeconds)s: the platform did not get an answer from agent-core (check the AI switch, agent-core-ready, the gateway and the OpenRouter and JEV keys)"
         return
     }
     $secs = [int]((Get-Date) - $started).TotalSeconds
@@ -286,7 +286,7 @@ function Test-EngineAnnounce {
     $id = 'engine-announce'
     if (-not $script:Ctx.Base) { Add-Result $id 'SKIP' 'no CloudFront URL'; return }
     if (-not $script:Tokens.Supervisor) { Add-Result $id 'SKIP' 'no supervisor session (demo-login did not pass)'; return }
-    $r = Invoke-Curl -Url "$($script:Ctx.Base)/api/v1/builder/proposals?limit=50" -Token $script:Tokens.Supervisor -TimeoutSec 60
+    $r = Invoke-Curl -Url "$($script:Ctx.Base)/api/v1/builder/proposals?limit=50" -BearerToken $script:Tokens.Supervisor -TimeoutSec 60
     $j = Get-Json $r
     if (-not $j) { Add-Result $id 'FAIL' "GET /builder/proposals $(Get-FailureText $r) (404 assistant_disabled: the AI switch is off or agent-core is not configured)"; return }
     $items = @(Get-Prop $j @('items'))
