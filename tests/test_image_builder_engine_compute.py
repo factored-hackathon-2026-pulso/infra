@@ -13,11 +13,8 @@ MODULE_VARS = (ROOT / "terraform" / "modules" / "image_builder" / "variables.tf"
 class EngineBuildCompute(unittest.TestCase):
     def test_engine_service_sets_its_own_compute_and_timeout(self):
         line = next(l for l in MAIN.splitlines() if l.strip().startswith('"pulso-engine"'))
-        self.assertIn("compute_type = local.engine_compute_type", line)
+        self.assertIn('compute_type = coalesce(var.image_builder_engine_compute_type, "BUILD_GENERAL1_MEDIUM")', line)
         self.assertRegex(line, r"timeout_mins\s*=\s*(1[2-9]\d|[2-9]\d\d)")
-
-    def test_engine_compute_defaults_to_medium_in_every_profile(self):
-        self.assertRegex(MAIN, r'engine_compute_type\s*=\s*coalesce\(var\.image_builder_engine_compute_type, "BUILD_GENERAL1_MEDIUM"\)')
 
     def test_module_honours_per_service_overrides(self):
         self.assertIn("coalesce(each.value.compute_type, var.compute_type)", MODULE)
