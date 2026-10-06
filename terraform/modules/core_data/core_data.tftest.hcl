@@ -82,7 +82,7 @@ run "consumer_names_must_be_safe" {
 }
 
 run "task_statements_stay_inside_the_workload_iam_rules" {
-  command = plan
+  command = apply
 
   assert {
     condition     = !strcontains(jsonencode(output.task_statements), "kms:") && !strcontains(jsonencode(output.task_statements), "secretsmanager:") && !strcontains(jsonencode(output.task_statements), "Delete")
