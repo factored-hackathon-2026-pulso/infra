@@ -97,7 +97,7 @@ class RenderedCompose(unittest.TestCase):
         cls.engine, cls.engine_dev = pl.render_compose(cls.engine_src, AVAILABLE, "infb", "engine")
 
     def test_services_without_an_image_are_dropped_and_reported_as_slots(self):
-        self.assertEqual(set(self.core["services"]), {"postgres", "pulso-db-bootstrap", "llm-gateway", "tool-service"})
+        self.assertEqual(set(self.core["services"]), {"postgres", "postgres-bundle-perms", "pulso-db-bootstrap", "llm-gateway", "tool-service"})
         text = "\n".join(self.core_dev)
         for slot in ("agent-core", "core-runtime", "core-migrate"):
             self.assertIn(f"service {slot} dropped", text)
@@ -117,7 +117,10 @@ class RenderedCompose(unittest.TestCase):
 
     def test_remaining_depends_on_conditions_are_unchanged(self):
         self.assertEqual(self.engine["services"]["proxy"]["depends_on"], {"pulso": {"condition": "service_healthy"}})
-        self.assertNotIn("depends_on", self.core["services"]["postgres"])
+        self.assertEqual(
+            self.core["services"]["postgres"]["depends_on"],
+            {"postgres-bundle-perms": {"condition": "service_completed_successfully"}},
+        )
 
     def test_env_file_names_are_the_hosts_under_a_local_directory(self):
         self.assertEqual(self.engine["services"]["pulso"]["env_file"], ["./env/common.env", "./env/pulso.env"])
