@@ -999,6 +999,41 @@ Describe 'set-secret' {
         $out | Should Not Match 'secretlf'
     }
 
+    It 'status reports an ABSENT fan-out copy (AGENT__AGENTCORE_JEV_API_KEY) as MISSING and names its source key' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Invoke-Aws {
+            if ($CliArgs[0] -eq 'secretsmanager') { return '{"GATEWAY__OPENROUTER_API_KEY":"k1","GATEWAY__JEV_API_KEY":"supersecretvalue1","LANGFUSE__LANGFUSE_PUBLIC_KEY":"a","LANGFUSE__LANGFUSE_SECRET_KEY":"b"}' }
+            if ($CliArgs[0] -eq 'ec2') { return @() }
+            '{"UserId":"x","Account":"000000000000","Arn":"arn:aws:iam::000000000000:user/x"}'
+        }
+        $out = (Run 'status' 'pulso-prod' @{}) -join "`n"
+        $out | Should Match 'UNSET \(fan-out copy[^)]*\): AGENT__AGENTCORE_JEV_API_KEY \(MISSING, copy of GATEWAY__JEV_API_KEY\)'
+        $out | Should Not Match 'supersecretvalue1'
+    }
+
+    It 'status reports a CHANGE_ME fan-out copy once, not again under the wired keys' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Invoke-Aws {
+            if ($CliArgs[0] -eq 'secretsmanager') { return '{"GATEWAY__OPENROUTER_API_KEY":"k1","GATEWAY__JEV_API_KEY":"k2","AGENT__AGENTCORE_JEV_API_KEY":"CHANGE_ME"}' }
+            if ($CliArgs[0] -eq 'ec2') { return @() }
+            '{"UserId":"x","Account":"000000000000","Arn":"arn:aws:iam::000000000000:user/x"}'
+        }
+        $out = (Run 'status' 'pulso-prod' @{}) -join "`n"
+        $out | Should Match 'UNSET \(fan-out copy[^)]*\): AGENT__AGENTCORE_JEV_API_KEY \(copy of GATEWAY__JEV_API_KEY\)'
+        $out | Should Match 'should be wired; run seed-secret-keys\): \(none\)'
+    }
+
+    It 'status reports no fan-out gap when every copy is set' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Invoke-Aws {
+            if ($CliArgs[0] -eq 'secretsmanager') { return '{"GATEWAY__JEV_API_KEY":"k2","AGENT__AGENTCORE_JEV_API_KEY":"k2"}' }
+            if ($CliArgs[0] -eq 'ec2') { return @() }
+            '{"UserId":"x","Account":"000000000000","Arn":"arn:aws:iam::000000000000:user/x"}'
+        }
+        $out = (Run 'status' 'pulso-prod' @{}) -join "`n"
+        $out | Should Match 'UNSET \(fan-out copy[^)]*\): \(none\)'
+    }
+
     It 'status marks unset Langfuse keys as optional' {
         Use-Fakes 'arn:aws:iam::000000000000:user/x'
         Mock Invoke-Aws {
