@@ -79,6 +79,7 @@ STEPS="build,publish"
 [ -z "$LOADER_TABLE_BATCHES" ] && STEPS="ingest_bank,$STEPS"
 if [ -n "$E0_PREFIX" ]; then
   with_loader aws s3 sync "s3://$LOADER_BUCKET/$E0_PREFIX" "$WORK/e0" --only-show-errors
+  chown -R 10001:10001 "$WORK/e0" # umask 077 made the synced files 0600 root; the pipeline container (uid 10001) mounts them read-only
   STEPS="ingest_e0,$STEPS"
 fi
 
