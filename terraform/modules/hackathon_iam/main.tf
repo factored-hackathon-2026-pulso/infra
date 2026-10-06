@@ -135,6 +135,17 @@ locals {
           Resource = [local.loader_role_arn]
         },
       ] : [],
+      # The deploy bundles (deploy-stack.sh runs as root on every host through the pulso-deploy-<host> SSM documents) and the
+      # host-builder source/output live under engine/, which the engine role may otherwise write. An explicit Deny wins over the
+      # engine/* Allow: the engine keeps reading them (bundle, inputs) but cannot replace or delete them.
+      w == "engine" ? [
+        {
+          Sid      = "DenyEngineWriteToDeployAndBuild"
+          Effect   = "Deny"
+          Action   = ["s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion", "s3:AbortMultipartUpload"]
+          Resource = ["${local.bucket_arn}/${var.bundle_prefix}/*", "${local.bucket_arn}/engine/build-src/*", "${local.bucket_arn}/engine/build-out/*"]
+        },
+      ] : [],
       length(c.ro) == 0 ? [] : [
         {
           Sid      = "ObjectReadOnly"

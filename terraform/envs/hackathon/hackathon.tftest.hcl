@@ -363,3 +363,39 @@ run "engine_credentials_and_addresses" {
     error_message = "Engine host gets the Core and gateway addresses as SSM values (IP literals from the core host)."
   }
 }
+
+run "docker_log_group_has_retention_when_the_agent_is_on" {
+  command = plan
+
+  variables {
+    enable_cloudwatch_agent = true
+  }
+
+  assert {
+    condition     = one(aws_cloudwatch_log_group.docker).name == "/pulso-prod/docker" && one(aws_cloudwatch_log_group.docker).retention_in_days == 30
+    error_message = "The shared docker log group is managed with a 30 day default retention."
+  }
+}
+
+run "docker_log_group_retention_is_configurable" {
+  command = plan
+
+  variables {
+    enable_cloudwatch_agent   = true
+    docker_log_retention_days = 90
+  }
+
+  assert {
+    condition     = one(aws_cloudwatch_log_group.docker).retention_in_days == 90
+    error_message = "docker_log_retention_days sets the retention."
+  }
+}
+
+run "no_docker_log_group_without_the_agent" {
+  command = plan
+
+  assert {
+    condition     = length(aws_cloudwatch_log_group.docker) == 0
+    error_message = "No log group when the agent is off."
+  }
+}

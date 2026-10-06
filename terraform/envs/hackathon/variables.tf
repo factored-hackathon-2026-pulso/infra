@@ -58,6 +58,12 @@ variable "enable_cloudwatch_agent" {
   default = false
 }
 
+variable "docker_log_retention_days" {
+  type        = number
+  default     = 30
+  description = "Retention of the shared /<name_prefix>/docker log group (only managed when enable_cloudwatch_agent is true)."
+}
+
 variable "ecr_registry_url" {
   type        = string
   default     = null

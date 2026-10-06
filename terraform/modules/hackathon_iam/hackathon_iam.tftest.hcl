@@ -305,3 +305,48 @@ run "core_read_prefixes_are_read_only_and_listed" {
     error_message = "Core may list the publication (the sync follows latest.json)."
   }
 }
+
+run "engine_cannot_write_or_delete_deploy_bundles_or_build_prefixes" {
+  command = plan
+
+  assert {
+    condition     = length([for s in jsondecode(aws_iam_policy.host["engine"].policy).Statement : s if s.Sid == "DenyEngineWriteToDeployAndBuild"]) == 1
+    error_message = "The engine role carries an explicit deny on the deploy bundles and build prefixes (deploy-stack.sh runs as root on every host)."
+  }
+
+  assert {
+    condition = (
+      [for s in jsondecode(aws_iam_policy.host["engine"].policy).Statement : s if s.Sid == "DenyEngineWriteToDeployAndBuild"][0].Effect == "Deny"
+      && toset(flatten([[for s in jsondecode(aws_iam_policy.host["engine"].policy).Statement : s if s.Sid == "DenyEngineWriteToDeployAndBuild"][0].Resource])) == toset([
+        "arn:aws:s3:::hk-data-bucket/engine/deploy/*",
+        "arn:aws:s3:::hk-data-bucket/engine/build-src/*",
+        "arn:aws:s3:::hk-data-bucket/engine/build-out/*",
+      ])
+      && toset(flatten([[for s in jsondecode(aws_iam_policy.host["engine"].policy).Statement : s if s.Sid == "DenyEngineWriteToDeployAndBuild"][0].Action])) == toset(["s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion", "s3:AbortMultipartUpload"])
+    )
+    error_message = "Deny covers put/delete/abort on engine/deploy, engine/build-src and engine/build-out only."
+  }
+
+  assert {
+    condition     = alltrue([for w in ["core", "platform"] : length([for s in jsondecode(aws_iam_policy.host[w].policy).Statement : s if s.Effect == "Deny"]) == 0])
+    error_message = "Core and platform keep their own policies; the deny is engine-only."
+  }
+
+  assert {
+    condition     = contains(flatten([[for s in jsondecode(aws_iam_policy.host["engine"].policy).Statement : s if s.Sid == "ObjectReadWrite"][0].Resource]), "arn:aws:s3:::hk-data-bucket/engine/*")
+    error_message = "The engine keeps engine/* (inputs, job store, loader and loop status, inbox) for everything the deny does not cover."
+  }
+}
+
+run "deny_follows_a_custom_bundle_prefix" {
+  command = plan
+
+  variables {
+    bundle_prefix = "engine/bundles"
+  }
+
+  assert {
+    condition     = contains(flatten([[for s in jsondecode(aws_iam_policy.host["engine"].policy).Statement : s if s.Sid == "DenyEngineWriteToDeployAndBuild"][0].Resource]), "arn:aws:s3:::hk-data-bucket/engine/bundles/*")
+    error_message = "The deny tracks bundle_prefix."
+  }
+}

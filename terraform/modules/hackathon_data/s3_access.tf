@@ -85,8 +85,15 @@ locals {
       {
         Sid      = "EncryptWithDataKey"
         Effect   = "Allow"
-        Action   = ["kms:GenerateDataKey", "kms:Encrypt"]
+        Action   = ["kms:GenerateDataKey", "kms:Encrypt", "kms:Decrypt"] # Decrypt: multipart parts on an SSE-KMS bucket
         Resource = [aws_kms_key.data.arn]
+      },
+      {
+        Sid       = "ListLanding"
+        Effect    = "Allow"
+        Action    = ["s3:ListBucket"]
+        Resource  = [local.bucket_arn]
+        Condition = { StringLike = { "s3:prefix" = ["landing/*"] } }
       },
     ]
   })
