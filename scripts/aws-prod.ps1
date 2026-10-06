@@ -15,7 +15,7 @@
   written inside the repository (only a short-lived temp file outside it, deleted at once). Every other key is kept.
 
   images -Service <name> -SourceDir <dir> builds one image in AWS CodeBuild (no local Docker needed): it zips the
-  source (never .git, node_modules, target, .env, keys or credentials; the excluded paths are printed), uploads it to
+  source (never .git, node_modules, target, .env, keys or credentials data files; source code such as credentials.py is kept; the excluded paths are printed), uploads it to
   the data bucket, starts the build, waits and prints the resulting repo@sha256 digest. deploy -Service <name>
   (-Digest sha256:... | -FromBuild <id> | -Rollback) writes the digest to SSM Parameter Store and runs the
   pulso-deploy-<workload> command on the host: no instance is replaced and no terraform apply is needed.
@@ -305,15 +305,22 @@ function Get-DataBucket([string]$Account) { "pulso-prod-data-$Account" }
 function Get-Registry([string]$Account) { "$Account.dkr.ecr.$($script:Region).amazonaws.com" }
 
 $script:ExcludedNames = @('.git', 'node_modules', 'target', '.venv', 'venv', '__pycache__', '.terraform', '.scratch', '.idea', '.vscode', '.aws', '.ssh')
-$script:ExcludedPatterns = @('.env', '.env.*', '*.pem', '*.key', '*.p12', '*.pfx', '*.jks', '*.keystore', '*credentials*', 'id_rsa*', 'id_ed25519*', 'id_ecdsa*',
-    '*.tfstate', '*.tfstate.*', '*.tfvars', '.npmrc', '.pypirc', '.netrc', '.dockercfg', 'secrets.*', '*.secret', '*.secrets')
+# Hard secret patterns: excluded whatever the extension (id_rsa.py stays out, foo.pem stays out).
+$script:ExcludedPatterns = @('.env', '.env.*', '*.pem', '*.key', '*.p12', '*.pfx', '*.jks', '*.keystore', 'id_rsa*', 'id_ed25519*', 'id_ecdsa*',
+    '*.tfstate', '*.tfstate.*', '*.tfvars', '.npmrc', '.pypirc', '.netrc', '.dockercfg', '*.secret')
+# Name-only patterns: they match data-like files (credentials.json, secrets.yaml) but also source code the app imports
+# (cc_platform/application/ai/credentials.py). Files with a SOURCE extension are exempt from these; directories are not.
+$script:NameOnlyPatterns = @('*credentials*', 'secrets.*', '*.secrets')
+$script:SourceExtensions = @('.py', '.rs', '.ts', '.tsx', '.js', '.go')
 $script:KeptNames = @('.env.example', '.env.sample', '.env.template')
 
-function Test-ExcludedPath([string]$RelativePath) {
+function Test-ExcludedPath([string]$RelativePath, [switch]$Directory) {
     $name = ($RelativePath -replace '\\', '/').TrimEnd('/').Split('/')[-1]
     if ($script:KeptNames -contains $name.ToLowerInvariant()) { return $false }
     if ($script:ExcludedNames -contains $name) { return $true }
     foreach ($pattern in $script:ExcludedPatterns) { if ($name -like $pattern) { return $true } }
+    $isSource = (-not $Directory) -and ($script:SourceExtensions -contains [IO.Path]::GetExtension($name).ToLowerInvariant())
+    if (-not $isSource) { foreach ($pattern in $script:NameOnlyPatterns) { if ($name -like $pattern) { return $true } } }
     $false
 }
 
@@ -340,7 +347,7 @@ function New-SourceZip([string]$ZipPath, [object[]]$Roots) {
                 foreach ($item in (Get-ChildItem -LiteralPath $dir -Force)) {
                     $rel = $node.Rel + $item.Name
                     $suffix = if ($item.PSIsContainer) { '/' } else { '' }
-                    if ((Test-ExcludedPath $rel) -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $excluded.Add("$prefix$rel$suffix"); continue }
+                    if ((Test-ExcludedPath $rel -Directory:$item.PSIsContainer) -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $excluded.Add("$prefix$rel$suffix"); continue }
                     if ($item.PSIsContainer) { $pending.Push(@{ Dir = $item.FullName; Rel = "$rel/" }); continue }
                     if ($rel -eq '.dockerignore' -and @($root.AllowInDockerignore).Count) {
                         # Staged context: a .dockerignore that excludes a path the Dockerfile needs (agent-core excludes

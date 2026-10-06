@@ -301,6 +301,32 @@ Describe 'Test-ExcludedPath and New-SourceZip' {
         foreach ($p in '.env.example', 'Dockerfile', 'main.rs', 'README.md') { Test-ExcludedPath $p | Should Be $false }
     }
 
+    It 'keeps source code named like a secret but excludes data-like and hard secret files' {
+        foreach ($p in 'credentials.py', 'credentials.rs', 'credentials.ts', 'credentials.tsx', 'credentials.js', 'credentials.go', 'secrets.py', 'aws_credentials.py') {
+            Test-ExcludedPath $p | Should Be $false
+        }
+        foreach ($p in 'credentials.json', 'credentials.yaml', 'credentials', 'aws_credentials.txt', 'credentials.py.bak', 'secrets.json', 'app.secrets', 'db.secret',
+            '.env', '.env.prod', 'foo.pem', 'id_rsa', 'id_rsa.py', 'id_ed25519.ts', 'x.key', 'a.tfstate', 'a.tfvars', '.npmrc', 'credentials.py.pem') {
+            Test-ExcludedPath $p | Should Be $true
+        }
+        Test-ExcludedPath 'credentials' -Directory | Should Be $true
+        Test-ExcludedPath 'x/credentials.py/' -Directory | Should Be $true
+        Test-ExcludedPath '.ssh' -Directory | Should Be $true
+    }
+
+    It 'zip keeps credentials.py, drops credentials data and lists them' {
+        $src = Join-Path $TestDrive 'srccred'; New-Item -ItemType Directory -Path (Join-Path $src 'pkg') -Force | Out-Null
+        foreach ($f in 'pkg/credentials.py', 'pkg/credentials.json', 'pkg/credentials', 'pkg/id_rsa.py', 'pkg/foo.pem', 'pkg/ok.py') { Set-Content -LiteralPath (Join-Path $src $f) -Value 'x' }
+        $zip = Join-Path $TestDrive 'cred.zip'
+        $r = New-SourceZip -ZipPath $zip -Roots @(@{ Dir = $src; Prefix = '' })
+        $e = Get-ZipEntries $zip
+        $e -contains 'pkg/credentials.py' | Should Be $true
+        $e -contains 'pkg/ok.py' | Should Be $true
+        ($e | Where-Object { $_ -match 'credentials\.json|pkg/credentials$|id_rsa|\.pem' }).Count | Should Be 0
+        ($r.Excluded -join ' ') | Should Match 'credentials\.json'
+        ($r.Excluded -join ' ') | Should Match 'id_rsa\.py'
+    }
+
     It 'zips only what is allowed, with forward slashes, and reports what it left out' {
         $src = Join-Path $TestDrive 'src1'; New-SrcTree $src
         $zip = Join-Path $TestDrive 'out.zip'
