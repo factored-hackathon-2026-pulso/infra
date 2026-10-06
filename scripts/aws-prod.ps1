@@ -564,7 +564,7 @@ function Invoke-ImagesCloud($p, $id) {
         Write-Host "Started build $awsBuildId"
 
         $status = ''
-        for ($i = 0; $i -lt 400; $i++) {
+        for ($i = 0; $i -lt 520; $i++) {
             $now = ((Invoke-Aws -AwsProfile $prof -CliArgs @('codebuild', 'batch-get-builds', '--ids', $awsBuildId, '--query', 'builds[0].buildStatus', '--output', 'text')) -join '').Trim()
             if ($now -ne $status) { Write-Host "Build status: $now"; $status = $now }
             if ($status -ne 'IN_PROGRESS') { break }

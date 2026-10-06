@@ -213,6 +213,15 @@ run "image_builder_is_wired_for_every_service_and_on_by_default" {
   }
 }
 
+run "engine_image_build_gets_more_memory_and_time" {
+  command = apply
+
+  assert {
+    condition     = output.profile_effective.image_builder_engine_compute_type == "BUILD_GENERAL1_MEDIUM"
+    error_message = "The Rust engine build defaults to MEDIUM (7 GB) in every profile, even when the others build on SMALL."
+  }
+}
+
 run "image_builder_can_be_switched_off" {
   command = apply
   variables {

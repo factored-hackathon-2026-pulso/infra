@@ -277,6 +277,12 @@ variable "image_builder_compute_type" {
   description = "CodeBuild compute type for image builds (Linux x86_64). Null derives it from the profile: BUILD_GENERAL1_SMALL (3 GB, may OOM on the Rust release build: use scripts/aws-prod.ps1 images -Builder host) in free_plan, BUILD_GENERAL1_MEDIUM (7 GB) in prod; BUILD_GENERAL1_LARGE for a slow Rust build."
 }
 
+variable "image_builder_engine_compute_type" {
+  type        = string
+  default     = null
+  description = "CodeBuild compute type of the pulso-engine build only (Rust release build inside docker build, 120 minute timeout). Null: BUILD_GENERAL1_MEDIUM (7 GB, 4 vCPU) in every profile. Pass -BuildArg CARGO_BUILD_JOBS=4 to aws-prod.ps1 images (the Dockerfile default is 1, sized for 4 GB laptops)."
+}
+
 variable "ecr_repository_prefix" {
   type        = string
   default     = "pulso-prod"

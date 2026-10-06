@@ -48,8 +48,10 @@ variable "services" {
     context_dir      = optional(string, ".")
     core_context_dir = optional(string, "")
     mode             = optional(string, "build")
+    compute_type     = optional(string)
+    timeout_mins     = optional(number)
   }))
-  description = "Buildable services by name. repository is the ECR repository (for example pulso-prod/core-runtime). dockerfile and context_dir are paths inside the zip. core_context_dir, when set, is the directory of the agent-core checkout inside the zip and becomes --build-context core=<dir>. mode is build (docker build) or mirror (pull a third-party image given as MIRROR_IMAGE and push it to the repository)."
+  description = "Buildable services by name. compute_type and timeout_mins, when set, override var.compute_type and var.timeout_mins for that service only (the Rust engine build needs more memory and time than the others). repository is the ECR repository (for example pulso-prod/core-runtime). dockerfile and context_dir are paths inside the zip. core_context_dir, when set, is the directory of the agent-core checkout inside the zip and becomes --build-context core=<dir>. mode is build (docker build) or mirror (pull a third-party image given as MIRROR_IMAGE and push it to the repository)."
   default     = {}
 
   validation {

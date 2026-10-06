@@ -92,16 +92,17 @@ output "host_public_dns" {
 output "profile_effective" {
   description = "Resolved profile values (what the profile and the overrides produced)."
   value = {
-    profile                    = var.profile
-    database_mode              = local.db_mode
-    nat_gateway                = local.nat
-    hosts_public_ip            = local.public_hosts
-    edge_origin_mode           = local.origin_mode
-    edge_enabled               = local.edge
-    waf                        = local.waf
-    host_builder               = local.host_builder
-    instance_types             = local.instance_types
-    image_builder_compute_type = local.compute_type
+    profile                           = var.profile
+    database_mode                     = local.db_mode
+    nat_gateway                       = local.nat
+    hosts_public_ip                   = local.public_hosts
+    edge_origin_mode                  = local.origin_mode
+    edge_enabled                      = local.edge
+    waf                               = local.waf
+    host_builder                      = local.host_builder
+    instance_types                    = local.instance_types
+    image_builder_compute_type        = local.compute_type
+    image_builder_engine_compute_type = local.engine_compute_type
   }
 }
 

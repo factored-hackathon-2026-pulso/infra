@@ -317,6 +317,10 @@ module "edge" {
 # Cloud image builds and the deploy mechanism. Digests are changed by deployments (SSM), never by an apply;
 # the deployer policies below are for the IAM users or roles the human creates for the service teams.
 locals {
+  # The engine image compiles the Rust workspace (about 150 crates) inside docker build: 3 GB (SMALL) is not enough, so this one
+  # project gets its own compute type and a longer timeout in every profile.
+  engine_compute_type = coalesce(var.image_builder_engine_compute_type, "BUILD_GENERAL1_MEDIUM")
+
   # One build project per repository created by terraform/bootstrap. core-runtime is built from the improvement-engine
   # repo (core-bridge/) with the pinned agent-core checkout as the named build context "core".
   build_services = {
@@ -324,7 +328,7 @@ locals {
     "llm-gateway"          = { repository = "${var.ecr_repository_prefix}/llm-gateway" }
     "support-platform-api" = { repository = "${var.ecr_repository_prefix}/support-platform-api", dockerfile = "backend/Dockerfile", context_dir = "backend" }
     "support-platform-web" = { repository = "${var.ecr_repository_prefix}/support-platform-web", dockerfile = "frontend/Dockerfile", context_dir = "frontend" }
-    "pulso-engine"         = { repository = "${var.ecr_repository_prefix}/pulso-engine" }
+    "pulso-engine"         = { repository = "${var.ecr_repository_prefix}/pulso-engine", compute_type = local.engine_compute_type, timeout_mins = 120 }
     "caddy"                = { repository = "${var.ecr_repository_prefix}/caddy", mode = "mirror" }
   }
   # agent-core serve is built from the agent-core repo's own Dockerfile (not core-bridge); tool-service from its repo.
