@@ -90,7 +90,7 @@ class ServiceDeploymentDoc(unittest.TestCase):
         self.assertIn("/readyz", text)
         self.assertIn("/healthz", text)
         self.assertIn("pulso healthcheck", text)
-        bundles = "".join(p.read_text(encoding="utf-8") for p in (ROOT / "deploy" / "hackathon").rglob("*") if p.is_file())
+        bundles = "".join(p.read_text(encoding="utf-8") for p in (ROOT / "deploy" / "hackathon").rglob("*") if p.is_file() and "__pycache__" not in p.parts)
         for token in ("/readyz", "/healthz", "pulso\", \"healthcheck"):
             self.assertIn(token, bundles)
 

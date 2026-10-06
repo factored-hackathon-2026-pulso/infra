@@ -119,7 +119,7 @@ class OffByDefaultBehindOneVariable(unittest.TestCase):
         self.assertIn('"engine/langfuse/LANGFUSE_BASE_URL"', ssm)
         self.assertIn("var.otlp_forwarder_enabled", ssm)
         for p in list(BUNDLE.rglob("*")) + list((TF / "envs" / "hackathon").glob("*.tf")):
-            if p.is_file():
+            if p.is_file() and "__pycache__" not in p.parts:
                 self.assertNotRegex(read(p), r"pk-lf-|sk-lf-|LANGFUSE_SECRET_KEY\s*[:=]\s*[\"']?[A-Za-z0-9]", p.name)
 
     def test_the_service_env_name_reaches_the_secret_renderer(self):

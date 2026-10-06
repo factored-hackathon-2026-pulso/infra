@@ -44,7 +44,7 @@ class TerraformFirstBaselineContractTests(unittest.TestCase):
 
     def test_native_s3_lockfile_contract_requires_a_compatible_terraform_ci_version(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-        self.assertIn("terraform_version: 1.10.5", workflow)
+        self.assertIn("terraform_version: 1.16.4", workflow)
         for environment in ("staging", "prod"):
             backend = (TERRAFORM / "envs" / environment / "backend.hcl.example").read_text(
                 encoding="utf-8"

@@ -37,7 +37,7 @@ run "platform_database_seeds_roles_dsns_and_the_engine_token" {
   }
   assert {
     condition = alltrue([for k in keys(nonsensitive(jsondecode(aws_secretsmanager_secret_version.this.secret_string))) :
-    can(regex("^(CORE|GATEWAY|SUPPORT|PULSO|COMMON|AGENT|TOOLS|DB)__[A-Z0-9_]+$", k)) || can(regex("^FILES__(AGENT|SUPPORT)__[A-Z0-9_]+$", k)) || k == "RDS_MASTER_PASSWORD"])
+    can(regex("^(CORE|GATEWAY|SUPPORT|PULSO|COMMON|AGENT|TOOLS|DB|MIGRATE|LOADER|LANGFUSE)__[A-Z0-9_]+$", k)) || can(regex("^FILES__(AGENT|SUPPORT)__[A-Z0-9_]+$", k)) || k == "RDS_MASTER_PASSWORD"])
     error_message = "Every key is <SERVICE>__<VAR> or FILES__<SERVICE>__<NAME>."
   }
 }

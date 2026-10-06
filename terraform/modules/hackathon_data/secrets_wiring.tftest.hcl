@@ -16,6 +16,22 @@ override_resource {
   values = { hex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" }
 }
 
+# RFC 8032 section 7.1 test vector 1 (a published test key, not a secret), as the PEM the tls provider returns for ED25519:
+# seed 9d61b19d...7f60 -> public key d75a9801...511a (base64url 11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo).
+override_resource {
+  target = tls_private_key.agent
+  values = {
+    private_key_pem = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIJ1hsZ3v/VpguoRK9JLsLMREScVpezJpGXA7rAMcrn9g\n-----END PRIVATE KEY-----\n"
+    public_key_pem  = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=\n-----END PUBLIC KEY-----\n"
+  }
+}
+
+# mock_provider fills computed strings with short random text; the session secret must be long enough to assert its length.
+override_resource {
+  target = random_password.session_secret
+  values = { result = "Ab3dEf6hIj9lMn2pQr5tUv8xYz1BcDeF0gHiJkLm" }
+}
+
 variables {
   name_prefix               = "pulso-hk"
   region                    = "us-east-1"
@@ -58,8 +74,8 @@ run "dsns_are_assembled_from_the_generated_passwords_and_hosts" {
     error_message = "The migrate DSN uses the owner role."
   }
   assert {
-    condition     = startswith(local.wired_secrets["SUPPORT__CC_DATABASE_URL"], "postgresql+asyncpg://platform_app:") && endswith(local.wired_secrets["SUPPORT__CC_DATABASE_URL"], "@core.pulso.internal:5432/platform")
-    error_message = "The platform uses the asyncpg scheme and reaches Postgres as core.<zone>."
+    condition     = startswith(local.wired_secrets["SUPPORT__CC_DATABASE_URL"], "postgresql://platform_app:") && endswith(local.wired_secrets["SUPPORT__CC_DATABASE_URL"], "@core.pulso.internal:5432/platform?sslmode=disable")
+    error_message = "The platform uses the psycopg 3 postgresql:// scheme (docs/secrets-wiring.md; no +asyncpg) and reaches Postgres as core.<zone>."
   }
   assert {
     condition     = startswith(local.wired_secrets["PULSO__PULSO_PG_PRODUCT_DSN"], "postgresql://platform_exporter_ro:") && startswith(local.wired_secrets["PULSO__PULSO_DATABASE_URL"], "postgresql://pulso_master:") && endswith(local.wired_secrets["PULSO__PULSO_DATABASE_URL"], "@core.pulso.internal:5432/pulso?sslmode=disable")

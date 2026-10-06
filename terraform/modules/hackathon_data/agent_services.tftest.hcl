@@ -23,8 +23,8 @@ run "restricted_publication_is_pii_even_without_agent_services" {
     condition = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyRestrictedReadToOthers" &&
       anytrue([for r in s.Resource : endswith(r, "/lake/publish/*/gold_restricted.duckdb")]) &&
       anytrue([for r in s.Resource : endswith(r, "/lake/gold_restricted/*")]) &&
-      contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:role/loader") &&
-    contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:role/admin")]) == 1
+      contains(try(s.Condition.StringNotLike["aws:PrincipalArn"], []), "arn:aws:iam::111111111111:role/loader") &&
+    contains(try(s.Condition.StringNotLike["aws:PrincipalArn"], []), "arn:aws:iam::111111111111:role/admin")]) == 1
     error_message = "gold_restricted (PII in the clear, published by data-pipeline) is readable only by the loader, break-glass and the restricted readers."
   }
   assert {
@@ -40,11 +40,11 @@ run "restricted_readers_are_exempt_only_from_the_restricted_deny" {
   }
 
   assert {
-    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyRestrictedReadToOthers" && contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:role/core-host")]) == 1
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyRestrictedReadToOthers" && contains(try(s.Condition.StringNotLike["aws:PrincipalArn"], []), "arn:aws:iam::111111111111:role/core-host")]) == 1
     error_message = "The core host (tool-service) may read the restricted publication."
   }
   assert {
-    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyPiiReadToOthers" && contains(s.Condition.StringNotLike["aws:PrincipalArn"], "arn:aws:iam::111111111111:role/core-host")]) == 0
+    condition     = length([for s in jsondecode(aws_s3_bucket_policy.data.policy).Statement : s if s.Sid == "DenyPiiReadToOthers" && contains(try(s.Condition.StringNotLike["aws:PrincipalArn"], []), "arn:aws:iam::111111111111:role/core-host")]) == 0
     error_message = "A restricted reader never reads landing/ or lake/bronze/."
   }
 }

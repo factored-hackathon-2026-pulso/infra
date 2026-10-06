@@ -1,4 +1,20 @@
-mock_provider "aws" {}
+mock_provider "aws" {
+  # The default mock returns a random string for .json; apply validates it as policy JSON.
+  mock_resource "aws_sns_topic" {
+    defaults = { arn = "arn:aws:sns:us-east-1:111111111111:mock-events" }
+  }
+  mock_resource "aws_sqs_queue" {
+    defaults = {
+      arn = "arn:aws:sqs:us-east-1:111111111111:mock-queue"
+      url = "https://sqs.us-east-1.amazonaws.com/111111111111/mock-queue"
+    }
+  }
+  mock_data "aws_iam_policy_document" {
+    defaults = {
+      json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
+    }
+  }
+}
 
 variables {
   name_prefix      = "test-core"
@@ -82,7 +98,7 @@ run "consumer_names_must_be_safe" {
 }
 
 run "task_statements_stay_inside_the_workload_iam_rules" {
-  command = plan
+  command = apply
 
   assert {
     condition     = !strcontains(jsonencode(output.task_statements), "kms:") && !strcontains(jsonencode(output.task_statements), "secretsmanager:") && !strcontains(jsonencode(output.task_statements), "Delete")

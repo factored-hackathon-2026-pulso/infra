@@ -49,7 +49,7 @@ run "each_zone_denies_everyone_not_on_its_list" {
     condition = anytrue([
       for s in jsondecode(output.bucket_policy_json).Statement :
       s.Sid == "DenyReadBronzeExceptPipeline" && s.Effect == "Deny"
-      && s.Condition.ArnNotEquals["aws:PrincipalArn"] == ["arn:aws:iam::111111111111:role/test-data-pipeline-task"]
+      && try(s.Condition.ArnNotEquals["aws:PrincipalArn"], null) == ["arn:aws:iam::111111111111:role/test-data-pipeline-task"]
     ])
     error_message = "bronze/ must be readable only by the pipeline task role."
   }
@@ -57,7 +57,7 @@ run "each_zone_denies_everyone_not_on_its_list" {
   assert {
     condition = anytrue([
       for s in jsondecode(output.bucket_policy_json).Statement :
-      s.Sid == "DenyReadEvaluatorAnswersExceptEvaluator" && s.Condition.ArnNotEquals["aws:PrincipalArn"] == ["arn:aws:iam::111111111111:role/test-evaluator"]
+      s.Sid == "DenyReadEvaluatorAnswersExceptEvaluator" && try(s.Condition.ArnNotEquals["aws:PrincipalArn"], null) == ["arn:aws:iam::111111111111:role/test-evaluator"]
     ])
     error_message = "bronze_eval/ must be readable only by the evaluator."
   }
@@ -73,7 +73,7 @@ run "each_zone_denies_everyone_not_on_its_list" {
   assert {
     condition = anytrue([
       for s in jsondecode(output.bucket_policy_json).Statement :
-      s.Sid == "DenyInsecureTransport" && s.Condition.Bool["aws:SecureTransport"] == "false"
+      s.Sid == "DenyInsecureTransport" && try(s.Condition.Bool["aws:SecureTransport"], null) == "false"
     ])
     error_message = "Plain HTTP must be refused."
   }
@@ -91,7 +91,7 @@ run "an_unconfigured_zone_fails_closed" {
   assert {
     condition = anytrue([
       for s in jsondecode(output.bucket_policy_json).Statement :
-      s.Sid == "DenyReadBronzeExceptPipeline" && s.Condition.ArnNotEquals["aws:PrincipalArn"] == ["arn:aws:iam::000000000000:role/data-lake-no-principal"]
+      s.Sid == "DenyReadBronzeExceptPipeline" && try(s.Condition.ArnNotEquals["aws:PrincipalArn"], null) == ["arn:aws:iam::000000000000:role/data-lake-no-principal"]
     ])
     error_message = "An empty list must deny everyone, not allow everyone."
   }
@@ -99,7 +99,7 @@ run "an_unconfigured_zone_fails_closed" {
   assert {
     condition = anytrue([
       for s in jsondecode(output.bucket_policy_json).Statement :
-      s.Sid == "DenyReadRestrictedExceptRestrictedReaders" && s.Condition.ArnNotEquals["aws:PrincipalArn"] == ["arn:aws:iam::000000000000:role/data-lake-no-principal"]
+      s.Sid == "DenyReadRestrictedExceptRestrictedReaders" && try(s.Condition.ArnNotEquals["aws:PrincipalArn"], null) == ["arn:aws:iam::000000000000:role/data-lake-no-principal"]
     ])
     error_message = "No restricted reader configured means nobody reads personal data in clear."
   }
@@ -124,7 +124,7 @@ run "break_glass_principals_are_the_only_exception_to_the_deletion_deny" {
   assert {
     condition = anytrue([
       for s in jsondecode(output.bucket_policy_json).Statement :
-      s.Sid == "DenyDeletionExceptBreakGlass" && s.Condition.ArnNotEquals["aws:PrincipalArn"] == ["arn:aws:iam::111111111111:role/test-break-glass"]
+      s.Sid == "DenyDeletionExceptBreakGlass" && try(s.Condition.ArnNotEquals["aws:PrincipalArn"], null) == ["arn:aws:iam::111111111111:role/test-break-glass"]
     ])
     error_message = "Only the listed principals may delete."
   }
@@ -201,7 +201,7 @@ run "retention_targets_publish_runs_and_never_the_pointer" {
   assert {
     condition = anytrue([
       for r in aws_s3_bucket_lifecycle_configuration.lake.rule :
-      r.id == "expire-old-publications" && one(r.filter).prefix == "publish/run-" && one(r.expiration).days == 180
+      r.id == "expire-old-publications" && try(one(r.filter).prefix, "") == "publish/run-" && try(one(r.expiration).days, null) == 180
     ])
     error_message = "Expiry must match publish/run- only, so publish/latest.json survives."
   }

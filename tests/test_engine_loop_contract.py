@@ -78,7 +78,7 @@ class LoopCompose(unittest.TestCase):
         self.assertIn("/run/pulso/env/pulso.env", self.svc["env_file"])
         self.assertNotIn("PULSO_SERVICE_SEED_HEX", self.env)
         for path in list((TF).rglob("*.tf")) + list(BUNDLE.rglob("*")):
-            if not path.is_file() or ".terraform" in path.parts:
+            if not path.is_file() or ".terraform" in path.parts or "__pycache__" in path.parts:
                 continue
             for n, line in enumerate(read(path).splitlines(), 1):
                 if "PULSO_REGISTRY_TOKEN" in line and not line.lstrip().startswith("#"):
