@@ -109,7 +109,6 @@ services:
     # is 8000 (its own HEALTHCHECK probes it); this host serves 8001 because the address is baked into the platform and engine env.
     ports:
       - "8001:8001"
-    stop_grace_period: 30s
     depends_on:
       agent-core-migrate:
         condition: service_completed_successfully
