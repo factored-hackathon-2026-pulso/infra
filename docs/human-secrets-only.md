@@ -17,6 +17,6 @@ How to set (one key at a time; the value is typed hidden, nothing is echoed, log
 .\scripts\aws-prod.ps1 set-secret -Profile pulso-prod -SecretKey LANGFUSE__LANGFUSE_SECRET_KEY   # optional
 ```
 
-Check (names and SET/UNSET only): `.\scripts\aws-prod.ps1 status -Profile pulso-prod`. It lists the human keys still unset and, separately, any wired key still unset (that would mean `seed-secret-keys` is needed on a secret created before the wiring). Hosts read a new value at the next `pulso-stack` restart or deploy.
+Check (names and SET/UNSET only): `.\scripts\aws-prod.ps1 status -Profile pulso-prod`. It lists the human keys still unset (a key absent from the secret, for example on one created with an older schema, is marked `MISSING`; the Langfuse keys are marked optional unless the OTLP forwarder is on) and, separately, any wired key still unset (that would mean `seed-secret-keys` is needed on a secret created before the wiring). Hosts read a new value at the next `pulso-stack` restart or deploy.
 
 Anything else that asks for a typed value is a defect of the wiring: report it.

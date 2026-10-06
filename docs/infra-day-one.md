@@ -70,7 +70,7 @@ There is no local Docker, so the images are built by CodeBuild. A brand-new acco
 .\scripts\aws-prod.ps1 apply -Profile pulso-prod               # HUMAN: type APPLY
 ```
 
-The stage creates the network, the data bucket, the KMS key, the one secret with its generated keys, the roles and one build project per image (the complete profile turns on the loader and the forwarder, so `data-pipeline` and `otlp-forwarder` get projects too). CHECK: `.\scripts\aws-prod.ps1 status -Profile pulso-prod` prints the secret with the human keys UNSET and no wired key UNSET (there are no instances yet, so no host lines). If a wired key shows UNSET on a secret that pre-existed, run `.\scripts\aws-prod.ps1 seed-secret-keys -Profile pulso-prod` (**HUMAN**: `SEED`).
+The stage creates the network, the data bucket, the KMS key, the one secret with its generated keys, the roles and one build project per image (the complete profile turns on the loader and the forwarder, so `data-pipeline` and `otlp-forwarder` get projects too). CHECK: `.\scripts\aws-prod.ps1 status -Profile pulso-prod` prints the secret with the human keys UNSET (or `MISSING`, if absent from a secret created with an older schema) and no wired key UNSET (there are no instances yet, so no host lines). If a wired key shows UNSET on a secret that pre-existed, run `.\scripts\aws-prod.ps1 seed-secret-keys -Profile pulso-prod` (**HUMAN**: `SEED`).
 
 ## Layer 3. Images (ten builds in CodeBuild)
 

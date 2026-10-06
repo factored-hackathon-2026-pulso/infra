@@ -958,6 +958,33 @@ Describe 'set-secret' {
         $out | Should Not Match 'anothersecret22'
     }
 
+    It 'status reports an ABSENT human key as MISSING, flags optional Langfuse keys, and leaks no value' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Invoke-Aws {
+            if ($CliArgs[0] -eq 'secretsmanager') { return '{"GATEWAY__ANTHROPIC_API_KEY":"CHANGE_ME","GATEWAY__JEV_API_KEY":"supersecretvalue1","LANGFUSE__LANGFUSE_PUBLIC_KEY":"pk-secretlf","LANGFUSE__LANGFUSE_SECRET_KEY":"sk-secretlf"}' }
+            if ($CliArgs[0] -eq 'ec2') { return @() }
+            '{"UserId":"x","Account":"000000000000","Arn":"arn:aws:iam::000000000000:user/x"}'
+        }
+        $out = (Run 'status' 'pulso-prod' @{}) -join "`n"
+        $out | Should Match 'UNSET \(human, set with set-secret\): GATEWAY__OPENROUTER_API_KEY \(MISSING\)'
+        $out | Should Not Match 'human, set with set-secret\): \(none\)'
+        $out | Should Match 'should be wired; run seed-secret-keys\): GATEWAY__ANTHROPIC_API_KEY'
+        $out | Should Not Match 'supersecretvalue1'
+        $out | Should Not Match 'secretlf'
+    }
+
+    It 'status marks unset Langfuse keys as optional' {
+        Use-Fakes 'arn:aws:iam::000000000000:user/x'
+        Mock Invoke-Aws {
+            if ($CliArgs[0] -eq 'secretsmanager') { return '{"GATEWAY__OPENROUTER_API_KEY":"k1","GATEWAY__JEV_API_KEY":"k2","LANGFUSE__LANGFUSE_PUBLIC_KEY":"CHANGE_ME"}' }
+            if ($CliArgs[0] -eq 'ec2') { return @() }
+            '{"UserId":"x","Account":"000000000000","Arn":"arn:aws:iam::000000000000:user/x"}'
+        }
+        $out = (Run 'status' 'pulso-prod' @{}) -join "`n"
+        $out | Should Match 'LANGFUSE__LANGFUSE_PUBLIC_KEY \(optional'
+        $out | Should Match 'LANGFUSE__LANGFUSE_SECRET_KEY \(MISSING, optional'
+    }
+
     It 'has no parameter that carries the value' {
         $names = (Get-Command $script:Target).Parameters.Keys
         foreach ($bad in 'Value', 'SecretValue', 'Secret', 'Password', 'ValueFile', 'FromFile') { ($names -contains $bad) | Should Be $false }
