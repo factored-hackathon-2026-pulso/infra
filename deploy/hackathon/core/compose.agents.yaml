@@ -91,14 +91,19 @@ services:
       AGENTCORE_READY_REQUIRE_TOOL_SERVICE: "1"
       # Load caps sized by the instance (Terraform local agent_limits -> .env): beyond MAX_INFLIGHT serve answers 503 with
       # Retry-After 1 (probes never count); WORKER_THREADS bounds sync-route concurrency; DB_POOL_MAX is per process and must stay
-      # far below Postgres max_connections (100, shared with platform, tools and engine).
-      AGENTCORE_MAX_INFLIGHT: ${AGENT_MAX_INFLIGHT:-16}
+      # sized inside Postgres max_connections (200, shared with platform, tools and engine; budget in docs/shared-postgres.md).
+      # Rule (agent-core serve-env.md, Postgres pool sizing): MAX_INFLIGHT <= DB_POOL_MAX / 2.
+      AGENTCORE_MAX_INFLIGHT: ${AGENT_MAX_INFLIGHT:-12}
       AGENTCORE_WORKER_THREADS: ${AGENT_WORKER_THREADS:-12}
-      AGENTCORE_DB_POOL_MAX: ${AGENT_DB_POOL_MAX:-6}
+      AGENTCORE_DB_POOL_MAX: ${AGENT_DB_POOL_MAX:-24}
       # Autonomous-builder proposal quota (agent-core serve-env.md): config, not a secret. The engine (principal pulso-engine) creates
       # 2-3 proposals per finding, so it gets its own higher cap; every other principal keeps the global per-day value.
       AGENTCORE_PROPOSAL_QUOTA_PER_DAY: ${AGENT_PROPOSAL_QUOTA_PER_DAY:-30}
       AGENTCORE_PROPOSAL_QUOTA_OVERRIDES: ${AGENT_PROPOSAL_QUOTA_OVERRIDES:-pulso-engine=600}
+      # Demo-safe per-principal limits (serve defaults are 5.00 USD/day and 30 hits per 60 s, and the whole platform is ONE principal).
+      # The daily budget is a safety net, not a restriction; service principals get x10 hits via AGENTCORE_RATE_SERVICE_MULTIPLIER.
+      AGENTCORE_DAILY_BUDGET_USD: ${AGENT_DAILY_BUDGET_USD:-200}
+      AGENTCORE_RATE_MAX_HITS: ${AGENT_RATE_MAX_HITS:-120}
       # Must stay below stop_grace_period (docker kills at that deadline); uvicorn drains in-flight requests until then.
       AGENTCORE_SHUTDOWN_GRACE_SECONDS: "25"
     volumes:

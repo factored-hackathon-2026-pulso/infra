@@ -75,7 +75,7 @@ class InitScript(unittest.TestCase):
 class PostgresSizing(unittest.TestCase):
     def test_container_fits_the_core_host(self):
         compose = read(CORE / "compose.postgres.yaml")
-        self.assertIn("max_connections=100", compose)
+        self.assertIn("max_connections=200", compose)
         self.assertIn("mem_limit: 2048m", compose)
         # Containers of the core host (limits): postgres 2048 + core-runtime 768 + agent-core 768 + tool-service 1024
         # + gateway 128 + exporter 128 = 4864 MiB of the 8 GiB m7i-flex.large; one-shot migrations 256 each, one at a time.

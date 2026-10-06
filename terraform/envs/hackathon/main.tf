@@ -77,8 +77,8 @@ locals {
     "c7i-flex.large" = 4096, "m7i-flex.large" = 8192,
   }
   core_memory_mb = lookup(local.host_memory_mb, local.instance_types["core"], 2048)
-  agent_limits = (local.core_memory_mb >= 8192 ? { inflight = 32, workers = 16, pool = 10 } :
-  local.core_memory_mb >= 4096 ? { inflight = 16, workers = 12, pool = 6 } : { inflight = 8, workers = 8, pool = 4 })
+  agent_limits = (local.core_memory_mb >= 8192 ? { inflight = 12, workers = 12, pool = 24 } :
+  local.core_memory_mb >= 4096 ? { inflight = 8, workers = 8, pool = 16 } : { inflight = 4, workers = 4, pool = 8 })
   agent_env = local.agents ? {
     AGENT_SERVE_ARGS               = var.agent_serve_args
     AGENT_SERVE_AGENTS             = var.agent_serve_agents

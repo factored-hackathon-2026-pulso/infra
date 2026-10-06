@@ -16,7 +16,7 @@ class HostBuildIsNotCached(unittest.TestCase):
 
     def test_serve_pool_is_set_from_the_instance_table_not_left_to_the_default(self):
         compose = (ROOT / "deploy" / "hackathon" / "core" / "compose.agents.yaml").read_text(encoding="utf-8")
-        self.assertIn("AGENTCORE_DB_POOL_MAX: ${AGENT_DB_POOL_MAX:-6}", compose)
+        self.assertIn("AGENTCORE_DB_POOL_MAX: ${AGENT_DB_POOL_MAX:-24}", compose)
 
 
 if __name__ == "__main__":
