@@ -36,7 +36,7 @@ Checked by `tests/test_engine_loop_contract.py` and the Terraform tests of `terr
 | `PULSO_PLATFORM_URL`, `PULSO_PLATFORM_SERVICE_TOKEN` | SSM (with `platform_database_enabled`) and secret `PULSO__PULSO_PLATFORM_SERVICE_TOKEN`; announce is on only when both are set |
 | `PULSO_LOOP_LOCK_TTL_S` | literal `10800`, above the unit's 2 h `TimeoutStartSec` |
 
-Dropped from the old slot (not read by `pulso loop`): `PULSO_CORE_PORT`, `PULSO_MODEL_PORT`, `PULSO_CORE_URL`, `STEPS_RUNNER_EXE`. Left unset (engine defaults): `PULSO_LOOP_CELLS_FILE`, `PULSO_LOOP_MAX_FINDINGS`, `PULSO_LOOP_MAX_EXPLORATORY`, `PULSO_ALLOW_DERIVED_AGGREGATES`, `PULSO_NEW_AGENT_ADMIN`, `PULSO_REGRESSION_*`, `PULSO_EVAL_TIMEOUT_SECS`, `PULSO_SERVICE_PRINCIPAL_ID`, `PULSO_LOOP_RUN_ID`.
+Dropped from the old slot (not read by `pulso loop`): `PULSO_CORE_PORT`, `PULSO_MODEL_PORT`, `PULSO_CORE_URL`, `STEPS_RUNNER_EXE`. Left unset (engine defaults): `PULSO_LOOP_CELLS_FILE`, `PULSO_LOOP_MAX_FINDINGS`, `PULSO_LOOP_MAX_EXPLORATORY`, `PULSO_ALLOW_DERIVED_AGGREGATES`, `PULSO_NEW_AGENT_ADMIN`, `PULSO_REGRESSION_*`, `PULSO_EVAL_TIMEOUT_SECS` (engine default 900 s covers copiloto-asesor-suite, which takes over 180 s; set it only to go longer), `PULSO_SERVICE_PRINCIPAL_ID`, `PULSO_LOOP_RUN_ID`.
 
 ### Credentials: minted, never static
 

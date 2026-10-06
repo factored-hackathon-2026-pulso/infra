@@ -37,6 +37,8 @@ Legend. **literal**: a non-secret value in `compose.agents.yaml` (or its `.env` 
 | `AGENTCORE_SERVE_AGENTS` | O | literal from `agent_serve_agents` (`AGENT_SERVE_AGENTS`), default `recepcion,disputas,consultas,copiloto-asesor` |
 | `AGENTCORE_GIT_SHA` | O | baked in the image (build arg) |
 | `AGENTCORE_DB_POOL_MAX` | O | literal from the instance-size table (section 4) |
+| `AGENTCORE_PROPOSAL_QUOTA_PER_DAY` | O | config value from `agent_proposal_quota_per_day` (`AGENT_PROPOSAL_QUOTA_PER_DAY`), default `30` (agent-core's own default is 10, tripled); not a secret |
+| `AGENTCORE_PROPOSAL_QUOTA_OVERRIDES` | O | config value from `agent_proposal_quota_overrides` (`AGENT_PROPOSAL_QUOTA_OVERRIDES`), default `pulso-engine=600` (`principal=limit,...`): the engine creates 2-3 proposals per finding and counts only its own; not a secret |
 | `AGENTCORE_LANG_THRESHOLDS` | O | literal `/run/files/LANG_THRESHOLDS`, secret file `FILES__AGENT__LANG_THRESHOLDS` (authored, `deploy/hackathon/config/agent/lang-thresholds.json`; without it the language never switches) |
 | `AGENTCORE_FX_RATES_FILE` | C | literal `/run/files/FX_RATES`, secret file `FILES__AGENT__FX_RATES` (H) |
 | `AGENTCORE_IDENTITY_KEYS_FILE` | R | literal `/run/files/IDENTITY_KEYS`, secret file (G) |

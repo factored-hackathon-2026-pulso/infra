@@ -160,6 +160,10 @@ run "serve_replaces_the_core_bridge_and_takes_its_caps_from_the_instance" {
     error_message = "No piece flags; the serve agents are the default four."
   }
   assert {
+    condition     = strcontains(module.compute_core.bundle_env, "AGENT_PROPOSAL_QUOTA_PER_DAY=30") && strcontains(module.compute_core.bundle_env, "AGENT_PROPOSAL_QUOTA_OVERRIDES=pulso-engine=600")
+    error_message = "The engine gets its own proposal quota (600/day); everyone else the tripled default (30)."
+  }
+  assert {
     condition     = !strcontains(module.compute_core.bundle_env, "ALLOW_DOUBLES") && !strcontains(module.compute_core.bundle_env, "ALLOW_DEMO")
     error_message = "The doubles switch is never in the bundle environment."
   }

@@ -84,6 +84,8 @@ locals {
     AGENT_MAX_INFLIGHT   = tostring(local.agent_limits.inflight)
     AGENT_WORKER_THREADS = tostring(local.agent_limits.workers)
     AGENT_DB_POOL_MAX    = tostring(local.agent_limits.pool)
+    AGENT_PROPOSAL_QUOTA_PER_DAY   = tostring(var.agent_proposal_quota_per_day)
+    AGENT_PROPOSAL_QUOTA_OVERRIDES = var.agent_proposal_quota_overrides
   } : {}
 
   # OTLP forwarder sidecars (decision B1), off by default.
