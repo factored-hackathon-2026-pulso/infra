@@ -54,7 +54,7 @@
   },
   "compose_environment": {
     "_doc": "Set by the compose files themselves (environment:) from .env variables, not from env files.",
-    "variables": ["BUCKET_NAME", "CORE_BLOB_PREFIX", "PULSO_STORAGE_PREFIX", "PRIVATE_ZONE_NAME", "AGENT_PROPOSAL_QUOTA_PER_DAY", "AGENT_PROPOSAL_QUOTA_OVERRIDES"]
+    "variables": ["BUCKET_NAME", "CORE_BLOB_PREFIX", "PULSO_STORAGE_PREFIX", "PRIVATE_ZONE_NAME", "AGENT_PROPOSAL_QUOTA_PER_DAY", "AGENT_PROPOSAL_QUOTA_OVERRIDES", "AGENT_DAILY_BUDGET_USD", "AGENT_RATE_MAX_HITS"]
   },
   "agent_files": {
     "_doc": "Files under /run/pulso/files/agent on the core host (secret keys FILES__AGENT__*). Rendered locally by `prodlike.py state`.",

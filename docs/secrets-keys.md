@@ -20,8 +20,7 @@ LLM routing: the gateway alias is the endpoint name (for example `openrouter`, w
 Host-consumed keys are `<SERVICE>__<VAR>`: the compute start script writes `<VAR>` into `/run/pulso/env/<service>.env` for the services of its own host (`CORE`, `GATEWAY` on the core host, `SUPPORT` on the platform host, `PULSO` on the engine host, `COMMON` on all). `DB_PASSWORD_*` and `RDS_MASTER_PASSWORD` carry no prefix and are never rendered into an env file. `FILES__<SERVICE>__<NAME>` keys are never env lines either: the start script writes each as the file `/run/pulso/files/<service>/<NAME>` (tmpfs, 0400, uid 10001), for values a service reads as a file (key sets, grants). All three hosts can read the whole secret (one secret, one ARN): the prefix selects what a host renders, it is not an access boundary.
 
 Non-secret configuration is in SSM Parameter Store (standard tier, free) under `/pulso/<workload>/<service>/<NAME>` (workload `core|platform|engine`, service `core|gateway|support|pulso|common`; each host role reads only `/pulso/<its workload>/*`):
-agent-core `PULSO_LAB_BROKER_URL`, `PULSO_CONTROL_API_URL`, `PULSO_TENANT_ID`, `AGENTCORE_DAILY_BUDGET_USD`,
-`AGENTCORE_BLOB_BUCKET` (derived `s3://<bucket>/core/blobs`); llm-gateway `GATEWAY_CONSUMERS`, `LLM_ENDPOINTS`;
+agent-core `PULSO_LAB_BROKER_URL`, `PULSO_CONTROL_API_URL`, `PULSO_TENANT_ID`, `AGENTCORE_BLOB_BUCKET` (derived `s3://<bucket>/core/blobs`); llm-gateway `GATEWAY_CONSUMERS`, `LLM_ENDPOINTS`;
 support-platform `CC_CORS_ORIGINS`, `CC_PUBLIC_APP_URL`; engine `PULSO_DATA_MODE` (derived: `platform` with `platform_database_enabled`, else `dataset`), `PIPELINE_ROOT` (derived
 `s3://<bucket>/lake`).
 

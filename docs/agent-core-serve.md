@@ -84,7 +84,7 @@ Legend. **literal**: a non-secret value in `compose.agents.yaml` (or its `.env` 
 | `AGENTCORE_READY_REQUIRE_TOOL_SERVICE` | O | literal `1` (non-default: both run on this host and `serve` waits for them) |
 | `AGENTCORE_MAX_INFLIGHT`, `AGENTCORE_WORKER_THREADS` | O | literals from the size table |
 | `AGENTCORE_SHUTDOWN_GRACE_SECONDS` | O | literal `25`, below `stop_grace_period: 30s` |
-| `AGENTCORE_RATE_MAX_HITS`, `AGENTCORE_RATE_WINDOW_SECONDS`, `AGENTCORE_RATE_SERVICE_MULTIPLIER`, `AGENTCORE_DAILY_BUDGET_USD` | O | unset (`serve`'s defaults, which the document calls "demo"): set per principal limits as SSM parameters under `/pulso/core/agent/` once the platform team states them |
+| `AGENTCORE_RATE_MAX_HITS`, `AGENTCORE_RATE_WINDOW_SECONDS`, `AGENTCORE_RATE_SERVICE_MULTIPLIER`, `AGENTCORE_DAILY_BUDGET_USD` | O | compose defaults `AGENTCORE_DAILY_BUDGET_USD=${AGENT_DAILY_BUDGET_USD:-200}` and `AGENTCORE_RATE_MAX_HITS=${AGENT_RATE_MAX_HITS:-120}` (serve's own defaults, 5.00 USD per day and 30 hits per 60 s, are per principal and the whole platform is one principal); overridable from `.env`; window and service multiplier stay at serve's defaults (60 s, x10). The 200 USD cap is a demo safety net, not a restriction |
 
 ### 3.5 Observability (only with `otlp_forwarder_enabled`, [otlp-forwarder](otlp-forwarder.md))
 
@@ -104,11 +104,11 @@ Load caps follow the core instance (`local.agent_limits` in `terraform/envs/hack
 
 | Core instance | Memory | max in-flight | worker threads | DB pool per process |
 |---|---|---|---|---|
-| `m7i-flex.large` (free_plan default) | 8 GiB | 32 | 16 | 10 |
-| `c7i-flex.large`, `t3.medium` | 4 GiB | 16 | 12 | 6 |
-| `t3.small` and smaller | 2 GiB | 8 | 8 | 4 |
+| `m7i-flex.large` (free_plan default) | 8 GiB | 12 | 12 | 24 |
+| `c7i-flex.large`, `t3.medium` | 4 GiB | 8 | 8 | 16 |
+| `t3.small` and smaller | 2 GiB | 4 | 4 | 8 |
 
-The container is capped at 768 MB whatever the instance; the numbers are starting points chosen from the container limit and Postgres `max_connections=100` (shared with platform, tools and the engine; the one-shots add a short-lived connection each). They are NOT load-tested.
+The container is capped at 768 MB whatever the instance; the numbers are starting points chosen from the container limit and Postgres `max_connections=200` (shared with platform, tools and the engine; the one-shots add a short-lived connection each). Rule from agent-core `serve-env.md` (Postgres pool sizing): `MAX_INFLIGHT` <= `DB_POOL_MAX` / 2, pinned by `tests/test_agent_core_serve_contract.py`; the connection arithmetic is in [shared-postgres](shared-postgres.md). They are NOT load-tested.
 
 ## 5. Migrations, ordering and `pulso-db-bootstrap`
 

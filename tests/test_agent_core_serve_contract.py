@@ -134,9 +134,9 @@ class HealthAndLoad(unittest.TestCase):
         self.assertGreaterEqual(stop - grace, 3)
 
     def test_load_caps_are_wired_from_the_instance_size(self):
-        self.assertEqual(self.env["AGENTCORE_MAX_INFLIGHT"], "${AGENT_MAX_INFLIGHT:-16}")
+        self.assertEqual(self.env["AGENTCORE_MAX_INFLIGHT"], "${AGENT_MAX_INFLIGHT:-12}")
         self.assertEqual(self.env["AGENTCORE_WORKER_THREADS"], "${AGENT_WORKER_THREADS:-12}")
-        self.assertEqual(self.env["AGENTCORE_DB_POOL_MAX"], "${AGENT_DB_POOL_MAX:-6}")
+        self.assertEqual(self.env["AGENTCORE_DB_POOL_MAX"], "${AGENT_DB_POOL_MAX:-24}")
         main = read(TF / "envs" / "hackathon" / "main.tf")
         tiers = re.findall(r"\{ inflight = (\d+), workers = (\d+), pool = (\d+) \}", main)
         self.assertEqual(len(tiers), 3, "one tier per memory class")
@@ -146,18 +146,45 @@ class HealthAndLoad(unittest.TestCase):
             for a, b in zip(bigger, smaller):
                 self.assertGreaterEqual(a, b)
         for inflight, workers, pool in values:
-            self.assertGreaterEqual(inflight, workers, "in-flight requests are not capped below the worker threads")
-            self.assertLessEqual(pool, workers)
-            self.assertLessEqual(pool, 10, "Postgres max_connections is 100 and shared with platform, tools and the engine")
+            # serve-env.md "Dimensionar el pool de Postgres": MAX_INFLIGHT <= POOL_MAX / 2
+            self.assertLessEqual(inflight, pool // 2)
         self.assertRegex(main, r"core_memory_mb >= 8192")
         self.assertRegex(main, r"AGENT_MAX_INFLIGHT\s*=\s*tostring")
+
+    def test_compose_defaults_respect_the_pool_rule(self):
+        def default(name):
+            return int(re.fullmatch(r"\$\{\w+:-(\d+)\}", self.env[name]).group(1))
+        self.assertLessEqual(default("AGENTCORE_MAX_INFLIGHT"), default("AGENTCORE_DB_POOL_MAX") // 2)
 
     def test_pool_fits_the_postgres_connection_budget(self):
         pg = read(CORE / "compose.postgres.yaml")
         max_conn = int(re.search(r"max_connections=(\d+)", pg).group(1))
         pool = max(int(t[2]) for t in re.findall(r"\{ inflight = (\d+), workers = (\d+), pool = (\d+) \}", read(TF / "envs" / "hackathon" / "main.tf")))
-        # agent-core pool + a short-lived migrate/sweep connection each + generous allowance for platform, tools, engine, exporter
-        self.assertLessEqual(pool + 2 + 60, max_conn)
+        # docs/shared-postgres.md "Sizing": worst case of every pool plus reserved and one-shot connections
+        budget = (
+            2 * pool      # agent-core: registry and eval databases
+            + 20          # platform API
+            + 2 * 5       # core-runtime (legacy, profile-disabled; counted anyway)
+            + 10          # engine
+            + 5           # tool-service
+            + 5           # gateway
+            + 3           # superuser_reserved_connections
+            + 6           # one-shots: migrations, bootstrap, grants, exporter
+        )
+        self.assertLessEqual(budget, max_conn * 0.85, "keep at least 15 percent headroom")
+
+    def test_no_doubles_in_the_agent_compose(self):
+        self.assertNotIn("AGENTCORE_ALLOW_DOUBLES", self.env)
+        self.assertNotIn("AGENTCORE_ALLOW_DEMO", self.env)
+
+    def test_budget_and_rate_defaults_are_demo_safe(self):
+        self.assertEqual(self.env["AGENTCORE_DAILY_BUDGET_USD"], "${AGENT_DAILY_BUDGET_USD:-200}")
+        self.assertEqual(self.env["AGENTCORE_RATE_MAX_HITS"], "${AGENT_RATE_MAX_HITS:-120}")
+        contract = json.loads(read(ROOT / "scripts" / "prodlike" / "env_contract.json"))
+        names = contract["compose_environment"]["variables"]
+        for n in ("AGENT_DAILY_BUDGET_USD", "AGENT_RATE_MAX_HITS"):
+            self.assertIn(n, names)
+        self.assertIn("AGENT_DAILY_BUDGET_USD", read(ROOT / "docs" / "secrets-wiring.md"))
 
     def test_memory_of_the_core_host_still_leaves_headroom(self):
         total = 0
