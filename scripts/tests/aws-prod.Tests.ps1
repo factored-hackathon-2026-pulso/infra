@@ -1051,3 +1051,24 @@ Describe 'seed-secret-keys' {
         Get-Calls | Should Not Match 'put-secret-value'
     }
 }
+
+Describe 'Resolve-VarFile placeholders' {
+    $digest = 'a' * 64
+    function Write-Tfvars([string]$Comment, [string]$Value) {
+        $f = Join-Path $TestDrive 'p.tfvars'
+        Set-Content -Encoding ascii $f @("# $Comment", '  # indented comment with REPLACE_WITH_X', 'images = {', "  gateway = `"$Value`"", '}')
+        $f
+    }
+    It 'passes when <registry> appears only in a comment and digests are filled' {
+        $f = Write-Tfvars 'Format <registry>/<repo>@sha256:<64 hex>' "123.dkr.ecr.us-east-1.amazonaws.com/x@sha256:$digest"
+        Resolve-VarFile $f | Should Be $f
+    }
+    It 'fails when REPLACE_WITH_ is in a value' {
+        $f = Write-Tfvars 'c' 'h/x@sha256:REPLACE_WITH_64_HEX_DIGEST'
+        { Resolve-VarFile $f } | Should Throw 'placeholders'
+    }
+    It 'fails when <registry> is in a value' {
+        $f = Write-Tfvars 'c' "<registry>/x@sha256:$digest"
+        { Resolve-VarFile $f } | Should Throw 'placeholders'
+    }
+}
