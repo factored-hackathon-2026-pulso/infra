@@ -625,6 +625,9 @@ def cmd_build(a) -> int:
     if big:
         args += ["--build-arg", "CARGO_BUILD_JOBS=1"]
     if a.name == "agent":
+        # The Dockerfile's uv cache mount can hand back a project wheel built from OLDER sources (same version): the image then carries
+        # old code under the new GIT_SHA. Observed live on 2026-10-05; --no-cache rebuilds it (agent-core ask A11).
+        args.insert(1, "--no-cache")
         sha = run(["git", "-C", str(src), "rev-parse", "--short", "HEAD"], check=False, capture=True).stdout.strip() or "local"
         args += ["--build-arg", f"GIT_SHA={sha}"]
     t0 = time.time()
