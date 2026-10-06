@@ -316,3 +316,20 @@ run "database_mode_is_validated" {
   }
   expect_failures = [var.database_mode]
 }
+
+run "uploader_policy_can_multipart_to_the_kms_bucket_and_list_landing" {
+  command = plan
+
+  assert {
+    condition     = contains(flatten([[for s in jsondecode(output.uploader_policy_json).Statement : s if s.Sid == "EncryptWithDataKey"][0].Action]), "kms:Decrypt")
+    error_message = "Multipart upload to an SSE-KMS bucket needs kms:Decrypt."
+  }
+  assert {
+    condition = (
+      length([for s in jsondecode(output.uploader_policy_json).Statement : s if s.Sid == "ListLanding"]) == 1
+      && [for s in jsondecode(output.uploader_policy_json).Statement : s if s.Sid == "ListLanding"][0].Action == ["s3:ListBucket"]
+      && [for s in jsondecode(output.uploader_policy_json).Statement : s if s.Sid == "ListLanding"][0].Condition.StringLike["s3:prefix"] == ["landing/*"]
+    )
+    error_message = "aws s3 sync needs s3:ListBucket, limited to landing/*."
+  }
+}

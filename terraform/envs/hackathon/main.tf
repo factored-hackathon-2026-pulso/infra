@@ -199,6 +199,15 @@ module "iam" {
   ecr_push_repository_arns     = distinct(concat(local.ecr_arns.core, local.ecr_arns.platform, local.ecr_arns.engine))
   tags                         = local.tags
 }
+# The log group the CloudWatch agent of the three hosts writes to (hackathon_compute: /<name_prefix>/docker). Managed here so it has
+# a retention; an existing agent-created group must be imported once: terraform import 'aws_cloudwatch_log_group.docker[0]' /<name_prefix>/docker
+resource "aws_cloudwatch_log_group" "docker" {
+  count             = var.enable_cloudwatch_agent ? 1 : 0
+  name              = "/${var.name_prefix}/docker"
+  retention_in_days = var.docker_log_retention_days
+  tags              = local.tags
+}
+
 # One EC2 per workload; each reads only its own slice of the one secret.
 module "compute_core" {
   source                  = "../../modules/hackathon_compute"
