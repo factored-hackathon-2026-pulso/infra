@@ -34,6 +34,10 @@ Why a timer that polls a marker: S3 event notifications need an SQS queue or Eve
 a 5-minute poll of one tiny object costs nothing, needs no new resource, survives host replacement (state lives in S3) and is the
 simplest robust option on a free-plan EC2. Latency is at most 5 minutes.
 
+## First bring-up: the loader gates agent-core
+
+The first publication (`lake/publish/latest.json`) is not optional on a first bring-up: `pulso-stack-prepare` copies the field catalog `field_classification.json` from it, and agent-core serve cannot become healthy without it. The loader only starts after the operator writes `engine/inbox/READY.json`, so the order is landing upload, READY.json, wait for `engine/loader/status/last.json` `"state":"ok"` and `lake/publish/latest.json`, and only then restart `pulso-stack` on core (a 404 on `latest.json` is a warning for tool-service but fatal for agent-core). Full order: [infra-day-one](infra-day-one.md#first-bring-up-order-a-hard-dependency).
+
 ## Credentials and isolation
 
 - Role `<name_prefix>-loader`: trust = ONLY the engine host role, with `sts:ExternalId` (`<name_prefix>-loader-<account>`); one-hour

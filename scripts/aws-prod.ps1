@@ -855,8 +855,20 @@ function Show-SecretStatus([string]$AwsProfile) {
         if ($k -like 'LANGFUSE__*') { $notes += 'optional unless the otlp forwarder is on' }
         $humanLines += $(if ($notes.Count) { "$k ($($notes -join ', '))" } else { $k })
     }
-    $other = @($unset | Where-Object { $script:HumanSecretKeys -notcontains $_ } | Sort-Object)
+    # Every fan-out target (derived from SecretFanOut, so the list cannot drift) is a copy of a human key: absent or CHANGE_ME
+    # means a service refuses to start (agent-core serve: "falta AGENTCORE_JEV_API_KEY"), and seed-secret-keys does not fill it.
+    $fanLines = @(); $fanTargets = @()
+    foreach ($src in ($script:SecretFanOut.Keys | Sort-Object)) {
+        foreach ($t in ($script:SecretFanOut[$src] | Sort-Object)) {
+            $fanTargets += $t
+            $absent = $present -notcontains $t
+            if (-not $absent -and $unset -notcontains $t) { continue }
+            $fanLines += "$t ($(if ($absent) { 'MISSING, ' })copy of $src)"
+        }
+    }
+    $other = @($unset | Where-Object { $script:HumanSecretKeys -notcontains $_ -and $fanTargets -notcontains $_ } | Sort-Object)
     Write-Host "UNSET (human, set with set-secret): $(if ($humanLines.Count) { $humanLines -join ', ' } else { '(none)' })"
+    Write-Host "UNSET (fan-out copy of a human key; re-run set-secret on the source key): $(if ($fanLines.Count) { $fanLines -join ', ' } else { '(none)' })"
     Write-Host "UNSET (should be wired; run seed-secret-keys): $(if ($other.Count) { $other -join ', ' } else { '(none)' })"
 }
 

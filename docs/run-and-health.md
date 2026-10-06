@@ -92,6 +92,8 @@ healthy by `pg_isready`, 10 s x 12, 30 s start) -> `core-migrate` (one-shot) -> 
 `agent-core`. `llm-gateway` and `tool-service` start at once; `core-runtime` and `agent-core` wait until the gateway is healthy
 and `agent-core` also for the tool-service. An empty data volume with a `CHANGE_ME` password refuses the init (by design).
 
+On a first bring-up `agent-core` also needs `/catalog/field_classification.json`, copied by `pulso-stack-prepare` from the first data-pipeline publication (`lake/publish/latest.json`). Without it `agent-core` stays unhealthy and the stack fails with `dependency failed to start: container pulso-agent-core-1 is unhealthy`; the same 404 is only a warning for `tool-service`. Run the loader first ([infra-day-one](infra-day-one.md#first-bring-up-order-a-hard-dependency)).
+
 ## 4. Resource budget against the instance size
 
 | Host | Sum of `mem_limit` | Instance | Note |

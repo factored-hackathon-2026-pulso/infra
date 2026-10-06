@@ -21,6 +21,21 @@ Legend. **HUMAN** marks a step only you can do: typing `APPLY`, `DEPLOY` or `SET
 
 Nothing else is typed: every other secret (database passwords, DSNs, tokens, Ed25519 keys, TOTP and session secrets, the origin check, the pseudonymisation key) is generated and wired by Terraform ([human-secrets-only](human-secrets-only.md), [secrets-wiring](secrets-wiring.md)). Never paste a value in chat, a file or a command line.
 
+## First bring-up order (a hard dependency)
+
+agent-core serve loads the field catalog `/catalog/field_classification.json`. That file comes from the FIRST data-pipeline publication: `pulso-stack-prepare` copies it from `s3://<bucket>/lake/publish/latest.json` (and the run it points to). Until the loader has published once, agent-core cannot become healthy and the core stack keeps failing with `dependency failed to start: container pulso-agent-core-1 is unhealthy`. The loader itself starts only after the operator writes `engine/inbox/READY.json`. So the order on a first bring-up is:
+
+1. images (layer 3)
+2. `plan` / `apply` (layer 4; `seed-secret-keys` needs a full apply first, see the troubleshooting table)
+3. `seed-secret-keys`, then `set-secret` for OpenRouter, JEV and Langfuse (layer 5), then `status`
+4. upload `landing/bank/` and `landing/e0/` (layer 9)
+5. write `engine/inbox/READY.json`, last (layer 9)
+6. wait for the loader: `engine/loader/status/last.json` says `"state":"ok"` and `lake/publish/latest.json` exists
+7. restart `pulso-stack` on core, then platform, then engine (layers 6 to 8)
+8. `aws-acceptance.ps1` (layer 12)
+
+A `pulso-stack-prepare` 404 on `lake/publish/latest.json` is only a warning for tool-service (it answers `data_unavailable`), but it is fatal for agent-core. A core start before step 6 therefore fails by design: do steps 4 to 6 first and restart afterwards.
+
 ## Expected time (estimates, unmeasured)
 
 | Layer | Wall time | Mostly |
@@ -125,7 +140,9 @@ CHECK: `.\scripts\aws-prod.ps1 status -Profile pulso-prod` lists three running i
 .\scripts\aws-prod.ps1 status -Profile pulso-prod
 ```
 
-CHECK: `status` lists no human key UNSET (apart from the optional Langfuse ones) and no wired key UNSET. Hosts read a new value at their next `pulso-stack` start, which layers 6 to 8 do.
+`set-secret` on `GATEWAY__JEV_API_KEY` also writes `AGENT__AGENTCORE_JEV_API_KEY` (the copy agent-core serve reads) and prints `Also set : AGENT__AGENTCORE_JEV_API_KEY (same provider key)`; if that line is missing, the copy was not written. On a secret created by an older schema that copy can be absent, and agent-core then refuses to start ("falta AGENTCORE_JEV_API_KEY"). `status` reports every fan-out copy that is absent or `CHANGE_ME` on its own line (`UNSET (fan-out copy of a human key ...)`), derived from the same table `set-secret` uses; fix it by running `set-secret` again on the source key. `status` does NOT detect absent derived keys (DSNs and the like): it only sees keys that exist as `CHANGE_ME` or empty, plus the human and fan-out sets. Run `seed-secret-keys` after the first full apply and read the service logs when a container refuses to start for a missing variable.
+
+CHECK: `status` lists no human key UNSET (apart from the optional Langfuse ones), no fan-out copy UNSET and no wired key UNSET. Hosts read a new value at their next `pulso-stack` start, which layers 6 to 8 do.
 
 ## Layer 6. Core host (agent-core, gateway, tool-service, Postgres)
 
@@ -135,6 +152,8 @@ Shell: `aws ssm start-session --profile pulso-prod --region us-east-1 --target <
 sudo systemctl restart pulso-stack          # picks up the keys; Postgres initdb already ran on first boot with generated passwords
 sudo docker compose -p pulso --project-directory /srv/stack ps
 ```
+
+On a FIRST bring-up this restart cannot succeed before the first publication exists (see [First bring-up order](#first-bring-up-order-a-hard-dependency)): `agent-core` stays unhealthy and `pulso-stack` fails with `dependency failed to start: container pulso-agent-core-1 is unhealthy`. Do layer 9 first, then come back here.
 
 Wait until `postgres`, `llm-gateway`, `tool-service` and `agent-core` are `healthy` and `agent-core-migrate` and `core-migrate` exited 0 (2 to 5 minutes). CHECK: `curl -s http://127.0.0.1:8001/readyz` answers `ready` with postgres, keys, schema, llm_gateway and tool_service `ok`. `tool_service` may say `degraded` until a publication exists (layer 9): that is expected here. Order inside the host and the budget are in [run-and-health](run-and-health.md); the shared Postgres in [shared-postgres](shared-postgres.md).
 
@@ -171,7 +190,7 @@ CHECK: `curl -s https://<domain>/pulso/readyz` is 200 from your machine (engine 
 
 ## Layer 9. Data: upload, loader, publication
 
-Order, always: landing upload, then the READY marker LAST, then the loader, then the core stack restart, then the engine cells. Details of the loader: [auto-loader](auto-loader.md).
+Order, always: landing upload, then the READY marker LAST, then the loader (wait for `"state":"ok"` and `lake/publish/latest.json`), then the core stack restart (agent-core needs the publication to become healthy), then platform and engine, then the engine cells. Details of the loader: [auto-loader](auto-loader.md).
 
 What is uploaded (names and formats, from the data-pipeline repository; raw data is never read or copied by this runbook):
 
@@ -265,7 +284,25 @@ Open the same URL in a browser as a last look: the SPA loads from the CloudFront
 | CloudFront 502 or 504 | host or proxy down; or a request over 60 s (a slow agent-core turn) | `docker compose -p pulso ps` on the host; [edge-audit](edge-audit.md) rows E1 and E2 |
 | CloudFront 403 | the origin refused the request: `X-Origin-Verify` mismatch (another distribution) or the distribution is still deploying | wait for the deployment; check the platform proxy |
 | `demo-login` FAILs 401 or MFA invalid | the platform is not in `staging` mode or the seed did not run | `/api/v1/meta` must say `staging`; run the seed (layer 10) |
+| core `pulso-stack` fails: `dependency failed to start: container pulso-agent-core-1 is unhealthy` on a first bring-up | `/catalog/field_classification.json` is missing: no publication yet (`pulso-stack-prepare` logged a 404 on `lake/publish/latest.json`) | write READY.json, wait for the loader `ok` and `lake/publish/latest.json`, then `sudo systemctl restart pulso-stack` ([First bring-up order](#first-bring-up-order-a-hard-dependency)) |
+| agent-core serve refuses to start: "falta AGENTCORE_JEV_API_KEY" | `AGENT__AGENTCORE_JEV_API_KEY` absent in a secret created by an older schema | `status` names it; run `set-secret -SecretKey GATEWAY__JEV_API_KEY` again (prints `Also set : AGENT__AGENTCORE_JEV_API_KEY`), then restart `pulso-stack` |
+| after the first apply a digest changed in `prod.tfvars` but the hosts still run the old image | the host image digests live in SSM `/pulso/<host>/images/<key>` with `ignore_changes`: Terraform never updates them after creation | `aws-prod.ps1 deploy -Service <svc> -FromBuild <build id> -Wait` (or `aws ssm put-parameter --overwrite`), then restart `pulso-stack` |
+| `seed-secret-keys` fails: `terraform output generated_secrets` | the `generated_secrets` output exists only after a full apply | run `plan` and `apply` without `-Stage` first |
 | a host does not come up, no SSM session | see [troubleshooting](troubleshooting.md#host-does-not-come-up) | |
+
+## Reading host state through SSM (no helper script)
+
+Send read-only commands to a host and read the output (instance ids from `status`; PowerShell, replace `<id>`):
+
+```powershell
+$cmd = aws ssm send-command --profile pulso-prod --region us-east-1 --instance-ids <id> --document-name AWS-RunShellScript `
+  --parameters 'commands=["docker ps -a --format {{.Names}}:{{.Status}}","journalctl -u pulso-stack -n 80 --no-pager","journalctl -u pulso-loader -n 80 --no-pager"]' `
+  --query Command.CommandId --output text
+Start-Sleep 5
+aws ssm get-command-invocation --profile pulso-prod --region us-east-1 --command-id $cmd --instance-id <id> --query StandardOutputContent --output text
+```
+
+For one container log add `docker logs --tail 80 pulso-agent-core-1` to `commands`; use `--query StandardErrorContent` for stderr. Keep outputs short (SSM truncates long ones). Never print `/srv/stack/*.env` or a container environment: they hold secrets.
 
 ## What is not verified
 
