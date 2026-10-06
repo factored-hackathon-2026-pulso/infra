@@ -379,7 +379,7 @@ variable "loader_duckdb_memory" {
 variable "loader_table_batches" {
   type        = string
   default     = ""
-  description = "Optional ingest_bank batches, semicolon separated, each a comma list of tables (for example customers,products;complaints), one container per batch so peak memory is one batch. UNVERIFIED contract. Empty = a single ingest_bank step."
+  description = "Optional ingest_bank batches, semicolon separated, each a comma list of tables (for example customers,marketing_campaigns;transactions), one container per batch, each on freshly assumed loader credentials, so peak memory is one batch and no container outlives a 1 h session. The batches must cover all 13 bank tables: when set, the final container runs only build,publish. Recommended for the bank dataset: customers,products,branches,service_agents,marketing_campaigns,daily_exchange_rates;call_center_interactions;call_transcripts;campaign_sends;complaints;digital_events;satisfaction_surveys;transactions (docs/auto-loader.md). Empty = a single ingest_bank step (default, unchanged)."
 }
 
 variable "loader_swap_gb" {
