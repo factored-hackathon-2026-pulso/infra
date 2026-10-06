@@ -240,7 +240,7 @@ class PlatformHostStaysOnStaging(unittest.TestCase):
     def test_cc_env_is_staging_with_the_demo_settings_once_the_bundle_declares_it(self):
         code = self.platform_code()
         if "CC_ENV" not in code:
-            self.skipTest("the platform bundle does not declare CC_ENV yet (it lands with the platform deploy-contract PR); until then the profile cannot enforce it")
+            self.skipTest("the platform bundle does not declare CC_ENV yet (it is declared by the platform deploy-contract change); until then the profile cannot enforce it")
         self.assertRegex(code, r"CC_ENV:\s*\"?staging\"?")
         for setting in ("CC_SEED_DEMO_DATA", "CC_DEV_MAILBOX"):
             self.assertRegex(code, rf"{setting}:\s*\"?true\"?", setting)
