@@ -21,6 +21,8 @@ Start with the quickstart; the rest is reference. These docs are checked against
 | [run-and-health.md](run-and-health.md) | see how each service runs on the hosts: image, command, env names, ports, probes, restart, start order, limits |
 | [runbooks/build-and-release.md](runbooks/build-and-release.md) | build with Podman, scan, push to ECR, pin digests, roll out and roll back when there is no CI |
 | [prodlike-rehearsal.md](prodlike-rehearsal.md) | rehearse the host stacks locally with Podman (`scripts/prodlike`) before any apply |
+| [infra-day-one.md](infra-day-one.md) | go from an empty account to the full system, layer by layer, with the commands, what the human types, the checks, timings and the failures already met (the complete profile and `scripts/aws-acceptance.ps1`) |
+| [edge-audit.md](edge-audit.md) | audit CloudFront and the host proxies: routes, WebSocket, timeouts, forwarded headers, same-origin SPA, and the gaps with file and line |
 
 Temporary Linux build host for agents (cargo and tests off the Windows PC): [buildbox.md](buildbox.md).
 

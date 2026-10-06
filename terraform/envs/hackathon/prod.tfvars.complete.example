@@ -1,0 +1,71 @@
+# COMPLETE profile: the full Pulso system on AWS, every service on, nothing left off (docs/infra-day-one.md).
+# Copy to prod.tfvars (ignored by Git) and let `scripts/aws-prod.ps1 images` fill the digests, or fill them by hand.
+# Names only: no secret value belongs here. Secret values live in Secrets Manager (docs/human-secrets-only.md).
+# Contract test: tests/test_fullstack_profile_contract.py reads this file; a flag turned off here breaks it on purpose.
+#
+# What this profile deploys (one account, us-east-1, profile free_plan, one shared Postgres in a container on the core host):
+#   core host      agent-core `serve` (real pieces), llm-gateway, tool-service, Postgres, OTLP forwarder sidecars
+#   platform host  support-platform API + SPA + proxy, behind CloudFront on the *.cloudfront.net domain (no custom domain)
+#   engine host    `pulso run` + `pulso loop` (systemd timer), the automatic data loader (data-pipeline), OTLP forwarder
+# Never present anywhere in this profile: AGENTCORE_ALLOW_DOUBLES, PULSO_REGISTRY_TOKEN (checked by the contract test).
+# The platform runs with CC_ENV=staging (deploy/hackathon/platform/compose.yaml): seeded demo accounts, dev MFA code, production
+# runtime rules. The public URL is intentionally not restricted (accepted risk); nothing here adds an allowlist or an edge secret.
+
+# Required. Format <registry>/<repo>@sha256:<64 hex>; repositories are created by terraform/bootstrap (prefix "pulso-prod/").
+# `aws-prod.ps1 images -Service <name>` writes each digest here as it is built (docs/infra-day-one.md, layer 2).
+# images.core.core (the old core-bridge image) is not needed: agent-core serve replaces it (ADR 0009).
+images = {
+  core = {
+    gateway   = "<registry>/pulso-prod/llm-gateway@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    agent     = "<registry>/pulso-prod/agent-core-serve@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    tools     = "<registry>/pulso-prod/tool-service@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    forwarder = "<registry>/pulso-prod/otlp-forwarder@sha256:REPLACE_WITH_64_HEX_DIGEST"
+  }
+  platform = {
+    support_api = "<registry>/pulso-prod/support-platform-api@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    support_web = "<registry>/pulso-prod/support-platform-web@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    proxy       = "<registry>/pulso-prod/caddy@sha256:REPLACE_WITH_64_HEX_DIGEST"
+  }
+  engine = {
+    pulso     = "<registry>/pulso-prod/pulso-engine@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    proxy     = "<registry>/pulso-prod/caddy@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    pipeline  = "<registry>/pulso-prod/data-pipeline@sha256:REPLACE_WITH_64_HEX_DIGEST"
+    forwarder = "<registry>/pulso-prod/otlp-forwarder@sha256:REPLACE_WITH_64_HEX_DIGEST"
+  }
+}
+
+# Profile: free_plan = AWS Free Plan account (Postgres container, no NAT, public CloudFront origins, WAF off). docs/costs.md.
+profile = "free_plan"
+
+# Every host on.
+enabled = { core = true, platform = true, engine = true }
+
+# Every service flag on.
+agent_services_enabled    = true # agent-core serve + tool-service on the core host, wired to the platform and the engine
+platform_database_enabled = true # platform and tools databases on the shared Postgres, engine -> platform path (announce, evidence)
+auto_loader_enabled       = true # landing -> lake loader (dedicated role, systemd timer); needs images.engine.pipeline
+engine_loop_enabled       = true # `pulso loop` as a systemd one-shot with a timer, minted registry credentials
+otlp_forwarder_enabled    = true # OTLP sidecars to Langfuse; needs the two LANGFUSE__ secret keys (optional to set, see docs)
+
+# Host sizes. m7i-flex.large (8 GiB) is the largest Free Plan type. Core: Postgres + agent-core + gateway + tool-service.
+# Engine: the loader (DuckDB over about 5.3 GB of CSV) and `pulso`. Platform: API at 512 MB plus the one-shot `cc-seed --profile volume`
+# (t3.small is the fallback if the account refuses a third flex instance; the seed then needs a quiet moment).
+instance_types = { core = "m7i-flex.large", platform = "m7i-flex.large", engine = "m7i-flex.large" }
+
+# Data volumes (GB): core keeps the tool-service publication copy, engine keeps the loader scratch (warehouse, spill) and the work dir.
+data_volume_size_gb = { core = 30, platform = 20, engine = 80 }
+protect_data_volume = true
+
+# Improvement loop: the bank cells come from the loader (or from engine/inputs/cells.ndjson uploaded by the operator).
+engine_loop_interval     = "6h"
+engine_loop_cells_source = "bank"
+engine_loop_profile      = "standard"
+
+# Langfuse. false = metadata only; true = prompts and responses leave the account (an explicit, separate decision of the owner).
+otlp_trace_content = false
+langfuse_base_url  = "https://us.cloud.langfuse.com"
+
+# Edge: CloudFront on its own domain, no WAF, no custom domain. engine_host_can_load stays false (the loader uses its own role).
+edge_enabled         = true
+enable_waf           = false
+engine_host_can_load = false

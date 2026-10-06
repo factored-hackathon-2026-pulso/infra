@@ -18,6 +18,9 @@ LOADER_DUCKDB_MEMORY="${LOADER_DUCKDB_MEMORY:-2GB}"   # DuckDB memory_limit; the
 LOADER_TABLE_BATCHES="${LOADER_TABLE_BATCHES:-}"        # e.g. "customers,products;complaints": ingest_bank table by table
 LOADER_K_MIN="${LOADER_K_MIN:-10}"
 LOADER_DATASET_PREFIX="${LOADER_DATASET_PREFIX:-landing/bank}"
+# The data pipeline strips this prefix from every key and takes the first path segment as the table (ingest_bank.table_of):
+# without the trailing slash the segment is empty, no table matches and ingest_bank loads nothing. Always end it with one slash.
+LOADER_DATASET_PREFIX="${LOADER_DATASET_PREFIX%/}/"
 STATE=/srv/data/loader
 INBOX_KEY="engine/inbox/READY.json"
 STATUS_KEY="engine/loader/status/last.json"
