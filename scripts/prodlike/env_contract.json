@@ -36,6 +36,10 @@
       {"name": "PULSO_LLM_GATEWAY", "infra": "engine/pulso/PULSO_LLM_GATEWAY", "kind": "ssm-derived", "local": "const:enabled"},
       {"name": "PULSO_BASE_PATH", "infra": "engine/pulso/PULSO_BASE_PATH", "kind": "ssm-derived", "local": "const:/pulso"},
       {"name": "PULSO_DATA_MODE", "infra": "engine/pulso/PULSO_DATA_MODE", "kind": "ssm-derived", "local": "const:dataset"},
+      {"name": "PULSO_LLM_GATEWAY_MODEL", "infra": "engine/pulso/PULSO_LLM_GATEWAY_MODEL", "kind": "ssm-derived", "local": "const:xiaomi/mimo-v2.6-flash"},
+      {"name": "PULSO_LLM_GATEWAY_VERIFIER_MODEL", "infra": "engine/pulso/PULSO_LLM_GATEWAY_VERIFIER_MODEL", "kind": "ssm-derived", "local": "const:xiaomi/mimo-v2.6-pro"},
+      {"name": "PULSO_LLM_GATEWAY_BUILDER_MODEL", "infra": "engine/pulso/PULSO_LLM_GATEWAY_BUILDER_MODEL", "kind": "ssm-derived", "local": "const:xiaomi/mimo-v2.6-flash"},
+      {"name": "PULSO_LLM_GATEWAY_BUILDER_ESCALATION_MODEL", "infra": "engine/pulso/PULSO_LLM_GATEWAY_BUILDER_ESCALATION_MODEL", "kind": "ssm-derived", "local": "const:xiaomi/mimo-v2.6-pro"},
       {"name": "PULSO_CORE_ADDR", "infra": "PULSO_CORE_ADDR", "kind": "ssm-derived", "local": "core_addr"},
       {"name": "PULSO_LLM_GATEWAY_ADDR", "infra": "PULSO_LLM_GATEWAY_ADDR", "kind": "ssm-derived", "local": "gateway_addr"}
     ],

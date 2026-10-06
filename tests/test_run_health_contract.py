@@ -259,3 +259,39 @@ class LoopJobSlot(unittest.TestCase):
         self.assertNotIn("SLOT", text)
         self.assertIn("PULSO_SERVICE_SEED_HEX", text)
         self.assertIn("compose.loop.yaml", (TF / "envs" / "hackathon" / "main.tf").read_text(encoding="utf-8"))
+
+
+class EngineModelParameters(unittest.TestCase):
+    """The loop's per-role models ride in non-secret derived SSM parameters (no user_data change)."""
+
+    NAMES = {
+        "PULSO_LLM_GATEWAY_MODEL": "xiaomi/mimo-v2.6-flash",
+        "PULSO_LLM_GATEWAY_VERIFIER_MODEL": "xiaomi/mimo-v2.6-pro",
+        "PULSO_LLM_GATEWAY_BUILDER_MODEL": "xiaomi/mimo-v2.6-flash",
+        "PULSO_LLM_GATEWAY_BUILDER_ESCALATION_MODEL": "xiaomi/mimo-v2.6-pro",
+    }
+
+    def test_ssm_derives_each_model_from_the_variable(self):
+        ssm = (DATA / "ssm.tf").read_text(encoding="utf-8")
+        derived = ssm.split("ssm_derived", 1)[1]
+        for name in self.NAMES:
+            self.assertRegex(derived, rf'"engine/pulso/{name}"\s*=\s*var\.engine_llm_models\.')
+
+    def test_variable_defaults_are_the_policy(self):
+        variables = (DATA / "variables.tf").read_text(encoding="utf-8")
+        block = re.search(r'variable "engine_llm_models".*?\n}\n', variables, re.S)
+        self.assertIsNotNone(block)
+        for model in set(self.NAMES.values()):
+            self.assertIn(f'"{model}"', block.group(0))
+
+    def test_env_contract_lists_them_as_ssm_derived(self):
+        import json
+        contract = json.loads((ROOT / "scripts" / "prodlike" / "env_contract.json").read_text(encoding="utf-8"))
+        by_name = {e["name"]: e for e in contract["files"]["pulso"]}
+        for name in self.NAMES:
+            self.assertEqual(by_name[name]["kind"], "ssm-derived")
+            self.assertEqual(by_name[name]["infra"], f"engine/pulso/{name}")
+
+    def test_user_data_inputs_are_untouched_by_the_models(self):
+        for f in (COMPUTE.glob("*.tftpl")):
+            self.assertNotIn("LLM_GATEWAY_MODEL", f.read_text(encoding="utf-8"))

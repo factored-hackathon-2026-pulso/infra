@@ -86,6 +86,7 @@ Secret files (`FILES__AGENT__<NAME>`, rendered under `/run/pulso/files/agent`): 
 | `PULSO_PLATFORM_SERVICE_TOKEN` | G | equals the platform internal token |
 | `PULSO_PG_PRODUCT_DSN` | D | `platform_exporter_ro` on `platform`; needs `platform_database_enabled` |
 | `PULSO_CORE_ADDR`, `PULSO_REGISTRY_ADDR`, `PULSO_LLM_GATEWAY_ADDR`, `PULSO_PLATFORM_URL` | L (SSM, private IPs) | |
+| `PULSO_LLM_GATEWAY_MODEL`, `_VERIFIER_MODEL`, `_BUILDER_MODEL`, `_BUILDER_ESCALATION_MODEL` | SSM, non-secret, variable `engine_llm_models` (defaults: scout flash, verifier pro, builder flash, escalation pro, `xiaomi/mimo-v2.6-*`); derived, update in place; read at the next `pulso-stack-prepare` or deploy, no `user_data` change |
 | `PULSO_DATA_MODE`, `PIPELINE_ROOT`, `PULSO_BASE_PATH`, `PULSO_SOURCE_*`, loop knobs | L | `PULSO_DATA_MODE` is `platform` iff `platform_database_enabled` (then `PULSO_SOURCE_ADAPTER=product-postgres`), else `dataset`; `pulso run` reads no `PIPELINE_ROOT` |
 | `PULSO_REGISTRY_TOKEN` | never | the engine mints short-lived credentials; no static token exists |
 | `PULSO_GATEWAY_KEY`, `PULSO_PG_DATASET_DSN`, `PULSO_PG_WATERMARK_DSN`, `PULSO_PG_LOADER_DSN` | not used here | the dataset adapter reads files; the Parquet-to-Postgres loader is not deployed |

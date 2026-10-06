@@ -31,6 +31,7 @@ Checked by `tests/test_engine_loop_contract.py` and the Terraform tests of `terr
 | `PULSO_PROFILE` | `.env` from `engine_loop_profile` (`standard` default; `demo` only with `synthetic`, enforced by a variable validation and by the engine) |
 | `PULSO_LOOP_INPUTS_DIR` | literal `/var/lib/pulso/inputs` (the S3-synced mirror, mounted read-only; file `cells.ndjson`) |
 | `PULSO_WORK_DIR` | literal `/var/lib/pulso/work` (lock, records, receipts, results; `/srv/data/pulso` read-write) |
+| `PULSO_LLM_GATEWAY_MODEL`, `_VERIFIER_MODEL`, `_BUILDER_MODEL`, `_BUILDER_ESCALATION_MODEL` | SSM, non-secret, variable `engine_llm_models` (defaults: scout flash, verifier pro, builder flash, escalation pro, `xiaomi/mimo-v2.6-*`); derived, update in place; read at the next `pulso-stack-prepare` or deploy, no `user_data` change |
 | `PULSO_LLM_GATEWAY`, `PULSO_LLM_GATEWAY_ADDR`, `PULSO_LLM_GATEWAY_KEY` | literal `enabled`, SSM core IP and 8080, secret `PULSO__PULSO_LLM_GATEWAY_KEY` |
 | `PULSO_EVAL_BEFORE_ANNOUNCE` | literal `on` |
 | `PULSO_PLATFORM_URL`, `PULSO_PLATFORM_SERVICE_TOKEN` | SSM (with `platform_database_enabled`) and secret `PULSO__PULSO_PLATFORM_SERVICE_TOKEN`; announce is on only when both are set |

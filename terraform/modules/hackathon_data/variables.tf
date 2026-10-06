@@ -125,6 +125,27 @@ variable "engine_data_mode" {
   }
 }
 
+variable "engine_llm_models" {
+  description = "OpenRouter model ids of the `pulso loop` roles, written as non-secret derived SSM parameters (engine/pulso/PULSO_LLM_GATEWAY_MODEL, _VERIFIER_MODEL, _BUILDER_MODEL, _BUILDER_ESCALATION_MODEL). scout = Scout (and Builder when no builder model); verifier = independent Verifier; builder = Builder primary tier; builder_escalation = second tier tried once after the primary cannot compile. The gateway has no model allow-list: the OpenRouter account behind GATEWAY__OPENROUTER_API_KEY must be able to call them."
+  type = object({
+    scout              = string
+    verifier           = string
+    builder            = string
+    builder_escalation = string
+  })
+  default = {
+    scout              = "xiaomi/mimo-v2.6-flash"
+    verifier           = "xiaomi/mimo-v2.6-pro"
+    builder            = "xiaomi/mimo-v2.6-flash"
+    builder_escalation = "xiaomi/mimo-v2.6-pro"
+  }
+
+  validation {
+    condition     = alltrue([for m in values(var.engine_llm_models) : length(trimspace(m)) > 0])
+    error_message = "engine_llm_models ids must not be blank."
+  }
+}
+
 variable "platform_database_enabled" {
   description = "Seed the secret keys of the platform and tool-service databases on the shared Postgres (platform, tools) and the engine's read-only access to the platform event log (docs/shared-postgres.md). Off by default."
   type        = bool

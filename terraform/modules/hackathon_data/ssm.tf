@@ -27,6 +27,11 @@ locals {
     "engine/pulso/PULSO_SERVICE_KID" = local.engine_kid
     "engine/pulso/PULSO_LLM_GATEWAY" = "enabled"
     "engine/pulso/PULSO_BASE_PATH"   = "/pulso"
+    # Models of the `pulso loop` roles (improvement-engine reasoning/live.rs): non-secret, derived (update in place), read at the next prepare/deploy.
+    "engine/pulso/PULSO_LLM_GATEWAY_MODEL"                    = var.engine_llm_models.scout
+    "engine/pulso/PULSO_LLM_GATEWAY_VERIFIER_MODEL"           = var.engine_llm_models.verifier
+    "engine/pulso/PULSO_LLM_GATEWAY_BUILDER_MODEL"            = var.engine_llm_models.builder
+    "engine/pulso/PULSO_LLM_GATEWAY_BUILDER_ESCALATION_MODEL" = var.engine_llm_models.builder_escalation
     # dataset = bank aggregates (dataset adapters); platform = the platform event log (product-postgres, set in the environment root
     # with platform_database_enabled). The engine refuses a mode/adapter mismatch at startup. Derived: updates in place on apply.
     "engine/pulso/PULSO_DATA_MODE"    = var.engine_data_mode
