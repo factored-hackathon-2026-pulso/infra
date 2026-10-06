@@ -10,3 +10,30 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Keeps platform_exporter_ro's grants (sql/26_platform_exporter_grants.sql) in step with the platform schema: the platform migrates
+  # on another host after Postgres is up, so this long-running loop (no healthcheck, never exits on a missing schema) waits for
+  # alembic_version + event_log and re-applies the idempotent file whenever the exporter tables' columns change. pulso-stack's
+  # wait_healthy accepts a running container without a healthcheck, so it never blocks or fails the deploy.
+  platform-exporter-grants:
+    image: ${POSTGRES_IMAGE:-postgres:16.4}
+    entrypoint: ["sh", "/bootstrap/platform-exporter-grants.sh"]
+    restart: unless-stopped
+    mem_limit: 64m
+    env_file: [/run/pulso/env/db.env]
+    environment:
+      PGHOST: postgres
+    volumes:
+      - ./bootstrap:/bootstrap:ro
+      - ./initdb/sql:/sql:ro
+    depends_on:
+      postgres-bundle-perms:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [internal]

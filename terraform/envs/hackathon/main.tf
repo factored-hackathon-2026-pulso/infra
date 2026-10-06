@@ -55,10 +55,11 @@ locals {
     },
     local.container_db ? { "compose.agents.postgres.yaml" = file("${path.module}/../../../deploy/hackathon/core/compose.agents.postgres.yaml") } : {},
     local.container_db ? { "initdb/sql/20_agent_databases.sql" = file("${path.module}/../../modules/hackathon_data/sql/20_agent_databases.sql") } : {},
-    # Shared Postgres: platform and tool-service databases; the exporter grants run by hand after the platform's first migration.
+    # Shared Postgres: platform and tool-service databases; platform-exporter-grants applies the exporter grants once the platform has migrated.
     local.container_db && local.platform_db ? {
       "initdb/sql/25_platform_databases.sql"       = file("${path.module}/../../modules/hackathon_data/sql/25_platform_databases.sql")
       "initdb/sql/26_platform_exporter_grants.sql" = file("${path.module}/../../modules/hackathon_data/sql/26_platform_exporter_grants.sql")
+      "bootstrap/platform-exporter-grants.sh"      = file("${path.module}/../../../deploy/hackathon/core/bootstrap/platform-exporter-grants.sh")
     } : {},
   ) : {}
   platform_agent_files = local.agents ? { "compose.agents.yaml" = file("${path.module}/../../../deploy/hackathon/platform/compose.agents.yaml") } : {}

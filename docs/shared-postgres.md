@@ -45,7 +45,13 @@ Non-secret (SSM, written by Terraform, engine host): `PULSO_PLATFORM_URL=http://
   ```bash
   sudo docker compose -p pulso exec postgres psql -v ON_ERROR_STOP=1 -U pulso_master -d postgres -f /docker-entrypoint-initdb.d/sql/25_platform_databases.sql
   ```
-- After the platform's first migration, and after every migration that adds a table or column the engine must read:
+- Exporter grants are AUTOMATIC: the core service `platform-exporter-grants` (`bootstrap/platform-exporter-grants.sh`, a loop with
+  `restart: unless-stopped`, shipped in the S3 bundle with the SQL) polls database `platform` every 30 s
+  (`GRANTS_POLL_SECS`). While `alembic_version` or `event_log` is missing it logs `waiting for the platform migrations` once and
+  keeps polling; when they exist, or when the columns of `event_log`/`cases` change after a later migration, it applies
+  `26_platform_exporter_grants.sql` (idempotent, `ON_ERROR_STOP`) and logs `exporter grants applied`. It has no healthcheck and
+  nothing depends on it, so `pulso-stack`'s `up -d --wait`/`wait_healthy` never block on it. Check:
+  `sudo docker compose -p pulso logs platform-exporter-grants`. Fallback by hand (same file, safe to repeat):
   ```bash
   sudo docker compose -p pulso exec postgres psql -v ON_ERROR_STOP=1 -U pulso_master -d platform -f /docker-entrypoint-initdb.d/sql/26_platform_exporter_grants.sql
   ```
