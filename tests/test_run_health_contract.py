@@ -216,8 +216,34 @@ class DbBootstrapJob(unittest.TestCase):
         env_main = (TF / "envs" / "hackathon" / "main.tf").read_text(encoding="utf-8")
         self.assertIn("bootstrap/pulso-db-bootstrap.sh", env_main)
         ssm = (DATA / "ssm.tf").read_text(encoding="utf-8")
-        self.assertRegex(ssm, r'"engine/pulso/PULSO_DATA_MODE"\s*=\s*"dataset"')
+        self.assertRegex(ssm, r'"engine/pulso/PULSO_DATA_MODE"\s*=\s*var\.engine_data_mode')
         self.assertNotRegex(ssm, r'"engine/pulso/PULSO_DATA_MODE"\s*=\s*"CHANGE_ME"')
+
+
+class EngineDataModeMatchesAdapter(unittest.TestCase):
+    """`pulso run` refuses PULSO_DATA_MODE/PULSO_SOURCE_ADAPTER mismatches (improvement-engine config.rs, config_conflict)."""
+
+    RULE = {
+        "dataset": {"stub", "dataset-pg", "dataset-raw", "dataset-augmented"},
+        "platform": {"stub", "product-sqlite", "product-postgres"},
+    }
+    ENV = (TF / "envs" / "hackathon" / "main.tf").read_text(encoding="utf-8")
+    SSM = (DATA / "ssm.tf").read_text(encoding="utf-8")
+
+    def test_mode_is_a_derived_variable_never_ignored(self):
+        self.assertRegex(self.ENV, r'engine_data_mode\s*=\s*local\.platform_db \? "platform" : "dataset"')
+        self.assertIn("var.engine_data_mode", self.SSM)
+        placeholders = self.SSM.split("ssm_derived = merge(")[0]
+        self.assertNotIn("PULSO_DATA_MODE", placeholders)
+
+    def test_default_and_platform_combinations_are_valid_per_the_engine_rule(self):
+        adapter = re.search(r'PULSO_SOURCE_ADAPTER\s*=\s*"([^"]+)"', self.ENV).group(1)
+        self.assertEqual(adapter, "product-postgres")
+        mode_on = re.search(r'engine_data_mode\s*=\s*local\.platform_db \? "(\w+)" : "(\w+)"', self.ENV)
+        self.assertIn(adapter, self.RULE[mode_on.group(1)])
+        # platform_database_enabled=false: no adapter parameter exists (default stub), so dataset mode is valid.
+        self.assertIn("stub", self.RULE[mode_on.group(2)])
+        self.assertNotIn(adapter, self.RULE[mode_on.group(2)])
 
 
 class LoopJobSlot(unittest.TestCase):

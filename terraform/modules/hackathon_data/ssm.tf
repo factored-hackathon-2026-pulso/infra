@@ -27,8 +27,9 @@ locals {
     "engine/pulso/PULSO_SERVICE_KID" = local.engine_kid
     "engine/pulso/PULSO_LLM_GATEWAY" = "enabled"
     "engine/pulso/PULSO_BASE_PATH"   = "/pulso"
-    # Bank aggregates (the dataset adapters); the platform events path is the other value, set by changing this parameter.
-    "engine/pulso/PULSO_DATA_MODE"    = "dataset"
+    # dataset = bank aggregates (dataset adapters); platform = the platform event log (product-postgres, set in the environment root
+    # with platform_database_enabled). The engine refuses a mode/adapter mismatch at startup. Derived: updates in place on apply.
+    "engine/pulso/PULSO_DATA_MODE"    = var.engine_data_mode
     "core/core/AGENTCORE_BLOB_BUCKET" = "s3://${local.bucket_name}/core/blobs"
     "engine/pulso/PIPELINE_ROOT"      = "s3://${local.bucket_name}/lake"
     },

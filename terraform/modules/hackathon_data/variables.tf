@@ -114,6 +114,17 @@ variable "agent_services_enabled" {
   default     = false
 }
 
+variable "engine_data_mode" {
+  description = "PULSO_DATA_MODE of the engine daemon (SSM, derived). dataset = bank aggregates (adapters stub|dataset-*); platform = the platform event log (adapters stub|product-*). Must match PULSO_SOURCE_ADAPTER or `pulso run` refuses to start (config_conflict); the environment root derives it from platform_database_enabled."
+  type        = string
+  default     = "dataset"
+
+  validation {
+    condition     = contains(["dataset", "platform"], var.engine_data_mode)
+    error_message = "engine_data_mode must be dataset or platform."
+  }
+}
+
 variable "platform_database_enabled" {
   description = "Seed the secret keys of the platform and tool-service databases on the shared Postgres (platform, tools) and the engine's read-only access to the platform event log (docs/shared-postgres.md). Off by default."
   type        = bool

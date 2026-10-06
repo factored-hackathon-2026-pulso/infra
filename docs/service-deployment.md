@@ -176,7 +176,7 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
   .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-engine -Service pulso-engine -FromBuild <build id> -Wait
   ```
 - Runtime: command `run`, port 8080 behind the proxy at `/pulso/*`, state in `/var/lib/pulso` (host `/srv/data/pulso`), `stop_grace_period` 70 s (a deploy can take over a minute to stop the old container), reaches agent-core at `http://core.pulso.internal:8000`.
-- Config and secrets: `PULSO__PULSO_DATABASE_URL`, `PULSO__PULSO_ADMIN_TOKEN`, `PULSO__PULSO_DEBUG_TOKEN`; SSM `PULSO_DATA_MODE`, `PIPELINE_ROOT`.
+- Config and secrets: `PULSO__PULSO_DATABASE_URL`, `PULSO__PULSO_ADMIN_TOKEN`, `PULSO__PULSO_DEBUG_TOKEN`; SSM `PULSO_DATA_MODE` (`platform` with `platform_database_enabled`, else `dataset`), `PIPELINE_ROOT`.
 - Health: `https://<cloudfront domain>/pulso/healthz`, `pulso healthcheck` inside the container.
 
 ### Caddy proxy (`caddy`, infra owner only)
