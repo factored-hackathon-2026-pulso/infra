@@ -139,16 +139,16 @@ Common to all: the compose bundle in `deploy/hackathon/<workload>/compose.yaml` 
 
 - Only with `auto_loader_enabled` ([auto-loader](auto-loader.md)). Image: the `Dockerfile` at the root of the data-pipeline repository (dbt + DuckDB, `ENTRYPOINT python -m pipeline.run`).
   ```powershell
-  .\scriptsws-prod.ps1 images -Profile pulso-deploy-engine -Service data-pipeline -SourceDir D:\src\data-pipeline
-  .\scriptsws-prod.ps1 deploy -Profile pulso-deploy-engine -Service data-pipeline -FromBuild <build id> -Wait
+  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-engine -Service data-pipeline -SourceDir D:\src\data-pipeline
+  .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-engine -Service data-pipeline -FromBuild <build id> -Wait
   ```
 - SSM key `/pulso/engine/images/pipeline`; not a long-running service: the loader timer starts it per load.
 
 ### otlp-forwarder (`otlp-forwarder`, OTLP forwarder only)
 
-- Only with `otlp_forwarder_enabled` ([otlp-forwarder](otlp-forwarder.md)). Image: the engine repository's `scripts/o11y` packaged by this repository's `docker/otlp-forwarder.Dockerfile`; put that file in the source zip and pass it with `-Dockerfile`.
+- Only with `otlp_forwarder_enabled` ([otlp-forwarder](otlp-forwarder.md)). Image: the engine repository's `scripts/o11y` packaged by this repository's `docker/otlp-forwarder.Dockerfile`; `images -Service otlp-forwarder` adds that file to the source zip itself (unless the source already has it), so no `-Dockerfile` is needed.
   ```powershell
-  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service otlp-forwarder -SourceDir D:\src\improvement-engine -Dockerfile docker/otlp-forwarder.Dockerfile
+  .\scripts\aws-prod.ps1 images -Profile pulso-deploy-core -Service otlp-forwarder -SourceDir D:\src\improvement-engine
   .\scripts\aws-prod.ps1 deploy -Profile pulso-deploy-core -Service otlp-forwarder -FromBuild <build id> -Wait
   ```
 - SSM keys `/pulso/core/images/forwarder` and `/pulso/engine/images/forwarder` (the same digest). Loopback sidecar of its producers, never published.

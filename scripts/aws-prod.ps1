@@ -188,12 +188,24 @@ function Initialize-Env([string]$Account) {
 }
 
 function Set-ImagesInTfvars([string]$File, [hashtable]$Refs) {
-    # Rewrites only the images = { ... } block; everything else in the file is preserved.
+    # Rewrites only the images = { ... } block; everything else in the file is preserved. The optional keys of the full profile
+    # (agent, tools: agent services; pipeline: loader; forwarder: OTLP) are kept whenever the caller has them (a placeholder stays a
+    # placeholder until its image is built), so building one service never drops the digest or the slot of another. The legacy
+    # core-runtime digest is written when it is real, or when the profile has no agent image (a placeholder is then kept on purpose:
+    # Resolve-VarFile refuses it until the image is built).
+    $has = { param($k) $Refs.ContainsKey($k) -and $Refs[$k] }
+    $real = { param($k) (& $has $k) -and ([string]$Refs[$k] -notmatch 'REPLACE_WITH|<registry>') }
+    $line = { param($k, $w) "    $($k.PadRight($w)) = `"$($Refs[$k])`"" }
+    $core = @()
+    if ((& $real 'core') -or -not (& $has 'agent')) { $core += & $line 'core' 7 }
+    $core += & $line 'gateway' 7
+    foreach ($k in 'agent', 'tools', 'forwarder') { if (& $has $k) { $core += & $line $k 7 } }
+    $engine = @((& $line 'pulso' 5), (& $line 'proxy' 5))
+    foreach ($k in 'pipeline', 'forwarder') { if (& $has $k) { $engine += & $line $k 5 } }
     $block = @"
 images = {
   core = {
-    core    = "$($Refs['core'])"
-    gateway = "$($Refs['gateway'])"
+$($core -join "`n")
   }
   platform = {
     support_api = "$($Refs['support_api'])"
@@ -201,8 +213,7 @@ images = {
     proxy       = "$($Refs['proxy'])"
   }
   engine = {
-    pulso = "$($Refs['pulso'])"
-    proxy = "$($Refs['proxy'])"
+$($engine -join "`n")
   }
 }
 "@
@@ -366,6 +377,11 @@ function Get-ImageRefsFromTfvars([string]$File) {
         $mm = if ($m.Success) { [regex]::Match($m.Value, "(?m)^\s*$k\s*=\s*`"([^`"]*)`"") } else { $null }
         $refs[$k] = if ($mm -and $mm.Success) { $mm.Groups[1].Value } else { "<registry>/$($script:EcrPrefix)/REPLACE_WITH_64_HEX_DIGEST" }
     }
+    # Optional keys of the full profile: only when the file already has them (never a placeholder for a service that is off).
+    foreach ($k in 'agent', 'tools', 'pipeline', 'forwarder') {
+        $mm = if ($m.Success) { [regex]::Match($m.Value, "(?m)^\s*$k\s*=\s*`"([^`"]*)`"") } else { $null }
+        if ($mm -and $mm.Success) { $refs[$k] = $mm.Groups[1].Value }
+    }
     $refs
 }
 
@@ -405,6 +421,8 @@ $script:HostBuild = @{
     'pulso-engine'         = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
     'agent-core-serve'     = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
     'tool-service'         = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
+    'data-pipeline'        = @{ Dockerfile = 'Dockerfile'; Context = '.'; CoreContext = '' }
+    'otlp-forwarder'       = @{ Dockerfile = 'docker/otlp-forwarder.Dockerfile'; Context = '.'; CoreContext = '' }
 }
 
 function ConvertTo-BashQuoted([string]$Value) { "'" + ($Value -replace "'", "'\''") + "'" }
@@ -489,7 +507,8 @@ function Invoke-ImagesCloud($p, $id) {
     }
     if ($p.ViteApiUrl) {
         if ($svc.Name -ne 'support-platform-web') { throw "-ViteApiUrl only applies to support-platform-web (the frontend build arg VITE_API_URL), not $($svc.Name)." }
-        if ($p.ViteApiUrl -notmatch '^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$') { throw "-ViteApiUrl must be an http(s) URL without spaces, commas, query or credentials, got '$($p.ViteApiUrl)'." }
+        # "/" is the same-origin build (support-platform: the SPA calls /api/* and the WebSocket on its own origin, as behind CloudFront).
+        if ($p.ViteApiUrl -ne '/' -and $p.ViteApiUrl -notmatch '^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$') { throw "-ViteApiUrl must be / (same origin) or an http(s) URL without spaces, commas, query or credentials, got '$($p.ViteApiUrl)'." }
         if (@($p.BuildArg) | Where-Object { $_ -like 'VITE_API_URL=*' }) { throw 'Pass the API URL with -ViteApiUrl or with -BuildArg VITE_API_URL=..., not both (VITE_API_URL is set twice).' }
         $p.BuildArg = @(@($p.BuildArg) | Where-Object { $_ }) + "VITE_API_URL=$($p.ViteApiUrl)"
     }
@@ -510,6 +529,8 @@ function Invoke-ImagesCloud($p, $id) {
     } else {
         $roots = @(@{ Dir = $p.SourceDir; Prefix = '' })
         if ($svc.Name -eq 'core-runtime') { $roots += @{ Dir = $p.AgentCoreDir; Prefix = 'agent-core'; AllowInDockerignore = @('contracts') } }
+        # The forwarder recipe lives in THIS repository (docker/otlp-forwarder.Dockerfile); the engine repo has none. Added unless the source already has it.
+        if ($svc.Name -eq 'otlp-forwarder' -and -not (Test-Path -LiteralPath (Join-Path $p.SourceDir 'docker/otlp-forwarder.Dockerfile'))) { $roots += @{ Dir = (Join-Path $script:RepoRoot 'docker'); Prefix = 'docker' } }
         $zip = Join-Path (Get-WorkDir) "build-src-$buildId.zip"
         $r = New-SourceZip -ZipPath $zip -Roots $roots
         Write-Host ("Source upload : s3://$bucket/$srcKey ({0} files, {1:N1} MB)" -f $r.Files, ($r.Bytes / 1MB))
@@ -772,6 +793,7 @@ images = {
     gateway = "$registry/$px/llm-gateway@$zero"
     agent   = "$registry/$px/agent-core-serve@$zero"
     tools   = "$registry/$px/tool-service@$zero"
+    forwarder = "$registry/$px/otlp-forwarder@$zero"
   }
   platform = {
     support_api = "$registry/$px/support-platform-api@$zero"
@@ -781,6 +803,8 @@ images = {
   engine = {
     pulso = "$registry/$px/pulso-engine@$zero"
     proxy = "$registry/$px/caddy@$zero"
+    pipeline = "$registry/$px/data-pipeline@$zero"
+    forwarder = "$registry/$px/otlp-forwarder@$zero"
   }
 }
 "@ | Set-Content -Encoding utf8 $stageFile
