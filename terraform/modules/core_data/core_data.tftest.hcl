@@ -1,4 +1,11 @@
-mock_provider "aws" {}
+mock_provider "aws" {
+  # The default mock returns a random string for .json; apply validates it as policy JSON.
+  mock_data "aws_iam_policy_document" {
+    defaults = {
+      json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
+    }
+  }
+}
 
 variables {
   name_prefix      = "test-core"
