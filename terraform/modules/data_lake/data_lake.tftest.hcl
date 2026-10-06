@@ -201,7 +201,7 @@ run "retention_targets_publish_runs_and_never_the_pointer" {
   assert {
     condition = anytrue([
       for r in aws_s3_bucket_lifecycle_configuration.lake.rule :
-      r.id == "expire-old-publications" && one(r.filter).prefix == "publish/run-" && one(r.expiration).days == 180
+      r.id == "expire-old-publications" && try(one(r.filter).prefix, "") == "publish/run-" && try(one(r.expiration).days, null) == 180
     ])
     error_message = "Expiry must match publish/run- only, so publish/latest.json survives."
   }
