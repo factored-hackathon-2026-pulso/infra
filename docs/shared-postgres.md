@@ -53,7 +53,7 @@ Non-secret (SSM, written by Terraform, engine host): `PULSO_PLATFORM_URL=http://
 ## Sizing (core host `m7i-flex.large`, 2 vCPU, 8 GiB)
 
 Container limits: postgres 2048 MiB (`shared_buffers` 512 MB, `effective_cache_size` 1536 MB, `work_mem` 8 MB,
-`max_connections` 100), agent-core 768, core-runtime 768, tool-service 1024, gateway 128, exporter 128; one-shot migrations 256 each,
+`max_connections` 200), agent-core 768, core-runtime 768, tool-service 1024, gateway 128, exporter 128; one-shot migrations 256 each,
 one at a time. About 4.9 GiB of limits, about 3 GiB left for the kernel, Docker, page cache and the SSM agent. Budget per service
 pool: platform 20, agent-core 2 databases x 10, core-runtime 2 x 5, engine 10, tool-service 5 (about 65 of 100).
 

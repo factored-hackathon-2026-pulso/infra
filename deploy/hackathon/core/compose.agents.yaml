@@ -91,10 +91,10 @@ services:
       AGENTCORE_READY_REQUIRE_TOOL_SERVICE: "1"
       # Load caps sized by the instance (Terraform local agent_limits -> .env): beyond MAX_INFLIGHT serve answers 503 with
       # Retry-After 1 (probes never count); WORKER_THREADS bounds sync-route concurrency; DB_POOL_MAX is per process and must stay
-      # far below Postgres max_connections (100, shared with platform, tools and engine).
+      # sized in docs/agent-core-serve.md section 4 (Postgres max_connections 200, shared with platform, tools and engine).
       AGENTCORE_MAX_INFLIGHT: ${AGENT_MAX_INFLIGHT:-16}
       AGENTCORE_WORKER_THREADS: ${AGENT_WORKER_THREADS:-12}
-      AGENTCORE_DB_POOL_MAX: ${AGENT_DB_POOL_MAX:-6}
+      AGENTCORE_DB_POOL_MAX: ${AGENT_DB_POOL_MAX:-24}
       # Must stay below stop_grace_period (docker kills at that deadline); uvicorn drains in-flight requests until then.
       AGENTCORE_SHUTDOWN_GRACE_SECONDS: "25"
     volumes:

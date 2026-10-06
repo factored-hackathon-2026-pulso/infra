@@ -135,7 +135,7 @@ class HealthAndLoad(unittest.TestCase):
     def test_load_caps_are_wired_from_the_instance_size(self):
         self.assertEqual(self.env["AGENTCORE_MAX_INFLIGHT"], "${AGENT_MAX_INFLIGHT:-16}")
         self.assertEqual(self.env["AGENTCORE_WORKER_THREADS"], "${AGENT_WORKER_THREADS:-12}")
-        self.assertEqual(self.env["AGENTCORE_DB_POOL_MAX"], "${AGENT_DB_POOL_MAX:-6}")
+        self.assertEqual(self.env["AGENTCORE_DB_POOL_MAX"], "${AGENT_DB_POOL_MAX:-24}")
         main = read(TF / "envs" / "hackathon" / "main.tf")
         tiers = re.findall(r"\{ inflight = (\d+), workers = (\d+), pool = (\d+) \}", main)
         self.assertEqual(len(tiers), 3, "one tier per memory class")
@@ -146,17 +146,25 @@ class HealthAndLoad(unittest.TestCase):
                 self.assertGreaterEqual(a, b)
         for inflight, workers, pool in values:
             self.assertGreaterEqual(inflight, workers, "in-flight requests are not capped below the worker threads")
-            self.assertLessEqual(pool, workers)
-            self.assertLessEqual(pool, 10, "Postgres max_connections is 100 and shared with platform, tools and the engine")
+            self.assertGreaterEqual(2 * pool, 3 * workers, "measured: pool 6 with 12 workers failed 12 of 20 concurrent runs (PoolTimeout); 40 had 0 errors")
         self.assertRegex(main, r"core_memory_mb >= 8192")
         self.assertRegex(main, r"AGENT_MAX_INFLIGHT\s*=\s*tostring")
 
     def test_pool_fits_the_postgres_connection_budget(self):
+        """docs/agent-core-serve.md section 4: serve takes 2 pools (registry and eval database), everything else a fixed budget."""
         pg = read(CORE / "compose.postgres.yaml")
         max_conn = int(re.search(r"max_connections=(\d+)", pg).group(1))
         pool = max(int(t[2]) for t in re.findall(r"\{ inflight = (\d+), workers = (\d+), pool = (\d+) \}", read(TF / "envs" / "hackathon" / "main.tf")))
-        # agent-core pool + a short-lived migrate/sweep connection each + generous allowance for platform, tools, engine, exporter
-        self.assertLessEqual(pool + 2 + 60, max_conn)
+        others = {"platform api pool": 10, "platform exporter ro": 2, "engine pulso_app": 10, "engine loader": 2, "core-runtime registry+eval": 10,
+                  "core exporter": 2, "one-shots (migrate x2, bootstrap)": 3, "psql and admin": 10}
+        serve = 2 * pool
+        total = serve + sum(others.values())
+        self.assertEqual(sum(others.values()), 49)
+        self.assertLessEqual(total, max_conn - 3, "superuser_reserved_connections (3) stay free")
+        self.assertGreaterEqual(max_conn - total, 50, "headroom for restarts that overlap the old connections")
+        doc = read(ROOT / "docs" / "agent-core-serve.md")
+        self.assertIn("max_connections` 200", doc)
+        self.assertIn("2 x 40", doc)
 
     def test_memory_of_the_core_host_still_leaves_headroom(self):
         total = 0

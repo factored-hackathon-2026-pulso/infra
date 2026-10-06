@@ -152,7 +152,7 @@ run "serve_replaces_the_core_bridge_and_takes_its_caps_from_the_instance" {
     error_message = "CORE_IMAGE is still seeded (it aliases the agent digest) so compose can interpolate the disabled legacy services."
   }
   assert {
-    condition     = strcontains(module.compute_core.bundle_env, "AGENT_MAX_INFLIGHT=32") && strcontains(module.compute_core.bundle_env, "AGENT_WORKER_THREADS=16") && strcontains(module.compute_core.bundle_env, "AGENT_DB_POOL_MAX=10")
+    condition     = strcontains(module.compute_core.bundle_env, "AGENT_MAX_INFLIGHT=32") && strcontains(module.compute_core.bundle_env, "AGENT_WORKER_THREADS=16") && strcontains(module.compute_core.bundle_env, "AGENT_DB_POOL_MAX=120")
     error_message = "m7i-flex.large (8 GiB, the free_plan core) gets the largest load caps."
   }
   assert {

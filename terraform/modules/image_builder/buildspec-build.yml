@@ -16,7 +16,7 @@ phases:
           EXTRA+=(--build-context core="$CODEBUILD_SRC_DIR/$CORE_CONTEXT_DIR")
         fi
         for arg in ${BUILD_ARGS:-}; do EXTRA+=(--build-arg "$arg"); done
-        docker build --pull -f "$CODEBUILD_SRC_DIR/$DOCKERFILE" "${EXTRA[@]}" -t "$REPO_URI:$TAG" "$CODEBUILD_SRC_DIR/$CONTEXT_DIR"
+        docker build --pull --no-cache -f "$CODEBUILD_SRC_DIR/$DOCKERFILE" "${EXTRA[@]}" -t "$REPO_URI:$TAG" "$CODEBUILD_SRC_DIR/$CONTEXT_DIR"
         docker push "$REPO_URI:$TAG"
         DIGEST=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$TAG" --query 'imageDetails[0].imageDigest' --output text)
         [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest recorded for $TAG"; exit 1; }

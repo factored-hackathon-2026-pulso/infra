@@ -68,7 +68,7 @@ class PostgresContainerBundle(unittest.TestCase):
 
     def test_postgres_16_with_forty_connections_and_own_volume(self):
         self.assertRegex(self.compose, r"image:\s*\$\{POSTGRES_IMAGE:-postgres:16\.[0-9]+")
-        self.assertIn("max_connections=100", self.compose)
+        self.assertIn("max_connections=200", self.compose)
         self.assertIn("/srv/pgdata:/var/lib/postgresql/data", self.compose)
         self.assertNotIn(":latest", self.compose)
 

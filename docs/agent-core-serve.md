@@ -102,11 +102,13 @@ Load caps follow the core instance (`local.agent_limits` in `terraform/envs/hack
 
 | Core instance | Memory | max in-flight | worker threads | DB pool per process |
 |---|---|---|---|---|
-| `m7i-flex.large` (free_plan default) | 8 GiB | 32 | 16 | 10 |
-| `c7i-flex.large`, `t3.medium` | 4 GiB | 16 | 12 | 6 |
-| `t3.small` and smaller | 2 GiB | 8 | 8 | 4 |
+| `m7i-flex.large` (free_plan default) | 8 GiB | 32 | 16 | 40 |
+| `c7i-flex.large`, `t3.medium` | 4 GiB | 16 | 12 | 24 |
+| `t3.small` and smaller | 2 GiB | 8 | 8 | 12 |
 
-The container is capped at 768 MB whatever the instance; the numbers are starting points chosen from the container limit and Postgres `max_connections=100` (shared with platform, tools and the engine; the one-shots add a short-lived connection each). They are NOT load-tested.
+The container is capped at 768 MB whatever the instance; in-flight and worker numbers are starting points chosen from the container limit and are NOT load-tested.
+
+**DB pool arithmetic (Postgres `max_connections` 200 on the core host).** Measured in the prod-like rehearsal (PRODLIKE_SERVE_RESULTS, 20 simultaneous runs, 12 workers): pool 6 failed 12 of 20 with `PoolTimeout` and `TranscriptWriteError`; pool 40 had 0 serve errors. A request can hold more than one connection (unit of work, audit, transcript), so the pool is 1.5 to 2.5 x the worker threads (pool 40 on 16 workers measured clean): 40 / 24 / 12 for 16 / 12 / 8 workers. serve opens up to two pools (registry database and eval database), so on the 8 GiB host it takes 2 x 40 = 80 connections. The other consumers, worst case: platform API pool 10, platform exporter role 2, engine `pulso_app` 10, engine loader 2, core-runtime registry and eval 10, core exporter 2, one-shots (agent migrate x2, bootstrap) 3, psql and admin 10: 49. Total 129 of 200; 3 stay reserved for the superuser and about 68 remain for the overlap of a restart (old and new connections). `max_connections` was 100 before, which forced a pool of 10; at 200 the extra cost is memory only (about 2 to 10 MB per backend, work_mem 8 MB per sort, inside the 2 GiB limit of the Postgres container and the 8 GiB host). If the tiers or the consumers change, `tests/test_agent_core_serve_contract.py::test_pool_fits_the_postgres_connection_budget` recomputes the sum.
 
 ## 5. Migrations, ordering and `pulso-db-bootstrap`
 
