@@ -18,10 +18,12 @@ engine host, pulso-loader.timer (every 5 min) -> pulso-loader.service (one-shot,
   a. read the marker with the HOST role (engine/* is host-readable; the marker holds names and checksums, no data)
   b. run key = first 16 hex of sha256(marker); sts:AssumeRole(loader role, ExternalId) -> 0600 file under /run (tmpfs)
   c. lake/loader/done/<key>.json exists? -> exit 0 (same marker never reloads, also after a host replacement)
-  d. optional cells export (LOADER_CELLS_CMD) + k>=10 gate: a failing gate stops the run BEFORE anything is published
+  d. cells export (LOADER_CELLS_CMD, default run-bank-cells.sh) + k>=10 gate: a failing gate stops the run BEFORE anything is published;
+     the gated cells are staged at lake/gold_analytics/bank_cells/<key>/ (invisible to the engine until step f),
+     then the loader role is assumed AGAIN (a chained session lasts at most one hour)
   e. docker run data-pipeline: ingest_bank (+ ingest_e0), dbt build, publish -> bronze, silver, gold_masked, gold_analytics,
      gold_restricted, lake/publish/<run>/..., latest.json LAST (the pipeline's own publish step)
-  f. cells -> lake/gold_analytics/bank_cells/<key>/{cells.ndjson,MANIFEST.json}, then bank_cells/latest.json
+  f. bank_cells/latest.json (the manifest of the staged run) moves LAST, only after the pipeline succeeded
   g. done marker, status engine/loader/status/last.json, credentials file removed (trap)
 ```
 
@@ -62,9 +64,65 @@ simplest robust option on a free-plan EC2. Latency is at most 5 minutes.
 `check_cells_k.py` fails the run (exit 3) when any cell has `denominator < 10`, a count that is not a non-negative integer,
 `numerator > denominator`, a key outside `{metric, dims, half, period, numerator, denominator}` (no ids, no free text), malformed JSON,
 or when the file is empty. It prints counts only. It runs on the cells BEFORE the pipeline publishes, so a failing gate leaves the lake
-untouched ("fail the run, not the data"). `LOADER_CELLS_CMD` (variable `loader_cells_cmd`) is the producer: a command that writes
-`$CELLS_OUT`; with the default empty value the run has no cells export. The producer (the engine's `bank_cells.py` over the raw
-tables) and its image are an open item (ask to the engine lane).
+untouched ("fail the run, not the data"). The engine host's inputs mirror (`pulso-inputs-sync`) verifies the manifest sha256 and runs the
+same gate a second time.
+
+## Cells: automatic from landing/ to the engine's input (no human step)
+
+Decision (2026-10-05): the cells are produced by the LOADER, with the loader role, in the same run, and reach the engine through the
+mirror that already exists. `LOADER_CELLS_CMD` (variable `loader_cells_cmd`) now defaults to the bundled `run-bank-cells.sh`
+(`/usr/local/lib/pulso-loader/run-bank-cells.sh`); set it to `""` to switch the export off (then an operator uploads
+`engine/inputs/cells.ndjson`).
+
+```
+loader role (host aws cli, subshell)           credential-less container (engine image, docker run)
+landing/bank/<6 tables>/**/*.csv   --sync-->   /in (ro)  --python3 /opt/pulso/aggregate/bank_cells.py --k 10-->  /out/cells.ndjson
+landing/bank/{customers,marketing_campaigns}.csv                                                                 |
+                                                   check_cells_k.py (gate) <---- $CELLS_OUT <--------------------+
+                                                   bank_cells/<key>/{cells.ndjson,MANIFEST.json}   (staged, after the gate)
+                                                   ... data pipeline ...  then  bank_cells/latest.json  (LAST)
+engine host, ExecStartPre of pulso-loop.service: pulso-inputs-sync
+   lake/gold_analytics/bank_cells/latest.json -> run -> cells.ndjson (sha256 + k gate again) -> /srv/data/inputs/cells.ndjson
+   -> PULSO_LOOP_INPUTS_DIR=/var/lib/pulso/inputs (read-only mount), PULSO_LOOP_CELLS_FILE default cells.ndjson
+```
+
+Why option (a), the engine image, and not the pipeline image: `bank_cells.py` lives in the engine repo and is versioned with the sensor
+that consumes its cells; the pipeline image belongs to another team and would need a copy of it. The engine image already runs on this
+host (same digest as `pulso`), so no new image, no new ECR repository, no pipeline PR.
+
+Why the CSV in `landing/bank/` and not the pipeline's bronze/silver/gold: the aggregator reads the dataset's own CSV partitions
+(`<table>/year=.../*.csv`) with the dataset's table and column names (`call_center_interactions`, `complaints`, `satisfaction_surveys`,
+`digital_events`, `campaign_sends`, `transactions`, plus `customers.csv` and `marketing_campaigns.csv` by a column allowlist). The pipeline
+output differs: bronze is all-varchar parquet under other relative paths, silver renames (`interactions` for `call_center_interactions`)
+and drops quarantined rows (`quarantine_reason is not null`), gold pseudonymises `customer_id`, which the validated A/B split hashes (a
+different id would change every discovery/holdout half). Reading `landing/` gives the same numbers as the laptop run. The loader role is
+the one that may read `landing/`; the engine host role still cannot.
+
+Isolation: the loader credentials exist only in the host `aws` subshell (sync) and are NOT passed to the container: it runs with
+`--network none`, `--read-only` (a 64 MiB `/tmp` tmpfs), `--cap-drop ALL`, `no-new-privileges`, uid 10001, `--memory`/`--memory-swap`
+`LOADER_CELLS_MEMORY` (default 1g), `--cpus` 1.0, `--pids-limit 64`, and a `timeout` of `LOADER_CELLS_TIMEOUT_S` (default 3600). It sees only
+the eight inputs, read-only, and writes one file. The scratch CSV is deleted when the step ends (also on failure). The engine image
+needs `python3` (engine PR 130, the loop image) and `/opt/pulso/aggregate/bank_cells.py` (engine PR "cells-auto": one stdlib file).
+
+Idempotency: the same READY marker never reloads (done marker). Inside a run, a retry (the timer fires every 5 minutes after a failure)
+reuses the cells already staged at `bank_cells/<key>/` when their sha256 matches the manifest, so a pipeline failure does not repeat the
+sync and the aggregation. `latest.json` is written once, after the pipeline.
+
+Failure: a missing table or reference file (exit 66), not enough disk for the CSV plus 20% (75), `LOADER_K_MIN` below 10 (78), a
+timeout (124), an aggregator crash or OOM (its exit code) or a gate failure (3) fail the run; `engine/loader/status/last.json` carries
+`exit <rc> at step cells-export|cells-gate|cells-stage|pipeline|cells-publish`, `systemctl status pulso-loader` shows `failed` and
+`/srv/data/loader/FAILED` is left. The lake and the previous `bank_cells/latest.json` stay untouched, so the engine keeps its last good
+cells.
+
+Bounds (UNMEASURED on EC2): the aggregator took about 8 minutes and a few hundred MB on the laptop, 1 thread, stdlib only, one pass per
+table; disk is the size of the six tables' CSV under `landing/bank/` (a few GB; the step refuses to start without 120% of it on the data
+volume). The unit's `MemoryMax=512M` covers the script, not the container (docker puts it elsewhere); the container cap is the memory
+bound. The first real run must record duration and `docker stats` peak to confirm `LOADER_CELLS_MEMORY`.
+
+E0: not part of this export. `docs/data/opbench/e0-export` in the engine repo is the preregistered R3-4 benchmark exporter (Rust, local
+E0 parquet, fixed `AS_OF`), not an input of `pulso loop`; the loop's `PULSO_CELLS_SOURCE` is `bank` here. E0 raw goes to `landing/e0/`
+and is ingested by the pipeline (`ingest_e0`) through the marker's `e0_prefix`; a frozen E0 package for the engine, if wanted, is still an
+operator upload to `engine/inputs/e0/<version>/` (the mirror copies it). No automation is needed for the bank loop.
 
 ## Memory fit and sizing
 
@@ -98,14 +156,14 @@ t3.micro/t4g.micro/t8i.micro 1 GiB, t8i.small 2 GiB):
 Marked UNVERIFIED because the pipeline code was not run here: `--steps ingest_bank,build,publish` (and `ingest_e0`) via
 `python -m pipeline.run`; `python -m pipeline.ingest_bank --tables <csv>`; reading `landing/` through `DATASET_BUCKET`/`DATASET_PREFIX`
 with the standard AWS chain (no `DATASET_AWS_*`); `E0_SOURCE_DIR`; `DUCKDB_MEMORY_LIMIT`/`DUCKDB_TEMP_DIRECTORY`; and
-`LOADER_CELLS_CMD` (the bank_cells producer, which lives in the engine repo as `scripts/aggregate/bank_cells.py` and is not in the image).
+`LOADER_CELLS_CMD` (the producer `run-bank-cells.sh` is tested offline with fake `aws`/`docker`; `bank_cells.py` was not run on real data here).
 
 Ask (data-pipeline): (1) `profiles.yml` settings `memory_limit: "{{ env_var('DUCKDB_MEMORY_LIMIT', '2GB') }}"` and
 `temp_directory: "{{ env_var('DUCKDB_TEMP_DIRECTORY', '/work/duckdb_tmp') }}"` for dev and s3 targets; (2) a measured peak-RSS and
 duration table for a full build (13 tables) with `memory_limit` 1.5/2/3 GB on 2 and 4 vCPU; (3) confirm `pipeline.run --steps` names
 and that `ingest_bank --tables` per table or batch yields the same warehouse as one run; (4) confirm `PIPELINE_ROOT=s3://...` writes
-`publish/<run>/` with `latest.json` last and that `parquet/` holds analytics-zone data only; (5) a `cells` step or documented command
-that produces the bank_cells NDJSON (or a statement that the engine repo owns it and the image to use).
+`publish/<run>/` with `latest.json` last and that `parquet/` holds analytics-zone data only; (5) ANSWERED: the engine repo owns `bank_cells.py` and the loader runs it from the engine image (section Cells); nothing is asked of
+the pipeline for cells.
 
 ## Residual risk (honest)
 

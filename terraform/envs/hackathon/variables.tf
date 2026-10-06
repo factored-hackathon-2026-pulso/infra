@@ -326,8 +326,8 @@ variable "auto_loader_enabled" {
 
 variable "loader_cells_cmd" {
   type        = string
-  default     = ""
-  description = "Command (run by bash in the loader, with CELLS_OUT, LOADER_BUCKET and the loader credentials in ITS environment only) that writes the bank_cells NDJSON to $CELLS_OUT. Empty = no cells export in the run. The k>=10 gate runs on its output before anything is published."
+  default     = "/usr/local/lib/pulso-loader/run-bank-cells.sh"
+  description = "Command (run by bash in the loader, with CELLS_OUT, RUN_KEY, LOADER_BUCKET, LOADER_DATASET_PREFIX, LOADER_K_MIN and the loader credentials in ITS environment only) that writes the bank_cells NDJSON to $CELLS_OUT. Default: the bundled run-bank-cells.sh (bank_cells.py from the engine image over landing/bank, docs/auto-loader.md), so cells are automatic. Empty = no cells export (the operator then uploads engine/inputs/cells.ndjson by hand). The k>=10 gate runs on its output before anything is published."
 }
 
 variable "loader_memory" {

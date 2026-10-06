@@ -167,7 +167,7 @@ run "loader_wires_role_bundle_parameters_and_a_bigger_engine_host" {
     error_message = "With the loader the engine host defaults to m7i-flex.large (8 GiB, the largest Free Plan type); t3.small (2 GiB) cannot hold the build."
   }
   assert {
-    condition     = !contains(keys(aws_ssm_parameter.engine_loader), "LOADER_CELLS_CMD")
-    error_message = "No cells export unless loader_cells_cmd is set."
+    condition     = aws_ssm_parameter.engine_loader["LOADER_CELLS_CMD"].value == "/usr/local/lib/pulso-loader/run-bank-cells.sh" && contains(module.compute_engine.extra_bundle_keys, "loader/run-bank-cells.sh")
+    error_message = "Cells are automatic by default: the bundled producer is the loader_cells_cmd default and ships in the bundle."
   }
 }
