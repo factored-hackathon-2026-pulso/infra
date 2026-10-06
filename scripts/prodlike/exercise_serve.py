@@ -102,9 +102,9 @@ def converse(c: Client, agent: str, lines: list[str], *, advisor: bool = False, 
 
 TURN_CASES = [
     # name, agent, lines, advisor, expectation (outcome set or text fragment)
-    ("recepcion es: disputa 120 USD (transfer to disputas)", "recepcion", ["no reconozco un cargo en la Tienda Aurora", "el de 120 dólares"], False, {"resolved", "escalated"}),
+    ("recepcion es: disputa 120 USD (transfer to disputas)", "recepcion", ["quiero disputar un cargo", "no reconozco un cargo de 120 dólares en la Tienda Aurora"], False, {"resolved", "escalated"}),
     ("recepcion es: fraud interrupt", "recepcion", ["me robaron la tarjeta"], False, {"escalated"}),
-    ("recepcion pt: dispute 120 USD", "recepcion", ["Olá, eu não reconheço uma compra no meu cartão de crédito feita ontem na loja Aurora, preciso de ajuda", "a de 120 dólares"], False, {"resolved", "escalated"}),
+    ("recepcion pt: dispute 120 USD", "recepcion", ["Olá, eu quero contestar uma compra que não reconheço no meu cartão, preciso de ajuda", "não reconheço uma compra de 120 dólares na loja Tienda Aurora"], False, {"resolved", "escalated"}),
     ("disputas es: direct", "disputas", ["no reconozco un cargo de 120 dólares en la Tienda Aurora"], False, {"resolved", "escalated", None}),
     ("consultas es: case status", "consultas", ["quiero saber el estado de mi reclamo", "CASE-1"], False, {"resolved", "escalated", "abstained", None}),
     ("consultas pt: case status", "consultas", ["Olá, eu gostaria de saber o estado da minha reclamação, por favor", "CASE-1"], False, {"resolved", "escalated", "abstained", None}),
@@ -224,6 +224,47 @@ def run_load(c: Client, n: int = 20, kind: str = "fraud") -> None:
            errors=len(errs), n=n, error_kinds=sorted({str(e.get('err') or e.get('status')) for e in errs}))
 
 
+SUITE_ENTITY = {  # suite -> (agent, kind, fixture file under tests/fixtures/registry-e2e): a no-op wording change on an entity of that agent
+    "recepcion-suite": ("recepcion", "template", "templates/t/te_comunico@1.0.0.yaml"),
+    "disputas-suite": ("disputas", "prompt", "prompts/p/resumen_radicado@1.0.0.yaml"),
+    "consultas-suite": ("consultas", "template", "templates/t/estado_pqr@1.0.0.yaml"),
+    "copiloto-asesor-suite": ("copiloto-asesor", "prompt", "prompts/p/respuesta_asesor@1.0.0.yaml"),
+}
+
+
+def run_suites(c: Client, src: Path) -> None:
+    """Evaluate each fixture suite on a frozen engine proposal of its own agent (a trivial wording change) and report verdict and counts.
+    The engine principal only creates, drafts, freezes and evaluates; nothing is approved."""
+    import yaml
+
+    seed = pl.env_value("engine", "pulso", "PULSO_SERVICE_SEED_HEX")
+    kid = pl.env_value("engine", "pulso", "PULSO_SERVICE_KID")
+    tok = pl.mint_builder_credential(seed, kid)
+    for suite, (agent, kind, rel) in SUITE_ENTITY.items():
+        st, p = c.call("POST", "/v1/registry/proposals", tok, {"agent_id": agent, "origin": "auto_detect", "title": f"[prodlike] {suite}"})
+        pid = p.get("proposal_id")
+        content = yaml.safe_load((src / "tests" / "fixtures" / "registry-e2e" / rel).read_text(encoding="utf-8"))
+        content["version"] = f"1.{int(time.time()) % 100000 + 1}.0"
+        loc = content["locales"]
+        first = next(iter(loc))
+        loc[first] = str(loc[first]).rstrip() + " "
+        draft = {"expected_rev": p.get("rev", 0), "changes": [{"kind": kind, "content": content,
+                 "docs": {"description": "prodlike", "rationale": "suites", "changelog": "whitespace"}}]}
+        d_st, d = c.call("PUT", f"/v1/registry/proposals/{pid}/draft", tok, draft)
+        f_st, cand = c.call("POST", f"/v1/registry/proposals/{pid}/freeze", tok, headers={"Idempotency-Key": "ps-freeze-" + pid})
+        t0 = time.time()
+        st, ev = c.call("POST", f"/v1/registry/proposals/{pid}/evaluate", tok, {"suite_id": suite}, {"Idempotency-Key": f"ps-{suite}-{pid}"})
+        items = ev.get("items") or []
+        by: dict = {}
+        for it in items:
+            k = str(it.get("status") or it.get("verdict") or it.get("passed"))
+            by[k] = by.get(k, 0) + 1
+        runs = ev.get("runs")
+        record(f"evaluate {suite}", "pass" if st == 200 and ev.get("verdict") not in ("failed_infra", None) else "fail",
+               f"draft={d_st} freeze={f_st} http={st} verdict={ev.get('verdict')} items={len(items)} by_status={by} runs={runs} {round(time.time() - t0, 1)}s "
+               f"{str(ev.get('detail') or ev.get('code') or '')[:200]}", verdict=ev.get("verdict"), items=len(items), by_status=by, keys=sorted(ev)[:10])
+
+
 def run_midrun(c: Client, prefix: str) -> None:
     """Restart `serve` while a long turn (copiloto-asesor, several mimo-flash calls) is in flight: once with SIGTERM and the shutdown grace
     (`podman restart`, the in-flight turn should finish), once with SIGKILL (`podman kill`, the turn dies). Then the SAME run must be readable
@@ -284,6 +325,7 @@ def main() -> int:
     ap.add_argument("--prefix", default="prodlike")
     ap.add_argument("--only", default="turns,registry,export,load")
     ap.add_argument("--n", type=int, default=20)
+    ap.add_argument("--agent-core", default=".", help="agent-core checkout (fixtures for the suites section)")
     ap.add_argument("--match", default="", help="turns: only the cases whose name contains this text")
     ap.add_argument("--out", help="write the results as JSON here")
     a = ap.parse_args()
@@ -298,6 +340,8 @@ def main() -> int:
         run_export(c)
     if "load" in todo:
         run_load(c, a.n, "fraud")
+    if "suites" in todo:
+        run_suites(c, Path(a.agent_core))
     if "midrun" in todo:
         run_midrun(c, a.prefix)
     if "loadllm" in todo:

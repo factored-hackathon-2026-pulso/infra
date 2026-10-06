@@ -458,7 +458,9 @@ function New-HostBuildLines($svc, [string]$Bucket, [string]$Registry, [string]$B
         $extra = ''
         if ($hb.CoreContext) { $extra += ' --build-context core="$W/src/' + $hb.CoreContext + '"' }
         foreach ($a in @($BuildArg)) { if ($a) { $extra += ' --build-arg ' + (& $q $a) } }
-        $lines.Add('docker buildx build --pull --load -f "$W/src/' + $df + '"' + $extra + ' -t "$REPO_URI:$TAG" "$W/src/' + $hb.Context + '"')
+        # --no-cache: agent-core's Dockerfile builds its project wheel through a uv cache mount that persists on this host and can hand back a
+        # wheel built from OLDER sources (image labelled with the new SHA, old code; seen 2026-10-05 in the prod-like rehearsal).
+        $lines.Add('docker buildx build --pull --no-cache --load -f "$W/src/' + $df + '"' + $extra + ' -t "$REPO_URI:$TAG" "$W/src/' + $hb.Context + '"')
     }
     $lines.Add('docker push "$REPO_URI:$TAG"')
     $lines.Add('DIGEST=$(aws ecr describe-images --repository-name "$REPO" --image-ids "imageTag=$TAG" --region ' + $script:Region + ' --query ''imageDetails[0].imageDigest'' --output text)')
