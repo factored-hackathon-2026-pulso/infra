@@ -26,6 +26,12 @@ override_resource {
   }
 }
 
+# mock_provider fills computed strings with short random text; the session secret must be long enough to assert its length.
+override_resource {
+  target = random_password.session_secret
+  values = { result = "Ab3dEf6hIj9lMn2pQr5tUv8xYz1BcDeF0gHiJkLm" }
+}
+
 variables {
   name_prefix               = "pulso-hk"
   region                    = "us-east-1"
@@ -68,8 +74,8 @@ run "dsns_are_assembled_from_the_generated_passwords_and_hosts" {
     error_message = "The migrate DSN uses the owner role."
   }
   assert {
-    condition     = startswith(local.wired_secrets["SUPPORT__CC_DATABASE_URL"], "postgresql+asyncpg://platform_app:") && endswith(local.wired_secrets["SUPPORT__CC_DATABASE_URL"], "@core.pulso.internal:5432/platform")
-    error_message = "The platform uses the asyncpg scheme and reaches Postgres as core.<zone>."
+    condition     = startswith(local.wired_secrets["SUPPORT__CC_DATABASE_URL"], "postgresql://platform_app:") && endswith(local.wired_secrets["SUPPORT__CC_DATABASE_URL"], "@core.pulso.internal:5432/platform?sslmode=disable")
+    error_message = "The platform uses the psycopg 3 postgresql:// scheme (docs/secrets-wiring.md; no +asyncpg) and reaches Postgres as core.<zone>."
   }
   assert {
     condition     = startswith(local.wired_secrets["PULSO__PULSO_PG_PRODUCT_DSN"], "postgresql://platform_exporter_ro:") && startswith(local.wired_secrets["PULSO__PULSO_DATABASE_URL"], "postgresql://pulso_master:") && endswith(local.wired_secrets["PULSO__PULSO_DATABASE_URL"], "@core.pulso.internal:5432/pulso?sslmode=disable")
